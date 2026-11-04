@@ -146,9 +146,7 @@ def track_button(spec_id, n, x, y):
 art.append(f'<rect x="0" y="0" width="{W:.2f}" height="{H}" fill="{BG}"/>')
 # Title + subtitle centred as one block. Widths are measured in Rack's fonts (Nunito Bold,
 # drawn 5% larger, and DejaVu Sans), since PanelLabels draws them, not the SVG.
-# NOTE: TITLE_W is an estimate for "Talea" and has not been re-measured since the rename
-# from the old title. Re-measure in Rack and correct it if the title block looks off-centre.
-TITLE_W, SUB_W, TITLE_GAP = 11.10 * 1.05, 23.29, 2.5
+TITLE_W, SUB_W, TITLE_GAP = 9.73 * 1.05, 23.29, 2.5
 title_x = W / 2 - (TITLE_W + TITLE_GAP + SUB_W) / 2
 text(title_x, 6.0, "Talea", size=4.0, color=TEXT, anchor="start", weight="bold")
 text(title_x + TITLE_W + TITLE_GAP, 6.0, "EUCLIDEAN SEQUENCER", size=1.9, color=DIM, anchor="start")

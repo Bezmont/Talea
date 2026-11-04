@@ -82,8 +82,8 @@ constexpr Pos TRACK_SELECT_LIGHT[16] = {{8.30f, 111.90f}, {17.26f, 111.90f}, {26
 
 // align: 0 = left, 1 = centre, 2 = right; y is the text baseline
 constexpr Label kLabels[] = {
-    {81.45f, 6.00f, 4.0f, "Talea", {216, 220, 226}, 0, true},
-    {98.46f, 6.00f, 1.9f, "EUCLIDEAN SEQUENCER", {138, 145, 156}, 0, false},
+    {83.60f, 6.00f, 4.0f, "Talea", {216, 220, 226}, 0, true},
+    {96.31f, 6.00f, 1.9f, "EUCLIDEAN SEQUENCER", {138, 145, 156}, 0, false},
     {5.00f, 10.90f, 2.0f, "TRANSPORT", {240, 138, 36}, 0, true},
     {10.00f, 12.80f, 1.8f, "PLAY", {216, 220, 226}, 1, false},
     {22.00f, 12.80f, 1.8f, "RESET", {216, 220, 226}, 1, false},
