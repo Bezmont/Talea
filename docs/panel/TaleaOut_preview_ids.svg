@@ -1,0 +1,273 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="427" height="771" viewBox="0 0 71.12 128.5">
+<rect x="0" y="0" width="71.12" height="128.5" fill="#23262b"/>
+<text x="35.56" y="6.00" font-family="Helvetica, Arial, sans-serif" font-size="3.4" font-weight="bold" fill="#d8dce2" text-anchor="middle">Talea OUT</text>
+<text x="63.92" y="5.60" font-family="Helvetica, Arial, sans-serif" font-size="1.5" font-weight="normal" fill="#8a919c" text-anchor="end">LINK</text>
+<rect x="3.50" y="9.5" width="31.56" height="116" rx="1" fill="#3a3f47"/>
+<text x="13.40" y="13.20" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#8a919c" text-anchor="middle">PITCH</text>
+<text x="22.10" y="13.20" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#8a919c" text-anchor="middle">GATE</text>
+<text x="30.80" y="13.20" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#8a919c" text-anchor="middle">VEL</text>
+<text x="6.30" y="20.30" font-family="Helvetica, Arial, sans-serif" font-size="2.2" font-weight="bold" fill="#d8dce2" text-anchor="middle">1</text>
+<text x="6.30" y="33.90" font-family="Helvetica, Arial, sans-serif" font-size="2.2" font-weight="bold" fill="#d8dce2" text-anchor="middle">2</text>
+<text x="6.30" y="47.50" font-family="Helvetica, Arial, sans-serif" font-size="2.2" font-weight="bold" fill="#d8dce2" text-anchor="middle">3</text>
+<text x="6.30" y="61.10" font-family="Helvetica, Arial, sans-serif" font-size="2.2" font-weight="bold" fill="#d8dce2" text-anchor="middle">4</text>
+<text x="6.30" y="74.70" font-family="Helvetica, Arial, sans-serif" font-size="2.2" font-weight="bold" fill="#d8dce2" text-anchor="middle">5</text>
+<text x="6.30" y="88.30" font-family="Helvetica, Arial, sans-serif" font-size="2.2" font-weight="bold" fill="#d8dce2" text-anchor="middle">6</text>
+<text x="6.30" y="101.90" font-family="Helvetica, Arial, sans-serif" font-size="2.2" font-weight="bold" fill="#d8dce2" text-anchor="middle">7</text>
+<text x="6.30" y="115.50" font-family="Helvetica, Arial, sans-serif" font-size="2.2" font-weight="bold" fill="#d8dce2" text-anchor="middle">8</text>
+<rect x="36.06" y="9.5" width="31.56" height="116" rx="1" fill="#3a3f47"/>
+<text x="45.96" y="13.20" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#8a919c" text-anchor="middle">PITCH</text>
+<text x="54.66" y="13.20" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#8a919c" text-anchor="middle">GATE</text>
+<text x="63.36" y="13.20" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#8a919c" text-anchor="middle">VEL</text>
+<text x="38.86" y="20.30" font-family="Helvetica, Arial, sans-serif" font-size="2.2" font-weight="bold" fill="#d8dce2" text-anchor="middle">9</text>
+<text x="38.86" y="33.90" font-family="Helvetica, Arial, sans-serif" font-size="2.2" font-weight="bold" fill="#d8dce2" text-anchor="middle">10</text>
+<text x="38.86" y="47.50" font-family="Helvetica, Arial, sans-serif" font-size="2.2" font-weight="bold" fill="#d8dce2" text-anchor="middle">11</text>
+<text x="38.86" y="61.10" font-family="Helvetica, Arial, sans-serif" font-size="2.2" font-weight="bold" fill="#d8dce2" text-anchor="middle">12</text>
+<text x="38.86" y="74.70" font-family="Helvetica, Arial, sans-serif" font-size="2.2" font-weight="bold" fill="#d8dce2" text-anchor="middle">13</text>
+<text x="38.86" y="88.30" font-family="Helvetica, Arial, sans-serif" font-size="2.2" font-weight="bold" fill="#d8dce2" text-anchor="middle">14</text>
+<text x="38.86" y="101.90" font-family="Helvetica, Arial, sans-serif" font-size="2.2" font-weight="bold" fill="#d8dce2" text-anchor="middle">15</text>
+<text x="38.86" y="115.50" font-family="Helvetica, Arial, sans-serif" font-size="2.2" font-weight="bold" fill="#d8dce2" text-anchor="middle">16</text>
+<circle cx="66.12" cy="4.9" r="1.0" fill="#3a2a1a" stroke="#5a616b" stroke-width="0.2"/>
+<circle cx="6.3" cy="23.7" r="1.0" fill="#3a2a1a" stroke="#5a616b" stroke-width="0.2"/>
+<circle cx="13.4" cy="21.5" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="13.4" cy="21.5" r="1.9" fill="#0b0c0e"/>
+<circle cx="22.1" cy="21.5" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="22.1" cy="21.5" r="1.9" fill="#0b0c0e"/>
+<circle cx="30.8" cy="21.5" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="30.8" cy="21.5" r="1.9" fill="#0b0c0e"/>
+<circle cx="6.3" cy="37.300000000000004" r="1.0" fill="#3a2a1a" stroke="#5a616b" stroke-width="0.2"/>
+<circle cx="13.4" cy="35.1" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="13.4" cy="35.1" r="1.9" fill="#0b0c0e"/>
+<circle cx="22.1" cy="35.1" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="22.1" cy="35.1" r="1.9" fill="#0b0c0e"/>
+<circle cx="30.8" cy="35.1" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="30.8" cy="35.1" r="1.9" fill="#0b0c0e"/>
+<circle cx="6.3" cy="50.900000000000006" r="1.0" fill="#3a2a1a" stroke="#5a616b" stroke-width="0.2"/>
+<circle cx="13.4" cy="48.7" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="13.4" cy="48.7" r="1.9" fill="#0b0c0e"/>
+<circle cx="22.1" cy="48.7" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="22.1" cy="48.7" r="1.9" fill="#0b0c0e"/>
+<circle cx="30.8" cy="48.7" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="30.8" cy="48.7" r="1.9" fill="#0b0c0e"/>
+<circle cx="6.3" cy="64.5" r="1.0" fill="#3a2a1a" stroke="#5a616b" stroke-width="0.2"/>
+<circle cx="13.4" cy="62.3" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="13.4" cy="62.3" r="1.9" fill="#0b0c0e"/>
+<circle cx="22.1" cy="62.3" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="22.1" cy="62.3" r="1.9" fill="#0b0c0e"/>
+<circle cx="30.8" cy="62.3" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="30.8" cy="62.3" r="1.9" fill="#0b0c0e"/>
+<circle cx="6.3" cy="78.10000000000001" r="1.0" fill="#3a2a1a" stroke="#5a616b" stroke-width="0.2"/>
+<circle cx="13.4" cy="75.9" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="13.4" cy="75.9" r="1.9" fill="#0b0c0e"/>
+<circle cx="22.1" cy="75.9" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="22.1" cy="75.9" r="1.9" fill="#0b0c0e"/>
+<circle cx="30.8" cy="75.9" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="30.8" cy="75.9" r="1.9" fill="#0b0c0e"/>
+<circle cx="6.3" cy="91.7" r="1.0" fill="#3a2a1a" stroke="#5a616b" stroke-width="0.2"/>
+<circle cx="13.4" cy="89.5" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="13.4" cy="89.5" r="1.9" fill="#0b0c0e"/>
+<circle cx="22.1" cy="89.5" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="22.1" cy="89.5" r="1.9" fill="#0b0c0e"/>
+<circle cx="30.8" cy="89.5" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="30.8" cy="89.5" r="1.9" fill="#0b0c0e"/>
+<circle cx="6.3" cy="105.3" r="1.0" fill="#3a2a1a" stroke="#5a616b" stroke-width="0.2"/>
+<circle cx="13.4" cy="103.1" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="13.4" cy="103.1" r="1.9" fill="#0b0c0e"/>
+<circle cx="22.1" cy="103.1" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="22.1" cy="103.1" r="1.9" fill="#0b0c0e"/>
+<circle cx="30.8" cy="103.1" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="30.8" cy="103.1" r="1.9" fill="#0b0c0e"/>
+<circle cx="6.3" cy="118.9" r="1.0" fill="#3a2a1a" stroke="#5a616b" stroke-width="0.2"/>
+<circle cx="13.4" cy="116.7" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="13.4" cy="116.7" r="1.9" fill="#0b0c0e"/>
+<circle cx="22.1" cy="116.7" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="22.1" cy="116.7" r="1.9" fill="#0b0c0e"/>
+<circle cx="30.8" cy="116.7" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="30.8" cy="116.7" r="1.9" fill="#0b0c0e"/>
+<circle cx="38.86" cy="23.7" r="1.0" fill="#3a2a1a" stroke="#5a616b" stroke-width="0.2"/>
+<circle cx="45.96" cy="21.5" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="45.96" cy="21.5" r="1.9" fill="#0b0c0e"/>
+<circle cx="54.660000000000004" cy="21.5" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="54.660000000000004" cy="21.5" r="1.9" fill="#0b0c0e"/>
+<circle cx="63.36" cy="21.5" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="63.36" cy="21.5" r="1.9" fill="#0b0c0e"/>
+<circle cx="38.86" cy="37.300000000000004" r="1.0" fill="#3a2a1a" stroke="#5a616b" stroke-width="0.2"/>
+<circle cx="45.96" cy="35.1" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="45.96" cy="35.1" r="1.9" fill="#0b0c0e"/>
+<circle cx="54.660000000000004" cy="35.1" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="54.660000000000004" cy="35.1" r="1.9" fill="#0b0c0e"/>
+<circle cx="63.36" cy="35.1" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="63.36" cy="35.1" r="1.9" fill="#0b0c0e"/>
+<circle cx="38.86" cy="50.900000000000006" r="1.0" fill="#3a2a1a" stroke="#5a616b" stroke-width="0.2"/>
+<circle cx="45.96" cy="48.7" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="45.96" cy="48.7" r="1.9" fill="#0b0c0e"/>
+<circle cx="54.660000000000004" cy="48.7" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="54.660000000000004" cy="48.7" r="1.9" fill="#0b0c0e"/>
+<circle cx="63.36" cy="48.7" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="63.36" cy="48.7" r="1.9" fill="#0b0c0e"/>
+<circle cx="38.86" cy="64.5" r="1.0" fill="#3a2a1a" stroke="#5a616b" stroke-width="0.2"/>
+<circle cx="45.96" cy="62.3" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="45.96" cy="62.3" r="1.9" fill="#0b0c0e"/>
+<circle cx="54.660000000000004" cy="62.3" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="54.660000000000004" cy="62.3" r="1.9" fill="#0b0c0e"/>
+<circle cx="63.36" cy="62.3" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="63.36" cy="62.3" r="1.9" fill="#0b0c0e"/>
+<circle cx="38.86" cy="78.10000000000001" r="1.0" fill="#3a2a1a" stroke="#5a616b" stroke-width="0.2"/>
+<circle cx="45.96" cy="75.9" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="45.96" cy="75.9" r="1.9" fill="#0b0c0e"/>
+<circle cx="54.660000000000004" cy="75.9" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="54.660000000000004" cy="75.9" r="1.9" fill="#0b0c0e"/>
+<circle cx="63.36" cy="75.9" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="63.36" cy="75.9" r="1.9" fill="#0b0c0e"/>
+<circle cx="38.86" cy="91.7" r="1.0" fill="#3a2a1a" stroke="#5a616b" stroke-width="0.2"/>
+<circle cx="45.96" cy="89.5" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="45.96" cy="89.5" r="1.9" fill="#0b0c0e"/>
+<circle cx="54.660000000000004" cy="89.5" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="54.660000000000004" cy="89.5" r="1.9" fill="#0b0c0e"/>
+<circle cx="63.36" cy="89.5" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="63.36" cy="89.5" r="1.9" fill="#0b0c0e"/>
+<circle cx="38.86" cy="105.3" r="1.0" fill="#3a2a1a" stroke="#5a616b" stroke-width="0.2"/>
+<circle cx="45.96" cy="103.1" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="45.96" cy="103.1" r="1.9" fill="#0b0c0e"/>
+<circle cx="54.660000000000004" cy="103.1" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="54.660000000000004" cy="103.1" r="1.9" fill="#0b0c0e"/>
+<circle cx="63.36" cy="103.1" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="63.36" cy="103.1" r="1.9" fill="#0b0c0e"/>
+<circle cx="38.86" cy="118.9" r="1.0" fill="#3a2a1a" stroke="#5a616b" stroke-width="0.2"/>
+<circle cx="45.96" cy="116.7" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="45.96" cy="116.7" r="1.9" fill="#0b0c0e"/>
+<circle cx="54.660000000000004" cy="116.7" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="54.660000000000004" cy="116.7" r="1.9" fill="#0b0c0e"/>
+<circle cx="63.36" cy="116.7" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="63.36" cy="116.7" r="1.9" fill="#0b0c0e"/>
+<rect x="62.40" y="3.30" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="66.12" y="5.70" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-L17</text>
+<rect x="2.57" y="22.10" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="6.30" y="24.50" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-L01</text>
+<rect x="9.68" y="19.90" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="13.40" y="22.30" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J01</text>
+<rect x="18.38" y="19.90" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="22.10" y="22.30" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J17</text>
+<rect x="27.07" y="19.90" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="30.80" y="22.30" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J33</text>
+<rect x="2.57" y="35.70" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="6.30" y="38.10" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-L02</text>
+<rect x="9.68" y="33.50" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="13.40" y="35.90" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J02</text>
+<rect x="18.38" y="33.50" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="22.10" y="35.90" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J18</text>
+<rect x="27.07" y="33.50" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="30.80" y="35.90" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J34</text>
+<rect x="2.57" y="49.30" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="6.30" y="51.70" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-L03</text>
+<rect x="9.68" y="47.10" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="13.40" y="49.50" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J03</text>
+<rect x="18.38" y="47.10" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="22.10" y="49.50" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J19</text>
+<rect x="27.07" y="47.10" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="30.80" y="49.50" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J35</text>
+<rect x="2.57" y="62.90" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="6.30" y="65.30" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-L04</text>
+<rect x="9.68" y="60.70" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="13.40" y="63.10" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J04</text>
+<rect x="18.38" y="60.70" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="22.10" y="63.10" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J20</text>
+<rect x="27.07" y="60.70" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="30.80" y="63.10" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J36</text>
+<rect x="2.57" y="76.50" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="6.30" y="78.90" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-L05</text>
+<rect x="9.68" y="74.30" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="13.40" y="76.70" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J05</text>
+<rect x="18.38" y="74.30" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="22.10" y="76.70" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J21</text>
+<rect x="27.07" y="74.30" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="30.80" y="76.70" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J37</text>
+<rect x="2.57" y="90.10" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="6.30" y="92.50" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-L06</text>
+<rect x="9.68" y="87.90" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="13.40" y="90.30" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J06</text>
+<rect x="18.38" y="87.90" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="22.10" y="90.30" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J22</text>
+<rect x="27.07" y="87.90" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="30.80" y="90.30" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J38</text>
+<rect x="2.57" y="103.70" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="6.30" y="106.10" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-L07</text>
+<rect x="9.68" y="101.50" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="13.40" y="103.90" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J07</text>
+<rect x="18.38" y="101.50" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="22.10" y="103.90" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J23</text>
+<rect x="27.07" y="101.50" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="30.80" y="103.90" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J39</text>
+<rect x="2.57" y="117.30" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="6.30" y="119.70" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-L08</text>
+<rect x="9.68" y="115.10" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="13.40" y="117.50" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J08</text>
+<rect x="18.38" y="115.10" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="22.10" y="117.50" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J24</text>
+<rect x="27.07" y="115.10" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="30.80" y="117.50" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J40</text>
+<rect x="35.13" y="22.10" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="38.86" y="24.50" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-L09</text>
+<rect x="42.23" y="19.90" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="45.96" y="22.30" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J09</text>
+<rect x="50.94" y="19.90" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="54.66" y="22.30" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J25</text>
+<rect x="59.63" y="19.90" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="63.36" y="22.30" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J41</text>
+<rect x="35.13" y="35.70" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="38.86" y="38.10" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-L10</text>
+<rect x="42.23" y="33.50" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="45.96" y="35.90" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J10</text>
+<rect x="50.94" y="33.50" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="54.66" y="35.90" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J26</text>
+<rect x="59.63" y="33.50" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="63.36" y="35.90" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J42</text>
+<rect x="35.13" y="49.30" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="38.86" y="51.70" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-L11</text>
+<rect x="42.23" y="47.10" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="45.96" y="49.50" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J11</text>
+<rect x="50.94" y="47.10" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="54.66" y="49.50" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J27</text>
+<rect x="59.63" y="47.10" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="63.36" y="49.50" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J43</text>
+<rect x="35.13" y="62.90" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="38.86" y="65.30" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-L12</text>
+<rect x="42.23" y="60.70" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="45.96" y="63.10" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J12</text>
+<rect x="50.94" y="60.70" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="54.66" y="63.10" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J28</text>
+<rect x="59.63" y="60.70" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="63.36" y="63.10" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J44</text>
+<rect x="35.13" y="76.50" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="38.86" y="78.90" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-L13</text>
+<rect x="42.23" y="74.30" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="45.96" y="76.70" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J13</text>
+<rect x="50.94" y="74.30" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="54.66" y="76.70" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J29</text>
+<rect x="59.63" y="74.30" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="63.36" y="76.70" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J45</text>
+<rect x="35.13" y="90.10" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="38.86" y="92.50" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-L14</text>
+<rect x="42.23" y="87.90" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="45.96" y="90.30" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J14</text>
+<rect x="50.94" y="87.90" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="54.66" y="90.30" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J30</text>
+<rect x="59.63" y="87.90" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="63.36" y="90.30" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J46</text>
+<rect x="35.13" y="103.70" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="38.86" y="106.10" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-L15</text>
+<rect x="42.23" y="101.50" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="45.96" y="103.90" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J15</text>
+<rect x="50.94" y="101.50" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="54.66" y="103.90" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J31</text>
+<rect x="59.63" y="101.50" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="63.36" y="103.90" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J47</text>
+<rect x="35.13" y="117.30" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="38.86" y="119.70" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-L16</text>
+<rect x="42.23" y="115.10" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="45.96" y="117.50" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J16</text>
+<rect x="50.94" y="115.10" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="54.66" y="117.50" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J32</text>
+<rect x="59.63" y="115.10" width="7.45" height="3.2" rx="0.6" fill="#ffe14d" opacity="0.92"/>
+<text x="63.36" y="117.50" font-family="Consolas, monospace" font-size="2.2" font-weight="bold" fill="#111" text-anchor="middle">X-J48</text>
+</svg>

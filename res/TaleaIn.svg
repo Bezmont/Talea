@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="71.12mm" height="128.5mm" viewBox="0 0 71.12 128.5">
+<rect x="0" y="0" width="71.12" height="128.5" fill="#23262b"/>
+<text x="35.56" y="6.00" font-family="Helvetica, Arial, sans-serif" font-size="3.4" font-weight="bold" fill="#d8dce2" text-anchor="middle">Talea IN</text>
+<text x="63.92" y="5.60" font-family="Helvetica, Arial, sans-serif" font-size="1.5" font-weight="normal" fill="#8a919c" text-anchor="end">LINK</text>
+<rect x="3.00" y="8.50" width="65.12" height="79.00" rx="1.2" fill="#2b2f36" stroke="#3d434c" stroke-width="0.3"/>
+<text x="5.00" y="11.40" font-family="Helvetica, Arial, sans-serif" font-size="2.0" font-weight="bold" fill="#f08a24" text-anchor="start">CV → PARAMETER</text>
+<text x="12.10" y="15.50" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">PULSES</text>
+<text x="28.10" y="15.50" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">ROTATE</text>
+<text x="44.10" y="15.50" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">REPEATS</text>
+<text x="60.10" y="15.50" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">RAMP</text>
+<text x="12.10" y="34.00" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">TIME</text>
+<text x="28.10" y="34.00" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">PACE</text>
+<text x="44.10" y="34.00" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">VELOCITY</text>
+<text x="60.10" y="34.00" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">PROB</text>
+<text x="12.10" y="52.50" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">SUSTAIN</text>
+<text x="28.10" y="52.50" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">ACCENT</text>
+<text x="44.10" y="52.50" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">TIMING</text>
+<text x="60.10" y="52.50" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">DELAY</text>
+<text x="12.10" y="71.00" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">PITCH</text>
+<text x="28.10" y="71.00" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">VOICING</text>
+<text x="44.10" y="71.00" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">RANGE</text>
+<text x="60.10" y="76.00" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#8a919c" text-anchor="middle">poly 16:</text>
+<text x="60.10" y="78.40" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#8a919c" text-anchor="middle">ch n =</text>
+<text x="60.10" y="80.80" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#8a919c" text-anchor="middle">track n</text>
+<rect x="3.00" y="89.50" width="65.12" height="36.50" rx="1.2" fill="#2b2f36" stroke="#3d434c" stroke-width="0.3"/>
+<text x="5.00" y="92.40" font-family="Helvetica, Arial, sans-serif" font-size="2.0" font-weight="bold" fill="#f08a24" text-anchor="start">PERFORM</text>
+<text x="12.10" y="96.80" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">XPOSE</text>
+<text x="28.10" y="96.80" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">PHRASE</text>
+<text x="44.10" y="96.80" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">PATTERN</text>
+<text x="60.10" y="96.80" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">TEMP</text>
+<text x="12.10" y="113.30" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">MUTES</text>
+<text x="28.10" y="113.30" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">APPLY</text>
+<text x="44.10" y="113.30" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">REGEN</text>
+<g inkscape:groupmode="layer" id="components" inkscape:label="components" style="display:none">
+<circle id="LINK_LIGHT" cx="66.12" cy="4.90" r="1" fill="#ff00ff"/>
+<circle id="ATTEN_PARAM_0" cx="12.10" cy="19.70" r="1" fill="#ff0000"/>
+<circle id="CV_INPUT_0" cx="12.10" cy="27.70" r="1" fill="#00ff00"/>
+<circle id="ATTEN_PARAM_1" cx="28.10" cy="19.70" r="1" fill="#ff0000"/>
+<circle id="CV_INPUT_1" cx="28.10" cy="27.70" r="1" fill="#00ff00"/>
+<circle id="ATTEN_PARAM_2" cx="44.10" cy="19.70" r="1" fill="#ff0000"/>
+<circle id="CV_INPUT_2" cx="44.10" cy="27.70" r="1" fill="#00ff00"/>
+<circle id="ATTEN_PARAM_3" cx="60.10" cy="19.70" r="1" fill="#ff0000"/>
+<circle id="CV_INPUT_3" cx="60.10" cy="27.70" r="1" fill="#00ff00"/>
+<circle id="ATTEN_PARAM_4" cx="12.10" cy="38.20" r="1" fill="#ff0000"/>
+<circle id="CV_INPUT_4" cx="12.10" cy="46.20" r="1" fill="#00ff00"/>
+<circle id="ATTEN_PARAM_5" cx="28.10" cy="38.20" r="1" fill="#ff0000"/>
+<circle id="CV_INPUT_5" cx="28.10" cy="46.20" r="1" fill="#00ff00"/>
+<circle id="ATTEN_PARAM_6" cx="44.10" cy="38.20" r="1" fill="#ff0000"/>
+<circle id="CV_INPUT_6" cx="44.10" cy="46.20" r="1" fill="#00ff00"/>
+<circle id="ATTEN_PARAM_7" cx="60.10" cy="38.20" r="1" fill="#ff0000"/>
+<circle id="CV_INPUT_7" cx="60.10" cy="46.20" r="1" fill="#00ff00"/>
+<circle id="ATTEN_PARAM_8" cx="12.10" cy="56.70" r="1" fill="#ff0000"/>
+<circle id="CV_INPUT_8" cx="12.10" cy="64.70" r="1" fill="#00ff00"/>
+<circle id="ATTEN_PARAM_9" cx="28.10" cy="56.70" r="1" fill="#ff0000"/>
+<circle id="CV_INPUT_9" cx="28.10" cy="64.70" r="1" fill="#00ff00"/>
+<circle id="ATTEN_PARAM_10" cx="44.10" cy="56.70" r="1" fill="#ff0000"/>
+<circle id="CV_INPUT_10" cx="44.10" cy="64.70" r="1" fill="#00ff00"/>
+<circle id="ATTEN_PARAM_11" cx="60.10" cy="56.70" r="1" fill="#ff0000"/>
+<circle id="CV_INPUT_11" cx="60.10" cy="64.70" r="1" fill="#00ff00"/>
+<circle id="ATTEN_PARAM_12" cx="12.10" cy="75.20" r="1" fill="#ff0000"/>
+<circle id="CV_INPUT_12" cx="12.10" cy="83.20" r="1" fill="#00ff00"/>
+<circle id="ATTEN_PARAM_13" cx="28.10" cy="75.20" r="1" fill="#ff0000"/>
+<circle id="CV_INPUT_13" cx="28.10" cy="83.20" r="1" fill="#00ff00"/>
+<circle id="ATTEN_PARAM_14" cx="44.10" cy="75.20" r="1" fill="#ff0000"/>
+<circle id="CV_INPUT_14" cx="44.10" cy="83.20" r="1" fill="#00ff00"/>
+<circle id="TRANSPOSE_INPUT" cx="12.10" cy="102.00" r="1" fill="#00ff00"/>
+<circle id="PHRASE_INPUT" cx="28.10" cy="102.00" r="1" fill="#00ff00"/>
+<circle id="PATTERN_INPUT" cx="44.10" cy="102.00" r="1" fill="#00ff00"/>
+<circle id="TEMP_INPUT" cx="60.10" cy="102.00" r="1" fill="#00ff00"/>
+<circle id="MUTE_INPUT" cx="12.10" cy="118.50" r="1" fill="#00ff00"/>
+<circle id="MUTE_APPLY_INPUT" cx="28.10" cy="118.50" r="1" fill="#00ff00"/>
+<circle id="REGEN_INPUT" cx="44.10" cy="118.50" r="1" fill="#00ff00"/>
+</g>
+</svg>

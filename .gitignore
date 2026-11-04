@@ -1,0 +1,23 @@
+# Rack plugin build output
+build/
+dist/
+plugin.dll
+plugin.dylib
+plugin.so
+*.o
+*.d
+
+# Test binaries
+tests/bin/
+*.exe
+
+# Python
+__pycache__/
+*.pyc
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="427" height="771" viewBox="0 0 71.12 128.5">
+<rect x="0" y="0" width="71.12" height="128.5" fill="#23262b"/>
+<text x="35.56" y="6.00" font-family="Helvetica, Arial, sans-serif" font-size="3.4" font-weight="bold" fill="#d8dce2" text-anchor="middle">Talea IN</text>
+<text x="63.92" y="5.60" font-family="Helvetica, Arial, sans-serif" font-size="1.5" font-weight="normal" fill="#8a919c" text-anchor="end">LINK</text>
+<rect x="3.00" y="8.50" width="65.12" height="79.00" rx="1.2" fill="#2b2f36" stroke="#3d434c" stroke-width="0.3"/>
+<text x="5.00" y="11.40" font-family="Helvetica, Arial, sans-serif" font-size="2.0" font-weight="bold" fill="#f08a24" text-anchor="start">CV → PARAMETER</text>
+<text x="12.10" y="15.50" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">PULSES</text>
+<text x="28.10" y="15.50" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">ROTATE</text>
+<text x="44.10" y="15.50" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">REPEATS</text>
+<text x="60.10" y="15.50" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">RAMP</text>
+<text x="12.10" y="34.00" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">TIME</text>
+<text x="28.10" y="34.00" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">PACE</text>
+<text x="44.10" y="34.00" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">VELOCITY</text>
+<text x="60.10" y="34.00" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">PROB</text>
+<text x="12.10" y="52.50" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">SUSTAIN</text>
+<text x="28.10" y="52.50" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">ACCENT</text>
+<text x="44.10" y="52.50" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">TIMING</text>
+<text x="60.10" y="52.50" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">DELAY</text>
+<text x="12.10" y="71.00" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">PITCH</text>
+<text x="28.10" y="71.00" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">VOICING</text>
+<text x="44.10" y="71.00" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#d8dce2" text-anchor="middle">RANGE</text>
+<text x="60.10" y="76.00" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#8a919c" text-anchor="middle">poly 16:</text>
+<text x="60.10" y="78.40" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#8a919c" text-anchor="middle">ch n =</text>
+<text x="60.10" y="80.80" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#8a919c" text-anchor="middle">track n</text>
+<rect x="3.00" y="89.50" width="65.12" height="36.50" rx="1.2" fill="#2b2f36" stroke="#3d434c" stroke-width="0.3"/>
+<text x="5.00" y="92.40" font-family="Helvetica, Arial, sans-serif" font-size="2.0" font-weight="bold" fill="#f08a24" text-anchor="start">PERFORM</text>
+<text x="12.10" y="96.80" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">XPOSE</text>
+<text x="28.10" y="96.80" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">PHRASE</text>
+<text x="44.10" y="96.80" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">PATTERN</text>
+<text x="60.10" y="96.80" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">TEMP</text>
+<text x="12.10" y="113.30" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">MUTES</text>
+<text x="28.10" y="113.30" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">APPLY</text>
+<text x="44.10" y="113.30" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">REGEN</text>
+<circle cx="66.12" cy="4.9" r="1.0" fill="#3a2a1a" stroke="#5a616b" stroke-width="0.2"/>
+<circle cx="12.1" cy="19.7" r="3.0" fill="#111316" stroke="#5a616b" stroke-width="0.3"/>
+<line x1="12.1" y1="19.7" x2="12.1" y2="17.5" stroke="#d8dce2" stroke-width="0.5"/>
+<circle cx="12.1" cy="27.7" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="12.1" cy="27.7" r="1.9" fill="#0b0c0e"/>
+<circle cx="28.1" cy="19.7" r="3.0" fill="#111316" stroke="#5a616b" stroke-width="0.3"/>
+<line x1="28.1" y1="19.7" x2="28.1" y2="17.5" stroke="#d8dce2" stroke-width="0.5"/>
+<circle cx="28.1" cy="27.7" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="28.1" cy="27.7" r="1.9" fill="#0b0c0e"/>
+<circle cx="44.1" cy="19.7" r="3.0" fill="#111316" stroke="#5a616b" stroke-width="0.3"/>
+<line x1="44.1" y1="19.7" x2="44.1" y2="17.5" stroke="#d8dce2" stroke-width="0.5"/>
+<circle cx="44.1" cy="27.7" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="44.1" cy="27.7" r="1.9" fill="#0b0c0e"/>
+<circle cx="60.1" cy="19.7" r="3.0" fill="#111316" stroke="#5a616b" stroke-width="0.3"/>
+<line x1="60.1" y1="19.7" x2="60.1" y2="17.5" stroke="#d8dce2" stroke-width="0.5"/>
+<circle cx="60.1" cy="27.7" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="60.1" cy="27.7" r="1.9" fill="#0b0c0e"/>
+<circle cx="12.1" cy="38.2" r="3.0" fill="#111316" stroke="#5a616b" stroke-width="0.3"/>
+<line x1="12.1" y1="38.2" x2="12.1" y2="36.0" stroke="#d8dce2" stroke-width="0.5"/>
+<circle cx="12.1" cy="46.2" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="12.1" cy="46.2" r="1.9" fill="#0b0c0e"/>
+<circle cx="28.1" cy="38.2" r="3.0" fill="#111316" stroke="#5a616b" stroke-width="0.3"/>
+<line x1="28.1" y1="38.2" x2="28.1" y2="36.0" stroke="#d8dce2" stroke-width="0.5"/>
+<circle cx="28.1" cy="46.2" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="28.1" cy="46.2" r="1.9" fill="#0b0c0e"/>
+<circle cx="44.1" cy="38.2" r="3.0" fill="#111316" stroke="#5a616b" stroke-width="0.3"/>
+<line x1="44.1" y1="38.2" x2="44.1" y2="36.0" stroke="#d8dce2" stroke-width="0.5"/>
+<circle cx="44.1" cy="46.2" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="44.1" cy="46.2" r="1.9" fill="#0b0c0e"/>
+<circle cx="60.1" cy="38.2" r="3.0" fill="#111316" stroke="#5a616b" stroke-width="0.3"/>
+<line x1="60.1" y1="38.2" x2="60.1" y2="36.0" stroke="#d8dce2" stroke-width="0.5"/>
+<circle cx="60.1" cy="46.2" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="60.1" cy="46.2" r="1.9" fill="#0b0c0e"/>
+<circle cx="12.1" cy="56.7" r="3.0" fill="#111316" stroke="#5a616b" stroke-width="0.3"/>
+<line x1="12.1" y1="56.7" x2="12.1" y2="54.5" stroke="#d8dce2" stroke-width="0.5"/>
+<circle cx="12.1" cy="64.7" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="12.1" cy="64.7" r="1.9" fill="#0b0c0e"/>
+<circle cx="28.1" cy="56.7" r="3.0" fill="#111316" stroke="#5a616b" stroke-width="0.3"/>
+<line x1="28.1" y1="56.7" x2="28.1" y2="54.5" stroke="#d8dce2" stroke-width="0.5"/>
+<circle cx="28.1" cy="64.7" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="28.1" cy="64.7" r="1.9" fill="#0b0c0e"/>
+<circle cx="44.1" cy="56.7" r="3.0" fill="#111316" stroke="#5a616b" stroke-width="0.3"/>
+<line x1="44.1" y1="56.7" x2="44.1" y2="54.5" stroke="#d8dce2" stroke-width="0.5"/>
+<circle cx="44.1" cy="64.7" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="44.1" cy="64.7" r="1.9" fill="#0b0c0e"/>
+<circle cx="60.1" cy="56.7" r="3.0" fill="#111316" stroke="#5a616b" stroke-width="0.3"/>
+<line x1="60.1" y1="56.7" x2="60.1" y2="54.5" stroke="#d8dce2" stroke-width="0.5"/>
+<circle cx="60.1" cy="64.7" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="60.1" cy="64.7" r="1.9" fill="#0b0c0e"/>
+<circle cx="12.1" cy="75.2" r="3.0" fill="#111316" stroke="#5a616b" stroke-width="0.3"/>
+<line x1="12.1" y1="75.2" x2="12.1" y2="73.0" stroke="#d8dce2" stroke-width="0.5"/>
+<circle cx="12.1" cy="83.2" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="12.1" cy="83.2" r="1.9" fill="#0b0c0e"/>
+<circle cx="28.1" cy="75.2" r="3.0" fill="#111316" stroke="#5a616b" stroke-width="0.3"/>
+<line x1="28.1" y1="75.2" x2="28.1" y2="73.0" stroke="#d8dce2" stroke-width="0.5"/>
+<circle cx="28.1" cy="83.2" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="28.1" cy="83.2" r="1.9" fill="#0b0c0e"/>
+<circle cx="44.1" cy="75.2" r="3.0" fill="#111316" stroke="#5a616b" stroke-width="0.3"/>
+<line x1="44.1" y1="75.2" x2="44.1" y2="73.0" stroke="#d8dce2" stroke-width="0.5"/>
+<circle cx="44.1" cy="83.2" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="44.1" cy="83.2" r="1.9" fill="#0b0c0e"/>
+<circle cx="12.1" cy="102.0" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="12.1" cy="102.0" r="1.9" fill="#0b0c0e"/>
+<circle cx="28.1" cy="102.0" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="28.1" cy="102.0" r="1.9" fill="#0b0c0e"/>
+<circle cx="44.1" cy="102.0" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="44.1" cy="102.0" r="1.9" fill="#0b0c0e"/>
+<circle cx="60.1" cy="102.0" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="60.1" cy="102.0" r="1.9" fill="#0b0c0e"/>
+<circle cx="12.1" cy="118.5" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="12.1" cy="118.5" r="1.9" fill="#0b0c0e"/>
+<circle cx="28.1" cy="118.5" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="28.1" cy="118.5" r="1.9" fill="#0b0c0e"/>
+<circle cx="44.1" cy="118.5" r="4.2" fill="#9aa1ab" stroke="#5a616b" stroke-width="0.3"/>
+<circle cx="44.1" cy="118.5" r="1.9" fill="#0b0c0e"/>
+</svg>

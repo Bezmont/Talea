@@ -1,0 +1,35 @@
+{
+  "slug": "Talea",
+  "name": "Talea",
+  "version": "2.0.0",
+  "license": "GPL-3.0-or-later",
+  "brand": "Jezric",
+  "author": "Bezmont",
+  "authorEmail": "",
+  "authorUrl": "https://github.com/Bezmont",
+  "pluginUrl": "",
+  "manualUrl": "",
+  "sourceUrl": "https://github.com/Bezmont/Talea",
+  "donateUrl": "",
+  "changelogUrl": "",
+  "modules": [
+    {
+      "slug": "Talea",
+      "name": "Talea",
+      "description": "16-track Euclidean / algorithmic sequencer and composition tool",
+      "tags": ["Sequencer", "Polyphonic"]
+    },
+    {
+      "slug": "TaleaOut",
+      "name": "Talea OUT",
+      "description": "Talea expander: per-track poly Pitch / Gate / Velocity outputs with full chords",
+      "tags": ["Expander", "Polyphonic"]
+    },
+    {
+      "slug": "TaleaIn",
+      "name": "Talea IN",
+      "description": "Talea expander: per-track poly CV for every knob parameter, plus transpose, phrase, pattern, temp and mute inputs",
+      "tags": ["Expander", "Polyphonic"]
+    }
+  ]
+}
