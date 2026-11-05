@@ -1398,11 +1398,19 @@ struct Talea : Module {
 		// Knob menu: back to the pool the current run of detents started from. Ask has()
 		// first, so a group member with nothing to restore doesn't give its cycle a pool.
 		if (harmonyRestoreRequest.exchange(false)) {
+			bool restored = false;
 			for (int t = 0; t < kNumTracks; t++) {
 				if (!(group & (1u << t)) || !harmonyUndo.has(t, harmonySlot(t)))
 					continue;
 				Track& target = t == selectedTrack ? tonalTarget() : seq.pattern.tracks[t];
-				harmonyUndo.restore(t, harmonySlot(t), target);
+				restored |= harmonyUndo.restore(t, harmonySlot(t), target);
+			}
+			if (restored) {
+				// The run didn't happen, so the knob goes home. harmonyLast has to move with
+				// it: the next process() reads the knob as a delta against it, and would
+				// otherwise see the jump as that many CCW detents and turn the pool back down.
+				params[HARMONY_PARAM].setValue(0.f);
+				harmonyLast = 0.f;
 			}
 		}
 
