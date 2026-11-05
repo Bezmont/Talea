@@ -195,6 +195,10 @@ struct Talea : Module {
 	std::atomic<int> cycleAction{0};
 	int keysOctave = 2;      // KEYS page: the keyboard starts at C0 + 12 x this (C2 by default)
 	float harmonyLast = 0.f; // Harmony knob position already applied, in detents
+	/** The pool each track had before the current run of Harmony detents, for the knob's
+	*Restore pool*: Harmony can't be undone by turning back. Not saved with the patch. */
+	talea::HarmonyUndo harmonyUndo;
+	std::atomic<bool> harmonyRestoreRequest{false}; // from the Harmony knob's menu (UI thread)
 	double uiClock = 0.0;    // seconds, for blinking lights
 	std::atomic<bool> padCtrl[kNumPads] = {}; // Ctrl held on the latest click of each pad
 	std::atomic<bool> padShift[kNumPads] = {};
@@ -594,6 +598,23 @@ struct Talea : Module {
 	the first edit) in Cycle edit, else the track. */
 	Track& tonalTarget() {
 		return cycleEdit ? cycles().tonalEdit(track(), selectedCycle) : track();
+	}
+
+	/** Which pool of track `t` Harmony edits: the edited cycle's for the selected track in
+	Cycle edit, else the track's own. Only the selected track follows Cycle edit; the rest of
+	a group is edited at track level. */
+	int harmonySlot(int t) const {
+		return t == selectedTrack && cycleEdit ? selectedCycle : -1;
+	}
+
+	/** Whether *Restore pool* has anything to put back for the current group. */
+	bool canRestorePool() {
+		uint16_t group = groupMask();
+		for (int t = 0; t < kNumTracks; t++) {
+			if ((group & (1u << t)) && harmonyUndo.has(t, harmonySlot(t)))
+				return true;
+		}
+		return false;
 	}
 
 	/** Step `pos`'s pool lock as the edited cycle (or the track) plays it, or nullptr. */
@@ -1366,11 +1387,24 @@ struct Talea : Module {
 		for (int t = 0; t < kNumTracks && detents != 0; t++) {
 			if (group & (1u << t)) {
 				Track& target = t == selectedTrack ? tonalTarget() : seq.pattern.tracks[t];
+				harmonyUndo.before(t, harmonySlot(t), target);
 				for (int i = 0; i < std::abs(detents); i++)
 					target.harmony(detents);
+				harmonyUndo.after(t, target);
 			}
 		}
 		harmonyLast += float(detents);
+
+		// Knob menu: back to the pool the current run of detents started from. Ask has()
+		// first, so a group member with nothing to restore doesn't give its cycle a pool.
+		if (harmonyRestoreRequest.exchange(false)) {
+			for (int t = 0; t < kNumTracks; t++) {
+				if (!(group & (1u << t)) || !harmonyUndo.has(t, harmonySlot(t)))
+					continue;
+				Track& target = t == selectedTrack ? tonalTarget() : seq.pattern.tracks[t];
+				harmonyUndo.restore(t, harmonySlot(t), target);
+			}
+		}
 
 		if (randomLockRequest.exchange(false)) {
 			if (random().locked)
@@ -3874,6 +3908,26 @@ struct TrackKnob : RoundSmallBlackKnob {
 	}
 };
 
+/** Harmony knob: endless, and one-way, so turning back doesn't undo it (CW moves the lowest
+pool note, CCW the highest). Its menu offers the pool the current run of detents started
+from. */
+struct HarmonyKnob : EndlessKnob {
+	void appendContextMenu(Menu* menu) override {
+		Talea* m = dynamic_cast<Talea*>(module);
+		if (!m)
+			return;
+		menu->addChild(new MenuSeparator);
+		menu->addChild(createMenuItem("Restore pool", "before Harmony",
+			[=]() {
+				// Knob menus are Rack's own param history, which this isn't: see
+				// TaleaWidget::onButton, where a press on a knob cancels the module's undo.
+				m->undoBegin();
+				m->harmonyRestoreRequest = true;
+			},
+			!m->canRestorePool()));
+	}
+};
+
 /** Temp button: notes Ctrl on click (keep changes); right-click offers keep / discard. */
 struct TempButton : VCVLightBezel<OrangeLight> {
 	void onButton(const ButtonEvent& e) override {
@@ -3997,7 +4051,7 @@ struct TaleaWidget : ModuleWidget {
 		};
 		for (const KnobPos& k : knobs)
 			addParam(createParamCentered<TrackKnob>(mm(k.pos), module, k.id));
-		addParam(createParamCentered<EndlessKnob>(mm(L::HARMONY_PARAM), module, M::HARMONY_PARAM));
+		addParam(createParamCentered<HarmonyKnob>(mm(L::HARMONY_PARAM), module, M::HARMONY_PARAM));
 
 		// Pad modes and edit actions
 		const L::Pos modePos[kNumModes] = {{}, L::MODE_STEP_PARAM, L::MODE_CYCLE_PARAM,

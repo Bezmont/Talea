@@ -793,4 +793,36 @@ bool operator==(const Pattern& a, const Pattern& b) {
 	return true;
 }
 
+void HarmonyUndo::before(int track, int slot, const Track& t) {
+	if (track < 0 || track >= kNumTracks)
+		return;
+	PoolLock now;
+	now.set(t.pool, t.poolSize);
+	// A new run whenever this isn't where Harmony left off: another edit moved the pool, the
+	// target changed, or nothing is held yet.
+	if (!held[track] || slotOf[track] != slot || !(now == last[track])) {
+		base[track] = now;
+		slotOf[track] = slot;
+		held[track] = true;
+	}
+}
+
+void HarmonyUndo::after(int track, const Track& t) {
+	if (track < 0 || track >= kNumTracks)
+		return;
+	last[track].set(t.pool, t.poolSize);
+}
+
+bool HarmonyUndo::has(int track, int slot) const {
+	return track >= 0 && track < kNumTracks && held[track] && slotOf[track] == slot && base[track].size > 0;
+}
+
+bool HarmonyUndo::restore(int track, int slot, Track& t) {
+	if (!has(track, slot))
+		return false;
+	base[track].apply(t);
+	held[track] = false;
+	return true;
+}
+
 } // namespace talea

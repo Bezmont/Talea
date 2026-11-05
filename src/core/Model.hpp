@@ -425,4 +425,36 @@ inline bool operator!=(const Pattern& a, const Pattern& b) {
 	return !(a == b);
 }
 
+/** Each track's note pool as it stood before the current run of Harmony edits, so the knob's
+menu can put it back.
+
+Harmony is one-way: a CW detent moves the lowest pool note up, a CCW detent the highest down,
+so turning back lands on a different pool than it started from, and alternating directions
+contracts the pool towards a cluster. This remembers the way back.
+
+A run continues while Harmony is the only thing changing the pool. If anything else edits it,
+or the edit target changes (a track's own pool vs. a cycle's), the next detent starts a new
+run from the pool as it then stands, so no other edit has to notify this.
+
+Session state, held by the module and not saved with the patch: it is the knob's way back
+during an edit, not part of the pattern. */
+struct HarmonyUndo {
+	/** Call before applying detents to `t`, the pool of `track` in `slot` (-1 = the track's
+	own pool, >= 0 = that cycle's). Starts a new run when the pool or the slot moved on. */
+	void before(int track, int slot, const Track& t);
+	/** Call after applying them, so the next detent is recognised as the same run. */
+	void after(int track, const Track& t);
+	/** Whether `slot` of `track` has a pool to go back to. No side effects, so a caller can
+	ask before resolving a cycle's own pool, which would otherwise create one. */
+	bool has(int track, int slot) const;
+	/** Puts the pool back and ends the run; false if there was nothing to restore. */
+	bool restore(int track, int slot, Track& t);
+
+private:
+	PoolLock base[kNumTracks]; // the pool the run started from
+	PoolLock last[kNumTracks]; // the pool as Harmony left it
+	int slotOf[kNumTracks] = {};
+	bool held[kNumTracks] = {};
+};
+
 } // namespace talea
