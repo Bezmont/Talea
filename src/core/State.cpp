@@ -28,6 +28,34 @@ bool readPool(const json& j, int& step, int* notes, int& n) {
 	return n > 0;
 }
 
+/** A drawn phrase as one level per column. Saved as a list rather than the packed 64 bits,
+which the top column's level can push past a signed 64-bit JSON integer. */
+std::vector<int> phraseColumns(PhraseGrid g) {
+	std::vector<int> out;
+	out.reserve(kPhraseColumns);
+	for (int c = 0; c < kPhraseColumns; c++)
+		out.push_back(phraseLevel(g, c));
+	return out;
+}
+
+/** Reads one back; missing or malformed leaves `g` alone, so an older patch keeps the
+default shape. */
+void readPhraseColumns(const json& parent, const char* key, PhraseGrid& g) {
+	auto it = parent.find(key);
+	if (it == parent.end() || !it->is_array())
+		return;
+	PhraseGrid built = 0;
+	int c = 0;
+	for (const json& v : *it) {
+		if (c >= kPhraseColumns)
+			break;
+		if (v.is_number_integer())
+			built = setPhraseLevel(built, c, v.get<int>());
+		c++;
+	}
+	g = built;
+}
+
 } // namespace
 
 std::string patternToJson(const Pattern& pattern) {
@@ -54,6 +82,7 @@ std::string patternToJson(const Pattern& pattern) {
 		jt["voicingDown"] = t.voicingDown;
 		jt["phrase"] = t.phrase;
 		jt["phraseLength"] = t.phraseLength;
+		jt["userPhrase"] = phraseColumns(t.userPhrase);
 		jt["muted"] = t.muted;
 		// Cycles: the count, and only the slots that differ from the track.
 		const TrackCycles& cyc = pattern.cycles[i];
@@ -83,7 +112,9 @@ std::string patternToJson(const Pattern& pattern) {
 			if (o.ownTonal) {
 				const Track& tn = o.tonal;
 				slot["tonal"] = {{"scale", tn.scale}, {"root", tn.root}, {"userScale", tn.userScale},
-				                 {"pool", std::vector<int>(tn.pool, tn.pool + tn.poolSize)}};
+				                 {"pool", std::vector<int>(tn.pool, tn.pool + tn.poolSize)},
+				                 {"phrase", tn.phrase}, {"phraseLength", tn.phraseLength},
+				                 {"userPhrase", phraseColumns(tn.userPhrase)}};
 			}
 			if (o.locks.count) {
 				json locks = json::array();
@@ -209,6 +240,7 @@ bool patternFromJson(const std::string& text, Pattern& pattern) {
 		readIndex("style", t.style, kNumStyles);
 		readIndex("phrase", t.phrase, kNumPhrases);
 		readIndex("phraseLength", t.phraseLength, countOf(kGrooveBars));
+		readPhraseColumns(jt, "userPhrase", t.userPhrase);
 		readIndex("ccNumber", t.ccNumber, kNumCcNumbers);
 		auto cc = jt.find("cc");
 		if (cc != jt.end() && cc->is_boolean())
@@ -257,6 +289,9 @@ bool patternFromJson(const std::string& text, Pattern& pattern) {
 						};
 						get("scale", tn.scale, kNumScales);
 						get("root", tn.root, 12);
+						get("phrase", tn.phrase, kNumPhrases);
+						get("phraseLength", tn.phraseLength, countOf(kGrooveBars));
+						readPhraseColumns(*tonal, "userPhrase", tn.userPhrase);
 						auto us = tonal->find("userScale");
 						if (us != tonal->end() && us->is_number_unsigned())
 							tn.userScale = ScaleMask(us->get<unsigned>() & 0xFFF);

@@ -285,6 +285,22 @@ struct Talea : Module {
 		laneEditPending = true;
 	}
 
+	/** PHRASE page, User shape: the whole drawn grid, published by the display as it is
+	dragged. The display is its only writer, so it can read the current grid, change one
+	column and send the result. */
+	std::atomic<uint64_t> phraseGridRequest{0};
+	std::atomic<bool> phraseGridPending{false};
+
+	void requestPhraseGrid(talea::PhraseGrid g) {
+		phraseGridRequest = g;
+		phraseGridPending = true;
+	}
+
+	void applyPhraseGrid() {
+		if (phraseGridPending.exchange(false))
+			tonalTarget().userPhrase = talea::PhraseGrid(phraseGridRequest.load());
+	}
+
 	void applyLaneEdits() {
 		if (!laneEditPending.exchange(false))
 			return;
@@ -1353,6 +1369,7 @@ struct Talea : Module {
 		applyPatternAction();
 		applySongAction();
 		applyLaneEdits();
+		applyPhraseGrid();
 		// Knobs edit the selected track.
 		for (int tp = 0; tp < kNumTrackParams; tp++) {
 			// Only a moved knob writes: in Cycle edit it overrides that parameter in the
@@ -2205,12 +2222,14 @@ struct ContextDisplay : widget::OpaqueWidget {
 	back to the cycle on a click). */
 	Track tonalScratch;
 
-	bool cycleScale() {
-		return module && module->cycleEdit && page == kScalePage && !muteView();
+	/** In Cycle edit, the tonal pages edit the cycle's own copy, so their rows run against a
+	scratch track that the click then commits with setTonal(). */
+	bool cycleTonal() {
+		return module && module->cycleEdit && (page == kScalePage || page == kPhrasePage) && !muteView();
 	}
 
 	Track& rowsTrack() {
-		if (cycleScale()) {
+		if (cycleTonal()) {
 			tonalScratch = module->viewTrack();
 			return tonalScratch;
 		}
@@ -2611,7 +2630,7 @@ struct ContextDisplay : widget::OpaqueWidget {
 				break;
 			}
 			case kPhrasePage: {
-				const char* names[kNumPhrases] = {"CAD 1", "CAD 2", "CAD 3", "CAD 4", "SAW", "TRI", "SINE", "PULSE", "CV"};
+				const char* names[kNumPhrases] = {"CAD 1", "CAD 2", "CAD 3", "CAD 4", "SAW", "TRI", "SINE", "PULSE", "CV", "USER"};
 				rows.push_back(choice("PHRASE", kNumPhrases, [=](int i) { return std::string(names[i]); }, &tr.phrase, kRowsEndSide));
 				rows.push_back(choice("BARS", countOf(kGrooveBars), [](int i) { return std::to_string(kGrooveBars[i]); }, &tr.phraseLength, kRowsEndSide));
 				break;
@@ -2673,6 +2692,15 @@ struct ContextDisplay : widget::OpaqueWidget {
 				return;
 			}
 		}
+		// PHRASE page, User shape: click / drag draws the grid. It sits right of the rows, so
+		// it can't swallow a click meant for them.
+		if (module && page == kPhrasePage && !muteView() && !pitchUnused() && e.button == GLFW_MOUSE_BUTTON_LEFT
+		    && rowsTrack().phrase == PHRASE_USER && editPhraseGrid(e.pos)) {
+			phraseDrag = true;
+			dragPos = e.pos;
+			e.consume(this);
+			return;
+		}
 		if (e.button != GLFW_MOUSE_BUTTON_LEFT)
 			return;
 		if (e.pos.y < mm2px(4.5f)) {
@@ -2684,7 +2712,7 @@ struct ContextDisplay : widget::OpaqueWidget {
 		}
 		if (!module)
 			return;
-		bool scratch = cycleScale();
+		bool scratch = cycleTonal();
 		if (page == kKeysPage && !muteView()) {
 			for (int dir : {-1, 1}) {
 				if (octaveArrow(dir).contains(e.pos))
@@ -3012,15 +3040,73 @@ struct ContextDisplay : widget::OpaqueWidget {
 	}
 
 	/** PHRASE: the notes Range x Phrase produces over one phrase (first pool note). */
+	/** The User shape's grid in the diagram band: a column per step of the phrase, the top row
+	the full Range. */
+	math::Rect phraseGridRect() {
+		float x0 = mm2px(kDiagramX), x1 = box.size.x - mm2px(3.f), top = mm2px(15.f), bottom = mm2px(32.5f);
+		return math::Rect(math::Vec(x0, top), math::Vec(x1 - x0, bottom - top));
+	}
+
+	/** Sets the column under `pos` to the level under it; false if `pos` isn't in the grid. */
+	bool editPhraseGrid(math::Vec pos) {
+		if (!module)
+			return false;
+		math::Rect r = phraseGridRect();
+		if (!r.contains(pos))
+			return false;
+		int col = clamp(int((pos.x - r.pos.x) / r.size.x * kPhraseColumns), 0, kPhraseColumns - 1);
+		// Row 0 is drawn at the bottom (the pool), the top row is full Range.
+		int level = clamp(kPhraseLevels - 1 - int((pos.y - r.pos.y) / r.size.y * kPhraseLevels), 0, kPhraseLevels - 1);
+		module->requestPhraseGrid(setPhraseLevel(rowsTrack().userPhrase, col, level));
+		return true;
+	}
+
+	void drawPhraseGrid(NVGcontext* vg, const Track& tr, double beat) {
+		math::Rect r = phraseGridRect();
+		float cw = r.size.x / kPhraseColumns, ch = r.size.y / kPhraseLevels;
+		int playCol = -1;
+		double span = 4.0 * kGrooveBars[tr.phraseLength];
+		if (span > 0.0) {
+			double phase = beat / span;
+			playCol = clamp(int((phase - std::floor(phase)) * kPhraseColumns), 0, kPhraseColumns - 1);
+		}
+		for (int c = 0; c < kPhraseColumns; c++) {
+			int level = phraseLevel(tr.userPhrase, c);
+			for (int l = 0; l < kPhraseLevels; l++) {
+				bool on = l == level;
+				if (!on && l > level)
+					continue; // only the set cell and the column under it are drawn
+				math::Rect cell(math::Vec(r.pos.x + c * cw + 0.5f, r.pos.y + (kPhraseLevels - 1 - l) * ch + 0.5f),
+				                math::Vec(cw - 1.f, ch - 1.f));
+				nvgBeginPath(vg);
+				nvgRect(vg, cell.pos.x, cell.pos.y, cell.size.x, cell.size.y);
+				if (on)
+					nvgFillColor(vg, c == playCol ? nvgRGB(0xff, 0xc0, 0x70) : nvgRGB(0xf0, 0x8a, 0x24));
+				else
+					nvgFillColor(vg, nvgRGBA(0xf0, 0x8a, 0x24, 0x30)); // the stem below it
+				nvgFill(vg);
+			}
+		}
+		// The grid's floor, so an all-zero shape still reads as a row of cells.
+		line(vg, r.pos.x, r.pos.y + r.size.y, r.pos.x + r.size.x, r.pos.y + r.size.y, dim);
+	}
+
 	void drawPhrase(NVGcontext* vg, const Track& tr, double beat, double cv, int transpose) {
 		double span = 4.0 * kGrooveBars[tr.phraseLength];
 		float x0 = mm2px(kDiagramX), x1 = box.size.x - mm2px(3.f), top = mm2px(15.f), bottom = mm2px(32.5f);
+		int bars = kGrooveBars[tr.phraseLength];
+		if (tr.phrase == PHRASE_USER) {
+			drawPhraseGrid(vg, tr, beat);
+			// The note the shape is reaching for right now, since the grid shows levels.
+			int note = tr.noteFor(0, beat, cv, transpose);
+			cornerLabel(vg, string::f("%d BAR%s   %s%d", bars, bars == 1 ? "" : "S", kNoteNames[note % 12], note / 12 - 1));
+			return;
+		}
 		std::vector<int> notes;
 		for (int i = 0; i < 64; i++)
 			notes.push_back(tr.noteFor(0, span * i / 64, cv, transpose));
 		drawNotes(vg, notes, x0, x1, top, bottom, false);
 		playhead(vg, beat, span, x0, x1, top, bottom);
-		int bars = kGrooveBars[tr.phraseLength];
 		cornerLabel(vg, string::f("%d BAR%s", bars, bars == 1 ? "" : "S"));
 	}
 
@@ -3519,7 +3605,8 @@ struct ContextDisplay : widget::OpaqueWidget {
 	// right-click removes one.
 
 	static constexpr int kMaxLanes = 6;
-	int laneDrag = -1; // lane being drawn in
+	bool phraseDrag = false; // drawing in the PHRASE page's User grid
+	int laneDrag = -1;       // lane being drawn in
 	Vec dragPos;
 
 	/** Parameters locked anywhere on the edit target (the track, plus the edited cycle's
@@ -3664,7 +3751,14 @@ struct ContextDisplay : widget::OpaqueWidget {
 	}
 
 	void onDragMove(const DragMoveEvent& e) override {
-		if (laneDrag < 0 || !module)
+		if (!module)
+			return;
+		if (phraseDrag) {
+			dragPos = dragPos.plus(e.mouseDelta.div(getAbsoluteZoom()));
+			editPhraseGrid(dragPos);
+			return;
+		}
+		if (laneDrag < 0)
 			return;
 		dragPos = dragPos.plus(e.mouseDelta.div(getAbsoluteZoom()));
 		editLane(dragPos, false, laneDrag);
@@ -3672,6 +3766,7 @@ struct ContextDisplay : widget::OpaqueWidget {
 
 	void onDragEnd(const DragEndEvent& e) override {
 		laneDrag = -1;
+		phraseDrag = false;
 	}
 
 	void draw(const DrawArgs& args) override {
@@ -3796,7 +3891,7 @@ struct ContextDisplay : widget::OpaqueWidget {
 				if (page == kKeysPage)
 					drawKeys(vg, tr);
 				else
-					drawScaleKeys(vg, module && cycleScale() ? rowsTrack() : tr);
+					drawScaleKeys(vg, module && cycleTonal() ? rowsTrack() : tr);
 				nvgGlobalAlpha(vg, 1.f);
 				break;
 			case kSetupPage: break;

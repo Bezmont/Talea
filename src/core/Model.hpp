@@ -64,6 +64,9 @@ struct Track {
 	/** PHRASE page: Phrase shape, index into kGrooveBars. */
 	int phrase = PHRASE_CADENCE_1;
 	int phraseLength = kDefaultGrooveLength;
+	/** The drawn shape behind PHRASE_USER (unused by the other shapes, but kept so switching
+	away and back doesn't lose it). */
+	PhraseGrid userPhrase = kDefaultPhraseGrid;
 	/** A muted track starts no new notes (MUTE mode). */
 	bool muted = false;
 	/** Track type (SETUP page): a CC track plays values instead of notes. Each pulse's

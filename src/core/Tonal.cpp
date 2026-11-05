@@ -88,7 +88,20 @@ constexpr double kPi = 3.14159265358979323846;
 
 } // namespace
 
-double phraseValue(int phrase, double phase, double cv) {
+int phraseLevel(PhraseGrid g, int col) {
+	if (col < 0 || col >= kPhraseColumns)
+		return 0;
+	return std::clamp(int((g >> (4 * col)) & 0xF), 0, kPhraseLevels - 1);
+}
+
+PhraseGrid setPhraseLevel(PhraseGrid g, int col, int level) {
+	if (col < 0 || col >= kPhraseColumns)
+		return g;
+	PhraseGrid v = PhraseGrid(std::clamp(level, 0, kPhraseLevels - 1));
+	return (g & ~(PhraseGrid(0xF) << (4 * col))) | (v << (4 * col));
+}
+
+double phraseValue(int phrase, double phase, double cv, PhraseGrid user) {
 	phase = phase - std::floor(phase);
 	switch (phrase) {
 		case PHRASE_CADENCE_1:
@@ -99,7 +112,12 @@ double phraseValue(int phrase, double phase, double cv) {
 		case PHRASE_TRIANGLE: return phase < 0.5 ? 2.0 * phase : 2.0 - 2.0 * phase;
 		case PHRASE_SINE: return 0.5 - 0.5 * std::cos(2.0 * kPi * phase); // starts at the pool
 		case PHRASE_PULSE: return phase < 0.5 ? 0.0 : 1.0;
-		default: return std::clamp((cv + 5.0) / 10.0, 0.0, 1.0);
+		case PHRASE_USER: {
+			int col = std::clamp(int(phase * kPhraseColumns), 0, kPhraseColumns - 1);
+			return phraseLevel(user, col) / double(kPhraseLevels - 1);
+		}
+		case PHRASE_CV: return std::clamp((cv + 5.0) / 10.0, 0.0, 1.0);
+		default: return 0.0;
 	}
 }
 

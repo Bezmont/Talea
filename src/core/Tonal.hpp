@@ -73,12 +73,40 @@ int stylePosition(int style, long ordinal, int amount);
 note up an octave (up) or the highest down an octave (down). Keeps it sorted. */
 void voice(int* notes, int count, int position, bool up);
 
-/** Pitch contour followed by Range. */
-enum Phrase { PHRASE_CADENCE_1, PHRASE_CADENCE_2, PHRASE_CADENCE_3, PHRASE_CADENCE_4, PHRASE_SAW, PHRASE_TRIANGLE, PHRASE_SINE, PHRASE_PULSE, PHRASE_CV, kNumPhrases };
-inline constexpr const char* kPhraseNames[kNumPhrases] = {"Cadence 1", "Cadence 2", "Cadence 3", "Cadence 4", "Saw", "Triangle", "Sine", "Pulse", "CV input"};
+/** Pitch contour followed by Range. New shapes go on the end: `phrase` is saved as an index,
+so inserting one would move every saved patch's selection. */
+enum Phrase { PHRASE_CADENCE_1, PHRASE_CADENCE_2, PHRASE_CADENCE_3, PHRASE_CADENCE_4, PHRASE_SAW, PHRASE_TRIANGLE, PHRASE_SINE, PHRASE_PULSE, PHRASE_CV, PHRASE_USER, kNumPhrases };
+inline constexpr const char* kPhraseNames[kNumPhrases] = {"Cadence 1", "Cadence 2", "Cadence 3", "Cadence 4", "Saw", "Triangle", "Sine", "Pulse", "CV input", "User"};
+
+/** A drawn phrase (PHRASE_USER): `kPhraseColumns` equal columns across the phrase, each
+holding a level 0..kPhraseLevels-1, packed four bits per column with column 0 lowest.
+
+Like every other shape it is a contour, not pitches: level 0 is the pool and the top level is
+full Range, so Range still decides how far it reaches and the result is snapped to the scale
+with everything else. Cadence 1-4 are the same idea at eight columns and five levels. */
+using PhraseGrid = uint64_t;
+constexpr int kPhraseColumns = 16;
+constexpr int kPhraseLevels = 12;
+
+/** Column `col`'s level (0 outside the grid). */
+int phraseLevel(PhraseGrid g, int col);
+/** `g` with column `col` set to `level`, both clamped. */
+PhraseGrid setPhraseLevel(PhraseGrid g, int col, int level);
+
+/** A rising ramp, so User starts as a shape rather than a flat line. */
+constexpr PhraseGrid defaultPhraseGrid() {
+	PhraseGrid g = 0;
+	for (int i = 0; i < kPhraseColumns; i++) {
+		// Rounded i / (columns - 1) scaled to the top level.
+		PhraseGrid level = PhraseGrid((i * (kPhraseLevels - 1) + (kPhraseColumns - 1) / 2) / (kPhraseColumns - 1));
+		g |= level << (4 * i);
+	}
+	return g;
+}
+constexpr PhraseGrid kDefaultPhraseGrid = defaultPhraseGrid();
 
 /** Phrase shape (0..1) at `phase` (0..1) through the phrase; `cv` (volts, +-5) feeds
-PHRASE_CV. */
-double phraseValue(int phrase, double phase, double cv);
+PHRASE_CV and `user` feeds PHRASE_USER. */
+double phraseValue(int phrase, double phase, double cv, PhraseGrid user);
 
 } // namespace talea

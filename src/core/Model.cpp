@@ -25,6 +25,7 @@ void Track::reset() {
 	voicingDown = false;
 	phrase = PHRASE_CADENCE_1;
 	phraseLength = kDefaultGrooveLength;
+	userPhrase = kDefaultPhraseGrid;
 	muted = false;
 	cc = false;
 	ccNumber = kDefaultCc;
@@ -254,7 +255,7 @@ int Track::chordFor(long ordinal, double time, int* out, double phraseCv, int tr
 		n = count;
 	}
 	double span = 4.0 * kGrooveBars[std::clamp(phraseLength, 0, countOf(kGrooveBars) - 1)];
-	int shift = int(std::lround(getInt(TP_RANGE) * phraseValue(phrase, time / span, phraseCv))) + transpose;
+	int shift = int(std::lround(getInt(TP_RANGE) * phraseValue(phrase, time / span, phraseCv, userPhrase))) + transpose;
 	for (int i = 0; i < n; i++)
 		out[i] = std::clamp(quantize(out[i] + shift, scaleMask(), root), 0, 127);
 	std::sort(out, out + n);
@@ -299,6 +300,9 @@ void copyTonal(Track& to, const Track& from) {
 	to.userScale = from.userScale;
 	std::copy(from.pool, from.pool + kMaxPool, to.pool);
 	to.poolSize = from.poolSize;
+	to.phrase = from.phrase;
+	to.phraseLength = from.phraseLength;
+	to.userPhrase = from.userPhrase;
 }
 
 } // namespace
@@ -510,7 +514,8 @@ bool sameTrack(const Track& a, const Track& b) {
 	       && a.groove == b.groove && a.grooveLength == b.grooveLength && a.swingSubdivision == b.swingSubdivision
 	       && a.scale == b.scale && a.root == b.root && a.userScale == b.userScale && a.style == b.style
 	       && a.mono == b.mono && a.voicingDown == b.voicingDown && a.phrase == b.phrase
-	       && a.phraseLength == b.phraseLength && a.muted == b.muted && a.cc == b.cc && a.ccNumber == b.ccNumber;
+	       && a.phraseLength == b.phraseLength && a.userPhrase == b.userPhrase && a.muted == b.muted && a.cc == b.cc
+	       && a.ccNumber == b.ccNumber;
 }
 
 bool sameCycle(const CycleOverrides& a, const CycleOverrides& b) {
@@ -528,7 +533,8 @@ bool sameCycle(const CycleOverrides& a, const CycleOverrides& b) {
 	if (a.ownTonal) {
 		const Track &x = a.tonal, &y = b.tonal;
 		if (x.scale != y.scale || x.root != y.root || x.userScale != y.userScale || x.poolSize != y.poolSize
-		    || !std::equal(x.pool, x.pool + x.poolSize, y.pool))
+		    || !std::equal(x.pool, x.pool + x.poolSize, y.pool) || x.phrase != y.phrase
+		    || x.phraseLength != y.phraseLength || x.userPhrase != y.userPhrase)
 			return false;
 	}
 	if (a.locks.count != b.locks.count || a.locks.poolCount != b.locks.poolCount)
