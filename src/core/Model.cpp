@@ -15,6 +15,7 @@ void Track::reset() {
 	groove = GROOVE_AGOGO;
 	grooveLength = kDefaultGrooveLength;
 	swingSubdivision = 0;
+	grooveLoop = false;
 	pool[0] = kBaseNote;
 	poolSize = 1;
 	scale = 0;
@@ -25,10 +26,12 @@ void Track::reset() {
 	voicingDown = false;
 	phrase = PHRASE_CADENCE_1;
 	phraseLength = kDefaultGrooveLength;
+	phraseLoop = false;
 	userPhrase = kDefaultPhraseGrid;
 	muted = false;
 	cc = false;
 	ccNumber = kDefaultCc;
+	seqMode = false;
 }
 
 float clampParam(TrackParam p, float v) {
@@ -52,12 +55,12 @@ int Track::pulses() const {
 StepMask Track::hits() const {
 	int n = steps();
 	StepMask generated = euclid(n, pulses()) & ~removedHits;
-	return rotate(generated | (manualHits & fullMask(n)), n, getInt(TP_ROTATE));
+	return rotate(generated | (manualHits & fullMask(n)), n, rotation());
 }
 
 int Track::unrotated(int step) const {
 	int n = steps();
-	return ((step - getInt(TP_ROTATE)) % n + n) % n;
+	return ((step - rotation()) % n + n) % n;
 }
 
 void Track::toggleStep(int step) {
@@ -132,13 +135,24 @@ constexpr double kPi = 3.14159265358979323846;
 
 } // namespace
 
-double Track::grooveValue(double time) const {
+double Track::loopPosition(double time, double loops) const {
+	double pos = loops >= 0.0 ? loops : std::max(time, 0.0) / loopQuarters();
+	// A position is a ratio (a 1/16 step of a 3.5-quarter loop is 1/14 of it), so a note on
+	// the grid can come out a hair before its step and read the previous 1/16 of a shape.
+	return pos + 1e-9;
+}
+
+double Track::grooveValue(double time, double loops) const {
+	int length = kGrooveBars[std::clamp(grooveLength, 0, countOf(kGrooveBars) - 1)];
+	double pos = grooveLoop ? loopPosition(time, loops) : 0.0;
 	if (groove < GROOVE_SAW) {
-		double inBar = time / 4.0 - std::floor(time / 4.0);
+		// One-bar patterns: synced, the bars count from the start of each loop.
+		double t = grooveLoop ? (pos - std::floor(pos)) * loopQuarters() : time;
+		double inBar = t / 4.0 - std::floor(t / 4.0);
 		return kPercussionGrooves[groove][std::clamp(int(inBar * 16.0), 0, 15)];
 	}
-	double span = 4.0 * kGrooveBars[std::clamp(grooveLength, 0, countOf(kGrooveBars) - 1)];
-	double phase = time / span - std::floor(time / span);
+	double cycles = grooveLoop ? pos / length : time / (4.0 * length);
+	double phase = cycles - std::floor(cycles);
 	switch (groove) {
 		case GROOVE_SAW: return 2.0 * phase - 1.0;
 		case GROOVE_TRIANGLE: return phase < 0.5 ? 4.0 * phase - 1.0 : 3.0 - 4.0 * phase;
@@ -147,11 +161,11 @@ double Track::grooveValue(double time) const {
 	}
 }
 
-int Track::accented(int velocity, double time) const {
+int Track::accented(int velocity, double time, double loops) const {
 	double amount = get(TP_ACCENT) / 100.0;
 	if (amount <= 0.0)
 		return velocity;
-	return std::clamp(int(std::lround(velocity + amount * kAccentDepth * grooveValue(time))), minVelocity(), 127);
+	return std::clamp(int(std::lround(velocity + amount * kAccentDepth * grooveValue(time, loops))), minVelocity(), 127);
 }
 
 double Track::stepShift(long k) const {
@@ -230,13 +244,13 @@ void Track::harmony(int dir) {
 	std::sort(pool, pool + poolSize);
 }
 
-int Track::noteFor(long ordinal, double time, double phraseCv, int transpose) const {
+int Track::noteFor(long ordinal, double time, double phraseCv, int transpose, double loops) const {
 	int chord[kMaxPool];
-	chordFor(ordinal, time, chord, phraseCv, transpose);
+	chordFor(ordinal, time, chord, phraseCv, transpose, loops);
 	return chord[0];
 }
 
-int Track::chordFor(long ordinal, double time, int* out, double phraseCv, int transpose) const {
+int Track::chordFor(long ordinal, double time, int* out, double phraseCv, int transpose, double loops) const {
 	int chord[kMaxPool];
 	int count = std::clamp(poolSize, 1, kMaxPool);
 	for (int i = 0; i < count; i++)
@@ -254,12 +268,133 @@ int Track::chordFor(long ordinal, double time, int* out, double phraseCv, int tr
 		std::copy(chord, chord + count, out);
 		n = count;
 	}
-	double span = 4.0 * kGrooveBars[std::clamp(phraseLength, 0, countOf(kGrooveBars) - 1)];
-	int shift = int(std::lround(getInt(TP_RANGE) * phraseValue(phrase, time / span, phraseCv, userPhrase))) + transpose;
+	int length = kGrooveBars[std::clamp(phraseLength, 0, countOf(kGrooveBars) - 1)];
+	double phase = phraseLoop ? loopPosition(time, loops) / length : time / (4.0 * length);
+	int shift = int(std::lround(getInt(TP_RANGE) * phraseValue(phrase, phase, phraseCv, userPhrase))) + transpose;
 	for (int i = 0; i < n; i++)
 		out[i] = std::clamp(quantize(out[i] + shift, scaleMask(), root), 0, 127);
 	std::sort(out, out + n);
 	return int(std::unique(out, out + n) - out);
+}
+
+int Track::seqChord(const SeqStep& s, int* out, int transpose) const {
+	int n = std::clamp(int(s.count), 0, kMaxPool);
+	int shift = getInt(TP_PITCH) + transpose;
+	for (int i = 0; i < n; i++)
+		out[i] = std::clamp(int(s.notes[i]) + shift, 0, 127);
+	std::sort(out, out + n);
+	return int(std::unique(out, out + n) - out);
+}
+
+double Track::seqGateQuarters(int steps) const {
+	double step = stepQuarters();
+	return (std::clamp(steps, 1, kMaxGateSteps) - 1) * step + gateQuarters(step);
+}
+
+bool SeqStep::operator==(const SeqStep& o) const {
+	return count == o.count && std::equal(notes, notes + count, o.notes) && velocity == o.velocity && gate == o.gate;
+}
+
+void StepSequence::set(int pos, const int* in, int n, int velocity, int gate) {
+	if (pos < 0 || pos >= kMaxSteps)
+		return;
+	SeqStep& s = steps[pos];
+	// Insertion into a sorted list, skipping duplicates (n <= kMaxPool).
+	uint8_t sorted[kMaxPool];
+	int count = 0;
+	for (int i = 0; i < std::clamp(n, 0, kMaxPool); i++) {
+		uint8_t v = uint8_t(std::clamp(in[i], 0, 127));
+		int k = 0;
+		while (k < count && sorted[k] < v)
+			k++;
+		if (k < count && sorted[k] == v)
+			continue;
+		std::copy_backward(sorted + k, sorted + count, sorted + count + 1);
+		sorted[k] = v;
+		count++;
+	}
+	s = SeqStep();
+	std::copy(sorted, sorted + count, s.notes);
+	s.count = uint8_t(count);
+	s.velocity = uint8_t(std::clamp(velocity, 1, 127));
+	s.gate = uint8_t(std::clamp(gate, 1, kMaxGateSteps));
+	StepMask bit = StepMask(1) << pos;
+	used = count ? used | bit : used & ~bit;
+}
+
+bool StepSequence::addNote(int pos, int note, int velocity) {
+	if (pos < 0 || pos >= kMaxSteps)
+		return false;
+	if (!has(pos)) {
+		set(pos, &note, 1, velocity, 1);
+		return true;
+	}
+	const SeqStep& s = steps[pos];
+	uint8_t v = uint8_t(std::clamp(note, 0, 127));
+	if (s.count >= kMaxPool || std::find(s.notes, s.notes + s.count, v) != s.notes + s.count)
+		return false;
+	int notes[kMaxPool];
+	for (int i = 0; i < s.count; i++)
+		notes[i] = s.notes[i];
+	notes[s.count] = v;
+	set(pos, notes, s.count + 1, s.velocity, s.gate);
+	return true;
+}
+
+void StepSequence::toggleNote(int pos, int note, int velocity) {
+	if (pos < 0 || pos >= kMaxSteps)
+		return;
+	const SeqStep& s = steps[pos];
+	uint8_t v = uint8_t(std::clamp(note, 0, 127));
+	if (!has(pos) || std::find(s.notes, s.notes + s.count, v) == s.notes + s.count) {
+		addNote(pos, note, velocity);
+		return;
+	}
+	int notes[kMaxPool];
+	int n = 0;
+	for (int i = 0; i < s.count; i++) {
+		if (s.notes[i] != v)
+			notes[n++] = s.notes[i];
+	}
+	set(pos, notes, n, s.velocity, s.gate);
+}
+
+void StepSequence::setVelocity(int pos, int velocity) {
+	if (pos >= 0 && pos < kMaxSteps)
+		steps[pos].velocity = uint8_t(std::clamp(velocity, 1, 127));
+}
+
+void StepSequence::setGate(int pos, int gate) {
+	if (pos >= 0 && pos < kMaxSteps)
+		steps[pos].gate = uint8_t(std::clamp(gate, 1, kMaxGateSteps));
+}
+
+void StepSequence::clear(int pos) {
+	if (pos >= 0 && pos < kMaxSteps) {
+		steps[pos] = SeqStep();
+		used &= ~(StepMask(1) << pos);
+	}
+}
+
+bool StepSequence::operator==(const StepSequence& o) const {
+	if (used != o.used)
+		return false;
+	for (int i = 0; i < kMaxSteps; i++) {
+		if (has(i) && !(steps[i] == o.steps[i]))
+			return false;
+	}
+	return true;
+}
+
+StepSequence& Pattern::sequenceEdit(int track, int c) {
+	if (c < 0 || c >= kMaxCycles)
+		return seqs[track];
+	CycleOverrides& o = cycles[track].cycles[c];
+	if (!o.ownSeq) {
+		o.seq = seqs[track];
+		o.ownSeq = true;
+	}
+	return o.seq;
 }
 
 void TrackCycles::reset() {
@@ -302,6 +437,7 @@ void copyTonal(Track& to, const Track& from) {
 	to.poolSize = from.poolSize;
 	to.phrase = from.phrase;
 	to.phraseLength = from.phraseLength;
+	to.phraseLoop = from.phraseLoop;
 	to.userPhrase = from.userPhrase;
 }
 
@@ -319,6 +455,8 @@ Track TrackCycles::resolve(const Track& base, int c) const {
 	}
 	if (cycles[c].ownTonal)
 		copyTonal(t, cycles[c].tonal);
+	if (cycles[c].ownMode)
+		t.seqMode = cycles[c].seqMode;
 	return t;
 }
 
@@ -512,10 +650,10 @@ bool sameTrack(const Track& a, const Track& b) {
 	}
 	return a.manualHits == b.manualHits && a.removedHits == b.removedHits && a.repeatTail == b.repeatTail
 	       && a.groove == b.groove && a.grooveLength == b.grooveLength && a.swingSubdivision == b.swingSubdivision
-	       && a.scale == b.scale && a.root == b.root && a.userScale == b.userScale && a.style == b.style
-	       && a.mono == b.mono && a.voicingDown == b.voicingDown && a.phrase == b.phrase
-	       && a.phraseLength == b.phraseLength && a.userPhrase == b.userPhrase && a.muted == b.muted && a.cc == b.cc
-	       && a.ccNumber == b.ccNumber;
+	       && a.grooveLoop == b.grooveLoop && a.scale == b.scale && a.root == b.root && a.userScale == b.userScale
+	       && a.style == b.style && a.mono == b.mono && a.voicingDown == b.voicingDown && a.phrase == b.phrase
+	       && a.phraseLength == b.phraseLength && a.phraseLoop == b.phraseLoop && a.userPhrase == b.userPhrase && a.muted == b.muted && a.cc == b.cc
+	       && a.ccNumber == b.ccNumber && a.seqMode == b.seqMode;
 }
 
 bool sameCycle(const CycleOverrides& a, const CycleOverrides& b) {
@@ -534,7 +672,7 @@ bool sameCycle(const CycleOverrides& a, const CycleOverrides& b) {
 		const Track &x = a.tonal, &y = b.tonal;
 		if (x.scale != y.scale || x.root != y.root || x.userScale != y.userScale || x.poolSize != y.poolSize
 		    || !std::equal(x.pool, x.pool + x.poolSize, y.pool) || x.phrase != y.phrase
-		    || x.phraseLength != y.phraseLength || x.userPhrase != y.userPhrase)
+		    || x.phraseLength != y.phraseLength || x.phraseLoop != y.phraseLoop || x.userPhrase != y.userPhrase)
 			return false;
 	}
 	if (a.locks.count != b.locks.count || a.locks.poolCount != b.locks.poolCount)
@@ -549,6 +687,9 @@ bool sameCycle(const CycleOverrides& a, const CycleOverrides& b) {
 		if (!b.locks.has(a.locks.step[i], p) || b.locks.get(a.locks.step[i], p) != a.locks.value[i])
 			return false;
 	}
+	if (a.ownMode != b.ownMode || (a.ownMode && a.seqMode != b.seqMode) || a.ownSeq != b.ownSeq
+	    || (a.ownSeq && a.seq != b.seq))
+		return false;
 	return !a.ownHits || (a.manualHits == b.manualHits && a.removedHits == b.removedHits);
 }
 
@@ -777,7 +918,7 @@ bool Pattern::trackUsed(int i) const {
 	TrackRandom rnd;
 	rnd.reset(i);
 	if (!sameTrack(tracks[i], kTrack) || !sameRandom(random[i], rnd) || !sameLocks(locks[i], kLocks)
-	    || cycles[i].count != 1)
+	    || cycles[i].count != 1 || !seqs[i].empty())
 		return true;
 	for (const CycleOverrides& c : cycles[i].cycles) {
 		if (!sameCycle(c, kCycle))
@@ -789,7 +930,7 @@ bool Pattern::trackUsed(int i) const {
 bool operator==(const Pattern& a, const Pattern& b) {
 	for (int i = 0; i < kNumTracks; i++) {
 		if (!sameTrack(a.tracks[i], b.tracks[i]) || !sameRandom(a.random[i], b.random[i]) || !sameLocks(a.locks[i], b.locks[i])
-		    || a.cycles[i].count != b.cycles[i].count)
+		    || a.cycles[i].count != b.cycles[i].count || a.seqs[i] != b.seqs[i])
 			return false;
 		for (int c = 0; c < kMaxCycles; c++) {
 			if (!sameCycle(a.cycles[i].cycles[c], b.cycles[i].cycles[c]))

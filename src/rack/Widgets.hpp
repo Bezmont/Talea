@@ -2,6 +2,8 @@
 #include "plugin.hpp"
 #include "PanelLayout.hpp"
 
+#include <functional>
+
 namespace talea {
 
 inline Vec mm(layout::Pos p) {
@@ -107,6 +109,8 @@ struct PadButton : app::Switch {
 	std::atomic<bool>* ctrlFlag = nullptr;
 	/** Likewise for Shift. */
 	std::atomic<bool>* shiftFlag = nullptr;
+	/** On a right press: true = taken (no param menu). */
+	std::function<bool()> rightClick;
 
 	PadButton() {
 		momentary = true;
@@ -119,6 +123,10 @@ struct PadButton : app::Switch {
 				*ctrlFlag = (e.mods & RACK_MOD_MASK) == RACK_MOD_CTRL;
 			if (shiftFlag)
 				*shiftFlag = (e.mods & RACK_MOD_MASK) == GLFW_MOD_SHIFT;
+		}
+		if (e.action == GLFW_PRESS && e.button == GLFW_MOUSE_BUTTON_RIGHT && rightClick && rightClick()) {
+			e.consume(this);
+			return;
 		}
 		app::Switch::onButton(e);
 	}

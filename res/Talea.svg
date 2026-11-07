@@ -2,8 +2,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="203.20mm" height="128.5mm" viewBox="0 0 203.20 128.5">
 <rect x="0" y="0" width="203.20" height="128.5" fill="#23262b"/>
 <text x="83.60" y="6.00" font-family="Helvetica, Arial, sans-serif" font-size="4.0" font-weight="bold" fill="#d8dce2" text-anchor="start">Talea</text>
-<text x="96.31" y="6.00" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#8a919c" text-anchor="start">EUCLIDEAN SEQUENCER</text>
-<rect x="3.00" y="8.00" width="38.00" height="46.00" rx="1.2" fill="#2b2f36" stroke="#3d434c" stroke-width="0.3"/>
+<text x="96.31" y="6.00" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#8a919c" text-anchor="start">MULTI-SEQUENCER</text>
+<rect x="3.00" y="8.00" width="39.00" height="66.50" rx="1.2" fill="#2b2f36" stroke="#3d434c" stroke-width="0.3"/>
 <text x="5.00" y="10.90" font-family="Helvetica, Arial, sans-serif" font-size="2.0" font-weight="bold" fill="#f08a24" text-anchor="start">TRANSPORT</text>
 <text x="10.00" y="12.80" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">PLAY</text>
 <text x="22.00" y="12.80" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">RESET</text>
@@ -15,70 +15,76 @@
 <text x="10.00" y="51.30" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">CLK</text>
 <text x="22.00" y="51.30" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">RST</text>
 <text x="34.00" y="51.30" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">RUN</text>
+<text x="4.50" y="56.90" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#8a919c" text-anchor="start">NOTE IN</text>
+<text x="17.60" y="56.90" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="end">OVD</text>
+<text x="29.60" y="56.90" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="end">REC</text>
+<text x="10.00" y="72.70" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">V/OCT</text>
+<text x="22.00" y="72.70" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">GATE</text>
+<text x="34.00" y="72.70" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">VEL</text>
 <rect x="44" y="8" width="156.20" height="47" rx="1" fill="#0d0f12" stroke="#3d434c" stroke-width="0.4"/>
-<rect x="3.00" y="57.00" width="65.00" height="17.50" rx="1.2" fill="#2b2f36" stroke="#3d434c" stroke-width="0.3"/>
-<text x="5.00" y="59.90" font-family="Helvetica, Arial, sans-serif" font-size="2.0" font-weight="bold" fill="#f08a24" text-anchor="start">SHAPE</text>
-<text x="9.50" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">STEPS</text>
-<text x="22.50" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">PULSES</text>
-<text x="35.50" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">ROTATE</text>
-<text x="48.50" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">DIVISION</text>
-<text x="61.50" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">LENGTH</text>
-<rect x="70.00" y="57.00" width="52.00" height="17.50" rx="1.2" fill="#2b2f36" stroke="#3d434c" stroke-width="0.3"/>
-<text x="72.00" y="59.90" font-family="Helvetica, Arial, sans-serif" font-size="2.0" font-weight="bold" fill="#f08a24" text-anchor="start">REPEATS</text>
-<text x="76.50" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">REPEATS</text>
-<text x="89.50" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">RAMP</text>
-<text x="102.50" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">TIME</text>
-<text x="115.50" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">PACE</text>
-<rect x="124.00" y="57.00" width="26.00" height="17.50" rx="1.2" fill="#2b2f36" stroke="#3d434c" stroke-width="0.3"/>
-<text x="126.00" y="59.90" font-family="Helvetica, Arial, sans-serif" font-size="2.0" font-weight="bold" fill="#f08a24" text-anchor="start">RANDOM</text>
-<text x="130.50" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">VARIANCE</text>
-<text x="143.50" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">RATE</text>
-<rect x="3.00" y="76.00" width="78.00" height="17.50" rx="1.2" fill="#2b2f36" stroke="#3d434c" stroke-width="0.3"/>
-<text x="5.00" y="78.90" font-family="Helvetica, Arial, sans-serif" font-size="2.0" font-weight="bold" fill="#f08a24" text-anchor="start">GROOVE</text>
-<text x="9.50" y="82.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">VELOCITY</text>
-<text x="22.50" y="82.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">PROB</text>
-<text x="35.50" y="82.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">SUSTAIN</text>
-<text x="48.50" y="82.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">ACCENT</text>
-<text x="61.50" y="82.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">TIMING</text>
-<text x="74.50" y="82.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">DELAY</text>
-<rect x="83.00" y="76.00" width="52.00" height="17.50" rx="1.2" fill="#2b2f36" stroke="#3d434c" stroke-width="0.3"/>
-<text x="85.00" y="78.90" font-family="Helvetica, Arial, sans-serif" font-size="2.0" font-weight="bold" fill="#f08a24" text-anchor="start">TONAL</text>
-<text x="89.50" y="82.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">PITCH</text>
-<text x="102.50" y="82.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">HARMONY</text>
-<text x="115.50" y="82.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">VOICING</text>
-<text x="128.50" y="82.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">RANGE</text>
-<rect x="3.00" y="95.50" width="145.00" height="30.50" rx="1.2" fill="#2b2f36" stroke="#3d434c" stroke-width="0.3"/>
-<text x="9.00" y="107.30" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">STEP</text>
-<text x="19.50" y="107.30" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">CYCLE</text>
-<text x="40.50" y="107.30" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">MUTE</text>
-<text x="51.00" y="107.30" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">PATTERN</text>
-<text x="5.00" y="98.40" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="bold" fill="#f08a24" text-anchor="start">PAD MODE</text>
-<text x="30.00" y="107.30" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">CYC EDIT</text>
-<text x="85.00" y="107.30" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">COPY</text>
-<text x="94.50" y="107.30" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">PASTE</text>
-<text x="104.00" y="107.30" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">CLEAR</text>
-<rect x="110.5" y="96.6" width="36.3" height="13.2" rx="0.8" fill="none" stroke="#3d434c" stroke-width="0.3"/>
-<text x="112.00" y="98.90" font-family="Helvetica, Arial, sans-serif" font-size="1.5" font-weight="bold" fill="#f08a24" text-anchor="start">STEP PAGE</text>
-<text x="114.50" y="107.30" font-family="Helvetica, Arial, sans-serif" font-size="1.35" font-weight="normal" fill="#d8dce2" text-anchor="middle">1–16</text>
-<text x="121.00" y="107.30" font-family="Helvetica, Arial, sans-serif" font-size="1.35" font-weight="normal" fill="#d8dce2" text-anchor="middle">17–32</text>
-<text x="127.50" y="107.30" font-family="Helvetica, Arial, sans-serif" font-size="1.35" font-weight="normal" fill="#d8dce2" text-anchor="middle">33–48</text>
-<text x="134.00" y="107.30" font-family="Helvetica, Arial, sans-serif" font-size="1.35" font-weight="normal" fill="#d8dce2" text-anchor="middle">49–64</text>
-<text x="142.30" y="107.30" font-family="Helvetica, Arial, sans-serif" font-size="1.35" font-weight="normal" fill="#d8dce2" text-anchor="middle">FOLLOW</text>
-<rect x="151.00" y="57.00" width="49.20" height="35.00" rx="1.2" fill="#2b2f36" stroke="#3d434c" stroke-width="0.3"/>
-<text x="153.00" y="59.90" font-family="Helvetica, Arial, sans-serif" font-size="2.0" font-weight="bold" fill="#f08a24" text-anchor="start">PERFORM</text>
-<text x="160.00" y="79.60" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">TEMP</text>
-<text x="175.50" y="79.60" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">ALL TRACKS</text>
-<text x="191.00" y="79.60" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">RND ASSIGN</text>
-<rect x="151.00" y="94.00" width="49.20" height="32.00" rx="1.2" fill="#3a3f47" stroke="#3d434c" stroke-width="0.3"/>
-<text x="153.00" y="96.90" font-family="Helvetica, Arial, sans-serif" font-size="2.0" font-weight="bold" fill="#f08a24" text-anchor="start">OUT</text>
-<text x="158.00" y="99.80" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">PITCH</text>
-<text x="168.50" y="99.80" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">GATE</text>
-<text x="179.00" y="99.80" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">VEL</text>
-<text x="189.50" y="99.80" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">EOP</text>
-<text x="158.00" y="112.80" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">CLK</text>
-<text x="168.50" y="112.80" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">RST</text>
-<text x="184.00" y="117.40" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#8a919c" text-anchor="middle">poly 16:</text>
-<text x="184.00" y="119.60" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#8a919c" text-anchor="middle">ch n = track n</text>
+<rect x="44.00" y="57.00" width="69.18" height="17.50" rx="1.2" fill="#2b2f36" stroke="#3d434c" stroke-width="0.3"/>
+<text x="46.00" y="59.90" font-family="Helvetica, Arial, sans-serif" font-size="2.0" font-weight="bold" fill="#f08a24" text-anchor="start">SHAPE</text>
+<text x="50.92" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">STEPS</text>
+<text x="64.75" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">PULSES</text>
+<text x="78.59" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">ROTATE</text>
+<text x="92.43" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">DIVISION</text>
+<text x="106.26" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">LENGTH</text>
+<rect x="115.18" y="57.00" width="55.35" height="17.50" rx="1.2" fill="#2b2f36" stroke="#3d434c" stroke-width="0.3"/>
+<text x="117.18" y="59.90" font-family="Helvetica, Arial, sans-serif" font-size="2.0" font-weight="bold" fill="#f08a24" text-anchor="start">REPEATS</text>
+<text x="122.10" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">REPEATS</text>
+<text x="135.94" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">RAMP</text>
+<text x="149.77" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">TIME</text>
+<text x="163.61" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">PACE</text>
+<rect x="172.53" y="57.00" width="27.67" height="17.50" rx="1.2" fill="#2b2f36" stroke="#3d434c" stroke-width="0.3"/>
+<text x="174.53" y="59.90" font-family="Helvetica, Arial, sans-serif" font-size="2.0" font-weight="bold" fill="#f08a24" text-anchor="start">RANDOM</text>
+<text x="179.45" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">VARIANCE</text>
+<text x="193.28" y="63.80" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">RATE</text>
+<rect x="44.00" y="76.50" width="92.52" height="17.50" rx="1.2" fill="#2b2f36" stroke="#3d434c" stroke-width="0.3"/>
+<text x="46.00" y="79.40" font-family="Helvetica, Arial, sans-serif" font-size="2.0" font-weight="bold" fill="#f08a24" text-anchor="start">GROOVE</text>
+<text x="51.71" y="83.30" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">VELOCITY</text>
+<text x="67.13" y="83.30" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">PROB</text>
+<text x="82.55" y="83.30" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">SUSTAIN</text>
+<text x="97.97" y="83.30" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">ACCENT</text>
+<text x="113.39" y="83.30" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">TIMING</text>
+<text x="128.81" y="83.30" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">DELAY</text>
+<rect x="138.52" y="76.50" width="61.68" height="17.50" rx="1.2" fill="#2b2f36" stroke="#3d434c" stroke-width="0.3"/>
+<text x="140.52" y="79.40" font-family="Helvetica, Arial, sans-serif" font-size="2.0" font-weight="bold" fill="#f08a24" text-anchor="start">TONAL</text>
+<text x="146.23" y="83.30" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">PITCH</text>
+<text x="161.65" y="83.30" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">HARMONY</text>
+<text x="177.07" y="83.30" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">VOICING</text>
+<text x="192.49" y="83.30" font-family="Helvetica, Arial, sans-serif" font-size="1.9" font-weight="normal" fill="#d8dce2" text-anchor="middle">RANGE</text>
+<rect x="3.00" y="76.50" width="39.00" height="17.50" rx="1.2" fill="#2b2f36" stroke="#3d434c" stroke-width="0.3"/>
+<text x="5.00" y="79.40" font-family="Helvetica, Arial, sans-serif" font-size="2.0" font-weight="bold" fill="#f08a24" text-anchor="start">PERFORM</text>
+<text x="10.00" y="83.30" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">TEMP</text>
+<text x="22.00" y="83.30" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">ALL TRACKS</text>
+<text x="34.00" y="83.30" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">RND ASSIGN</text>
+<rect x="3.00" y="96.00" width="145.00" height="30.50" rx="1.2" fill="#2b2f36" stroke="#3d434c" stroke-width="0.3"/>
+<text x="9.00" y="107.80" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">STEP</text>
+<text x="19.50" y="107.80" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">CYCLE</text>
+<text x="40.50" y="107.80" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">MUTE</text>
+<text x="51.00" y="107.80" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">PATTERN</text>
+<text x="5.00" y="98.90" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="bold" fill="#f08a24" text-anchor="start">PAD MODE</text>
+<text x="30.00" y="107.80" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">CYC EDIT</text>
+<text x="85.00" y="107.80" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">COPY</text>
+<text x="94.50" y="107.80" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">PASTE</text>
+<text x="104.00" y="107.80" font-family="Helvetica, Arial, sans-serif" font-size="1.7" font-weight="normal" fill="#d8dce2" text-anchor="middle">CLEAR</text>
+<rect x="110.5" y="97.10" width="36.3" height="13.2" rx="0.8" fill="none" stroke="#3d434c" stroke-width="0.3"/>
+<text x="112.00" y="99.40" font-family="Helvetica, Arial, sans-serif" font-size="1.5" font-weight="bold" fill="#f08a24" text-anchor="start">STEP PAGE</text>
+<text x="114.50" y="107.80" font-family="Helvetica, Arial, sans-serif" font-size="1.35" font-weight="normal" fill="#d8dce2" text-anchor="middle">1–16</text>
+<text x="121.00" y="107.80" font-family="Helvetica, Arial, sans-serif" font-size="1.35" font-weight="normal" fill="#d8dce2" text-anchor="middle">17–32</text>
+<text x="127.50" y="107.80" font-family="Helvetica, Arial, sans-serif" font-size="1.35" font-weight="normal" fill="#d8dce2" text-anchor="middle">33–48</text>
+<text x="134.00" y="107.80" font-family="Helvetica, Arial, sans-serif" font-size="1.35" font-weight="normal" fill="#d8dce2" text-anchor="middle">49–64</text>
+<text x="142.30" y="107.80" font-family="Helvetica, Arial, sans-serif" font-size="1.35" font-weight="normal" fill="#d8dce2" text-anchor="middle">FOLLOW</text>
+<rect x="150.00" y="96.00" width="50.20" height="30.50" rx="1.2" fill="#3a3f47" stroke="#3d434c" stroke-width="0.3"/>
+<text x="152.00" y="98.90" font-family="Helvetica, Arial, sans-serif" font-size="2.0" font-weight="bold" fill="#f08a24" text-anchor="start">OUT</text>
+<text x="157.00" y="101.30" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">PITCH</text>
+<text x="167.50" y="101.30" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">GATE</text>
+<text x="178.00" y="101.30" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">VEL</text>
+<text x="188.50" y="101.30" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">EOP</text>
+<text x="157.00" y="114.30" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">CLK</text>
+<text x="167.50" y="114.30" font-family="Helvetica, Arial, sans-serif" font-size="1.8" font-weight="normal" fill="#d8dce2" text-anchor="middle">RST</text>
+<text x="183.00" y="118.90" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#8a919c" text-anchor="middle">poly 16:</text>
+<text x="183.00" y="121.10" font-family="Helvetica, Arial, sans-serif" font-size="1.6" font-weight="normal" fill="#8a919c" text-anchor="middle">ch n = track n</text>
 <g inkscape:groupmode="layer" id="components" inkscape:label="components" style="display:none">
 <circle id="PLAY_PARAM" cx="10.00" cy="17.00" r="1" fill="#ff0000"/>
 <circle id="PLAY_LIGHT" cx="10.00" cy="17.00" r="1" fill="#ff00ff"/>
@@ -89,129 +95,136 @@
 <circle id="CLOCK_INPUT" cx="10.00" cy="44.00" r="1" fill="#00ff00"/>
 <circle id="RESET_INPUT" cx="22.00" cy="44.00" r="1" fill="#00ff00"/>
 <circle id="RUN_INPUT" cx="34.00" cy="44.00" r="1" fill="#00ff00"/>
+<circle id="REC_PARAM" cx="34.00" cy="56.30" r="1" fill="#ff0000"/>
+<circle id="REC_LIGHT" cx="34.00" cy="56.30" r="1" fill="#ff00ff"/>
+<circle id="OVERDUB_PARAM" cx="22.00" cy="56.30" r="1" fill="#ff0000"/>
+<circle id="OVERDUB_LIGHT" cx="22.00" cy="56.30" r="1" fill="#ff00ff"/>
+<circle id="REC_PITCH_INPUT" cx="10.00" cy="65.40" r="1" fill="#00ff00"/>
+<circle id="REC_GATE_INPUT" cx="22.00" cy="65.40" r="1" fill="#00ff00"/>
+<circle id="REC_VELOCITY_INPUT" cx="34.00" cy="65.40" r="1" fill="#00ff00"/>
 <rect id="ContextDisplay" x="44.00" y="8.00" width="156.20" height="47.00" fill="#ffff00"/>
-<circle id="STEPS_PARAM" cx="9.50" cy="69.00" r="1" fill="#ff0000"/>
-<circle id="PULSES_PARAM" cx="22.50" cy="69.00" r="1" fill="#ff0000"/>
-<circle id="ROTATE_PARAM" cx="35.50" cy="69.00" r="1" fill="#ff0000"/>
-<circle id="DIVISION_PARAM" cx="48.50" cy="69.00" r="1" fill="#ff0000"/>
-<circle id="LENGTH_PARAM" cx="61.50" cy="69.00" r="1" fill="#ff0000"/>
-<circle id="REPEATS_PARAM" cx="76.50" cy="69.00" r="1" fill="#ff0000"/>
-<circle id="RAMP_PARAM" cx="89.50" cy="69.00" r="1" fill="#ff0000"/>
-<circle id="REPEAT_TIME_PARAM" cx="102.50" cy="69.00" r="1" fill="#ff0000"/>
-<circle id="PACE_PARAM" cx="115.50" cy="69.00" r="1" fill="#ff0000"/>
-<circle id="VARIANCE_PARAM" cx="130.50" cy="69.00" r="1" fill="#ff0000"/>
-<circle id="RANDOM_RATE_PARAM" cx="143.50" cy="69.00" r="1" fill="#ff0000"/>
-<circle id="VELOCITY_PARAM" cx="9.50" cy="88.00" r="1" fill="#ff0000"/>
-<circle id="PROBABILITY_PARAM" cx="22.50" cy="88.00" r="1" fill="#ff0000"/>
-<circle id="SUSTAIN_PARAM" cx="35.50" cy="88.00" r="1" fill="#ff0000"/>
-<circle id="ACCENT_PARAM" cx="48.50" cy="88.00" r="1" fill="#ff0000"/>
-<circle id="TIMING_PARAM" cx="61.50" cy="88.00" r="1" fill="#ff0000"/>
-<circle id="DELAY_PARAM" cx="74.50" cy="88.00" r="1" fill="#ff0000"/>
-<circle id="PITCH_PARAM" cx="89.50" cy="88.00" r="1" fill="#ff0000"/>
-<circle id="HARMONY_PARAM" cx="102.50" cy="88.00" r="1" fill="#ff0000"/>
-<circle id="VOICING_PARAM" cx="115.50" cy="88.00" r="1" fill="#ff0000"/>
-<circle id="RANGE_PARAM" cx="128.50" cy="88.00" r="1" fill="#ff0000"/>
-<circle id="MODE_STEP_PARAM" cx="9.00" cy="102.00" r="1" fill="#ff0000"/>
-<circle id="MODE_LIGHT_0" cx="9.00" cy="102.00" r="1" fill="#ff00ff"/>
-<circle id="MODE_CYCLE_PARAM" cx="19.50" cy="102.00" r="1" fill="#ff0000"/>
-<circle id="MODE_LIGHT_1" cx="19.50" cy="102.00" r="1" fill="#ff00ff"/>
-<circle id="MODE_MUTE_PARAM" cx="40.50" cy="102.00" r="1" fill="#ff0000"/>
-<circle id="MODE_LIGHT_2" cx="40.50" cy="102.00" r="1" fill="#ff00ff"/>
-<circle id="MODE_PATTERN_PARAM" cx="51.00" cy="102.00" r="1" fill="#ff0000"/>
-<circle id="MODE_LIGHT_3" cx="51.00" cy="102.00" r="1" fill="#ff00ff"/>
-<circle id="CYCLE_EDIT_PARAM" cx="30.00" cy="102.00" r="1" fill="#ff0000"/>
-<circle id="CYCLE_EDIT_LIGHT" cx="30.00" cy="102.00" r="1" fill="#ff00ff"/>
-<circle id="COPY_PARAM" cx="85.00" cy="102.00" r="1" fill="#ff0000"/>
-<circle id="COPY_LIGHT" cx="85.00" cy="102.00" r="1" fill="#ff00ff"/>
-<circle id="PASTE_PARAM" cx="94.50" cy="102.00" r="1" fill="#ff0000"/>
-<circle id="PASTE_LIGHT" cx="94.50" cy="102.00" r="1" fill="#ff00ff"/>
-<circle id="CLEAR_PARAM" cx="104.00" cy="102.00" r="1" fill="#ff0000"/>
-<circle id="CLEAR_LIGHT" cx="104.00" cy="102.00" r="1" fill="#ff00ff"/>
-<circle id="STEP_PAGE_PARAM_0" cx="114.50" cy="102.60" r="1" fill="#ff0000"/>
-<circle id="STEP_PAGE_LIGHT_0" cx="114.50" cy="102.60" r="1" fill="#ff00ff"/>
-<circle id="STEP_PAGE_PARAM_1" cx="121.00" cy="102.60" r="1" fill="#ff0000"/>
-<circle id="STEP_PAGE_LIGHT_1" cx="121.00" cy="102.60" r="1" fill="#ff00ff"/>
-<circle id="STEP_PAGE_PARAM_2" cx="127.50" cy="102.60" r="1" fill="#ff0000"/>
-<circle id="STEP_PAGE_LIGHT_2" cx="127.50" cy="102.60" r="1" fill="#ff00ff"/>
-<circle id="STEP_PAGE_PARAM_3" cx="134.00" cy="102.60" r="1" fill="#ff0000"/>
-<circle id="STEP_PAGE_LIGHT_3" cx="134.00" cy="102.60" r="1" fill="#ff00ff"/>
-<circle id="FOLLOW_PARAM" cx="142.30" cy="102.60" r="1" fill="#ff0000"/>
-<circle id="FOLLOW_LIGHT" cx="142.30" cy="102.60" r="1" fill="#ff00ff"/>
-<circle id="PAD_PARAM_1" cx="8.30" cy="118.30" r="1" fill="#ff0000"/>
-<circle id="PAD_LIGHT_1" cx="8.30" cy="118.30" r="1" fill="#ff00ff"/>
-<circle id="TRACK_SELECT_PARAM_1" cx="8.30" cy="111.90" r="1" fill="#ff0000"/>
-<circle id="TRACK_SELECT_LIGHT_1" cx="8.30" cy="111.90" r="1" fill="#ff00ff"/>
-<circle id="PAD_PARAM_2" cx="17.26" cy="118.30" r="1" fill="#ff0000"/>
-<circle id="PAD_LIGHT_2" cx="17.26" cy="118.30" r="1" fill="#ff00ff"/>
-<circle id="TRACK_SELECT_PARAM_2" cx="17.26" cy="111.90" r="1" fill="#ff0000"/>
-<circle id="TRACK_SELECT_LIGHT_2" cx="17.26" cy="111.90" r="1" fill="#ff00ff"/>
-<circle id="PAD_PARAM_3" cx="26.22" cy="118.30" r="1" fill="#ff0000"/>
-<circle id="PAD_LIGHT_3" cx="26.22" cy="118.30" r="1" fill="#ff00ff"/>
-<circle id="TRACK_SELECT_PARAM_3" cx="26.22" cy="111.90" r="1" fill="#ff0000"/>
-<circle id="TRACK_SELECT_LIGHT_3" cx="26.22" cy="111.90" r="1" fill="#ff00ff"/>
-<circle id="PAD_PARAM_4" cx="35.18" cy="118.30" r="1" fill="#ff0000"/>
-<circle id="PAD_LIGHT_4" cx="35.18" cy="118.30" r="1" fill="#ff00ff"/>
-<circle id="TRACK_SELECT_PARAM_4" cx="35.18" cy="111.90" r="1" fill="#ff0000"/>
-<circle id="TRACK_SELECT_LIGHT_4" cx="35.18" cy="111.90" r="1" fill="#ff00ff"/>
-<circle id="PAD_PARAM_5" cx="44.14" cy="118.30" r="1" fill="#ff0000"/>
-<circle id="PAD_LIGHT_5" cx="44.14" cy="118.30" r="1" fill="#ff00ff"/>
-<circle id="TRACK_SELECT_PARAM_5" cx="44.14" cy="111.90" r="1" fill="#ff0000"/>
-<circle id="TRACK_SELECT_LIGHT_5" cx="44.14" cy="111.90" r="1" fill="#ff00ff"/>
-<circle id="PAD_PARAM_6" cx="53.10" cy="118.30" r="1" fill="#ff0000"/>
-<circle id="PAD_LIGHT_6" cx="53.10" cy="118.30" r="1" fill="#ff00ff"/>
-<circle id="TRACK_SELECT_PARAM_6" cx="53.10" cy="111.90" r="1" fill="#ff0000"/>
-<circle id="TRACK_SELECT_LIGHT_6" cx="53.10" cy="111.90" r="1" fill="#ff00ff"/>
-<circle id="PAD_PARAM_7" cx="62.06" cy="118.30" r="1" fill="#ff0000"/>
-<circle id="PAD_LIGHT_7" cx="62.06" cy="118.30" r="1" fill="#ff00ff"/>
-<circle id="TRACK_SELECT_PARAM_7" cx="62.06" cy="111.90" r="1" fill="#ff0000"/>
-<circle id="TRACK_SELECT_LIGHT_7" cx="62.06" cy="111.90" r="1" fill="#ff00ff"/>
-<circle id="PAD_PARAM_8" cx="71.02" cy="118.30" r="1" fill="#ff0000"/>
-<circle id="PAD_LIGHT_8" cx="71.02" cy="118.30" r="1" fill="#ff00ff"/>
-<circle id="TRACK_SELECT_PARAM_8" cx="71.02" cy="111.90" r="1" fill="#ff0000"/>
-<circle id="TRACK_SELECT_LIGHT_8" cx="71.02" cy="111.90" r="1" fill="#ff00ff"/>
-<circle id="PAD_PARAM_9" cx="79.98" cy="118.30" r="1" fill="#ff0000"/>
-<circle id="PAD_LIGHT_9" cx="79.98" cy="118.30" r="1" fill="#ff00ff"/>
-<circle id="TRACK_SELECT_PARAM_9" cx="79.98" cy="111.90" r="1" fill="#ff0000"/>
-<circle id="TRACK_SELECT_LIGHT_9" cx="79.98" cy="111.90" r="1" fill="#ff00ff"/>
-<circle id="PAD_PARAM_10" cx="88.94" cy="118.30" r="1" fill="#ff0000"/>
-<circle id="PAD_LIGHT_10" cx="88.94" cy="118.30" r="1" fill="#ff00ff"/>
-<circle id="TRACK_SELECT_PARAM_10" cx="88.94" cy="111.90" r="1" fill="#ff0000"/>
-<circle id="TRACK_SELECT_LIGHT_10" cx="88.94" cy="111.90" r="1" fill="#ff00ff"/>
-<circle id="PAD_PARAM_11" cx="97.90" cy="118.30" r="1" fill="#ff0000"/>
-<circle id="PAD_LIGHT_11" cx="97.90" cy="118.30" r="1" fill="#ff00ff"/>
-<circle id="TRACK_SELECT_PARAM_11" cx="97.90" cy="111.90" r="1" fill="#ff0000"/>
-<circle id="TRACK_SELECT_LIGHT_11" cx="97.90" cy="111.90" r="1" fill="#ff00ff"/>
-<circle id="PAD_PARAM_12" cx="106.86" cy="118.30" r="1" fill="#ff0000"/>
-<circle id="PAD_LIGHT_12" cx="106.86" cy="118.30" r="1" fill="#ff00ff"/>
-<circle id="TRACK_SELECT_PARAM_12" cx="106.86" cy="111.90" r="1" fill="#ff0000"/>
-<circle id="TRACK_SELECT_LIGHT_12" cx="106.86" cy="111.90" r="1" fill="#ff00ff"/>
-<circle id="PAD_PARAM_13" cx="115.82" cy="118.30" r="1" fill="#ff0000"/>
-<circle id="PAD_LIGHT_13" cx="115.82" cy="118.30" r="1" fill="#ff00ff"/>
-<circle id="TRACK_SELECT_PARAM_13" cx="115.82" cy="111.90" r="1" fill="#ff0000"/>
-<circle id="TRACK_SELECT_LIGHT_13" cx="115.82" cy="111.90" r="1" fill="#ff00ff"/>
-<circle id="PAD_PARAM_14" cx="124.78" cy="118.30" r="1" fill="#ff0000"/>
-<circle id="PAD_LIGHT_14" cx="124.78" cy="118.30" r="1" fill="#ff00ff"/>
-<circle id="TRACK_SELECT_PARAM_14" cx="124.78" cy="111.90" r="1" fill="#ff0000"/>
-<circle id="TRACK_SELECT_LIGHT_14" cx="124.78" cy="111.90" r="1" fill="#ff00ff"/>
-<circle id="PAD_PARAM_15" cx="133.74" cy="118.30" r="1" fill="#ff0000"/>
-<circle id="PAD_LIGHT_15" cx="133.74" cy="118.30" r="1" fill="#ff00ff"/>
-<circle id="TRACK_SELECT_PARAM_15" cx="133.74" cy="111.90" r="1" fill="#ff0000"/>
-<circle id="TRACK_SELECT_LIGHT_15" cx="133.74" cy="111.90" r="1" fill="#ff00ff"/>
-<circle id="PAD_PARAM_16" cx="142.70" cy="118.30" r="1" fill="#ff0000"/>
-<circle id="PAD_LIGHT_16" cx="142.70" cy="118.30" r="1" fill="#ff00ff"/>
-<circle id="TRACK_SELECT_PARAM_16" cx="142.70" cy="111.90" r="1" fill="#ff0000"/>
-<circle id="TRACK_SELECT_LIGHT_16" cx="142.70" cy="111.90" r="1" fill="#ff00ff"/>
-<circle id="TEMP_PARAM" cx="160.00" cy="73.00" r="1" fill="#ff0000"/>
-<circle id="TEMP_LIGHT" cx="160.00" cy="73.00" r="1" fill="#ff00ff"/>
-<circle id="ALL_PARAM" cx="175.50" cy="73.00" r="1" fill="#ff0000"/>
-<circle id="ALL_LIGHT" cx="175.50" cy="73.00" r="1" fill="#ff00ff"/>
-<circle id="RND_ASSIGN_PARAM" cx="191.00" cy="73.00" r="1" fill="#ff0000"/>
-<circle id="RND_ASSIGN_LIGHT" cx="191.00" cy="73.00" r="1" fill="#ff00ff"/>
-<circle id="PITCH_OUTPUT" cx="158.00" cy="105.00" r="1" fill="#0000ff"/>
-<circle id="GATE_OUTPUT" cx="168.50" cy="105.00" r="1" fill="#0000ff"/>
-<circle id="VELOCITY_OUTPUT" cx="179.00" cy="105.00" r="1" fill="#0000ff"/>
-<circle id="EOP_OUTPUT" cx="189.50" cy="105.00" r="1" fill="#0000ff"/>
-<circle id="CLOCK_OUTPUT" cx="158.00" cy="118.00" r="1" fill="#0000ff"/>
-<circle id="RESET_OUTPUT" cx="168.50" cy="118.00" r="1" fill="#0000ff"/>
+<circle id="STEPS_PARAM" cx="50.92" cy="69.00" r="1" fill="#ff0000"/>
+<circle id="PULSES_PARAM" cx="64.75" cy="69.00" r="1" fill="#ff0000"/>
+<circle id="ROTATE_PARAM" cx="78.59" cy="69.00" r="1" fill="#ff0000"/>
+<circle id="DIVISION_PARAM" cx="92.43" cy="69.00" r="1" fill="#ff0000"/>
+<circle id="LENGTH_PARAM" cx="106.26" cy="69.00" r="1" fill="#ff0000"/>
+<circle id="REPEATS_PARAM" cx="122.10" cy="69.00" r="1" fill="#ff0000"/>
+<circle id="RAMP_PARAM" cx="135.94" cy="69.00" r="1" fill="#ff0000"/>
+<circle id="REPEAT_TIME_PARAM" cx="149.77" cy="69.00" r="1" fill="#ff0000"/>
+<circle id="PACE_PARAM" cx="163.61" cy="69.00" r="1" fill="#ff0000"/>
+<circle id="VARIANCE_PARAM" cx="179.45" cy="69.00" r="1" fill="#ff0000"/>
+<circle id="RANDOM_RATE_PARAM" cx="193.28" cy="69.00" r="1" fill="#ff0000"/>
+<circle id="VELOCITY_PARAM" cx="51.71" cy="88.50" r="1" fill="#ff0000"/>
+<circle id="PROBABILITY_PARAM" cx="67.13" cy="88.50" r="1" fill="#ff0000"/>
+<circle id="SUSTAIN_PARAM" cx="82.55" cy="88.50" r="1" fill="#ff0000"/>
+<circle id="ACCENT_PARAM" cx="97.97" cy="88.50" r="1" fill="#ff0000"/>
+<circle id="TIMING_PARAM" cx="113.39" cy="88.50" r="1" fill="#ff0000"/>
+<circle id="DELAY_PARAM" cx="128.81" cy="88.50" r="1" fill="#ff0000"/>
+<circle id="PITCH_PARAM" cx="146.23" cy="88.50" r="1" fill="#ff0000"/>
+<circle id="HARMONY_PARAM" cx="161.65" cy="88.50" r="1" fill="#ff0000"/>
+<circle id="VOICING_PARAM" cx="177.07" cy="88.50" r="1" fill="#ff0000"/>
+<circle id="RANGE_PARAM" cx="192.49" cy="88.50" r="1" fill="#ff0000"/>
+<circle id="TEMP_PARAM" cx="10.00" cy="88.50" r="1" fill="#ff0000"/>
+<circle id="TEMP_LIGHT" cx="10.00" cy="88.50" r="1" fill="#ff00ff"/>
+<circle id="ALL_PARAM" cx="22.00" cy="88.50" r="1" fill="#ff0000"/>
+<circle id="ALL_LIGHT" cx="22.00" cy="88.50" r="1" fill="#ff00ff"/>
+<circle id="RND_ASSIGN_PARAM" cx="34.00" cy="88.50" r="1" fill="#ff0000"/>
+<circle id="RND_ASSIGN_LIGHT" cx="34.00" cy="88.50" r="1" fill="#ff00ff"/>
+<circle id="MODE_STEP_PARAM" cx="9.00" cy="102.50" r="1" fill="#ff0000"/>
+<circle id="MODE_LIGHT_0" cx="9.00" cy="102.50" r="1" fill="#ff00ff"/>
+<circle id="MODE_CYCLE_PARAM" cx="19.50" cy="102.50" r="1" fill="#ff0000"/>
+<circle id="MODE_LIGHT_1" cx="19.50" cy="102.50" r="1" fill="#ff00ff"/>
+<circle id="MODE_MUTE_PARAM" cx="40.50" cy="102.50" r="1" fill="#ff0000"/>
+<circle id="MODE_LIGHT_2" cx="40.50" cy="102.50" r="1" fill="#ff00ff"/>
+<circle id="MODE_PATTERN_PARAM" cx="51.00" cy="102.50" r="1" fill="#ff0000"/>
+<circle id="MODE_LIGHT_3" cx="51.00" cy="102.50" r="1" fill="#ff00ff"/>
+<circle id="CYCLE_EDIT_PARAM" cx="30.00" cy="102.50" r="1" fill="#ff0000"/>
+<circle id="CYCLE_EDIT_LIGHT" cx="30.00" cy="102.50" r="1" fill="#ff00ff"/>
+<circle id="COPY_PARAM" cx="85.00" cy="102.50" r="1" fill="#ff0000"/>
+<circle id="COPY_LIGHT" cx="85.00" cy="102.50" r="1" fill="#ff00ff"/>
+<circle id="PASTE_PARAM" cx="94.50" cy="102.50" r="1" fill="#ff0000"/>
+<circle id="PASTE_LIGHT" cx="94.50" cy="102.50" r="1" fill="#ff00ff"/>
+<circle id="CLEAR_PARAM" cx="104.00" cy="102.50" r="1" fill="#ff0000"/>
+<circle id="CLEAR_LIGHT" cx="104.00" cy="102.50" r="1" fill="#ff00ff"/>
+<circle id="STEP_PAGE_PARAM_0" cx="114.50" cy="103.10" r="1" fill="#ff0000"/>
+<circle id="STEP_PAGE_LIGHT_0" cx="114.50" cy="103.10" r="1" fill="#ff00ff"/>
+<circle id="STEP_PAGE_PARAM_1" cx="121.00" cy="103.10" r="1" fill="#ff0000"/>
+<circle id="STEP_PAGE_LIGHT_1" cx="121.00" cy="103.10" r="1" fill="#ff00ff"/>
+<circle id="STEP_PAGE_PARAM_2" cx="127.50" cy="103.10" r="1" fill="#ff0000"/>
+<circle id="STEP_PAGE_LIGHT_2" cx="127.50" cy="103.10" r="1" fill="#ff00ff"/>
+<circle id="STEP_PAGE_PARAM_3" cx="134.00" cy="103.10" r="1" fill="#ff0000"/>
+<circle id="STEP_PAGE_LIGHT_3" cx="134.00" cy="103.10" r="1" fill="#ff00ff"/>
+<circle id="FOLLOW_PARAM" cx="142.30" cy="103.10" r="1" fill="#ff0000"/>
+<circle id="FOLLOW_LIGHT" cx="142.30" cy="103.10" r="1" fill="#ff00ff"/>
+<circle id="PAD_PARAM_1" cx="8.30" cy="118.80" r="1" fill="#ff0000"/>
+<circle id="PAD_LIGHT_1" cx="8.30" cy="118.80" r="1" fill="#ff00ff"/>
+<circle id="TRACK_SELECT_PARAM_1" cx="8.30" cy="112.40" r="1" fill="#ff0000"/>
+<circle id="TRACK_SELECT_LIGHT_1" cx="8.30" cy="112.40" r="1" fill="#ff00ff"/>
+<circle id="PAD_PARAM_2" cx="17.26" cy="118.80" r="1" fill="#ff0000"/>
+<circle id="PAD_LIGHT_2" cx="17.26" cy="118.80" r="1" fill="#ff00ff"/>
+<circle id="TRACK_SELECT_PARAM_2" cx="17.26" cy="112.40" r="1" fill="#ff0000"/>
+<circle id="TRACK_SELECT_LIGHT_2" cx="17.26" cy="112.40" r="1" fill="#ff00ff"/>
+<circle id="PAD_PARAM_3" cx="26.22" cy="118.80" r="1" fill="#ff0000"/>
+<circle id="PAD_LIGHT_3" cx="26.22" cy="118.80" r="1" fill="#ff00ff"/>
+<circle id="TRACK_SELECT_PARAM_3" cx="26.22" cy="112.40" r="1" fill="#ff0000"/>
+<circle id="TRACK_SELECT_LIGHT_3" cx="26.22" cy="112.40" r="1" fill="#ff00ff"/>
+<circle id="PAD_PARAM_4" cx="35.18" cy="118.80" r="1" fill="#ff0000"/>
+<circle id="PAD_LIGHT_4" cx="35.18" cy="118.80" r="1" fill="#ff00ff"/>
+<circle id="TRACK_SELECT_PARAM_4" cx="35.18" cy="112.40" r="1" fill="#ff0000"/>
+<circle id="TRACK_SELECT_LIGHT_4" cx="35.18" cy="112.40" r="1" fill="#ff00ff"/>
+<circle id="PAD_PARAM_5" cx="44.14" cy="118.80" r="1" fill="#ff0000"/>
+<circle id="PAD_LIGHT_5" cx="44.14" cy="118.80" r="1" fill="#ff00ff"/>
+<circle id="TRACK_SELECT_PARAM_5" cx="44.14" cy="112.40" r="1" fill="#ff0000"/>
+<circle id="TRACK_SELECT_LIGHT_5" cx="44.14" cy="112.40" r="1" fill="#ff00ff"/>
+<circle id="PAD_PARAM_6" cx="53.10" cy="118.80" r="1" fill="#ff0000"/>
+<circle id="PAD_LIGHT_6" cx="53.10" cy="118.80" r="1" fill="#ff00ff"/>
+<circle id="TRACK_SELECT_PARAM_6" cx="53.10" cy="112.40" r="1" fill="#ff0000"/>
+<circle id="TRACK_SELECT_LIGHT_6" cx="53.10" cy="112.40" r="1" fill="#ff00ff"/>
+<circle id="PAD_PARAM_7" cx="62.06" cy="118.80" r="1" fill="#ff0000"/>
+<circle id="PAD_LIGHT_7" cx="62.06" cy="118.80" r="1" fill="#ff00ff"/>
+<circle id="TRACK_SELECT_PARAM_7" cx="62.06" cy="112.40" r="1" fill="#ff0000"/>
+<circle id="TRACK_SELECT_LIGHT_7" cx="62.06" cy="112.40" r="1" fill="#ff00ff"/>
+<circle id="PAD_PARAM_8" cx="71.02" cy="118.80" r="1" fill="#ff0000"/>
+<circle id="PAD_LIGHT_8" cx="71.02" cy="118.80" r="1" fill="#ff00ff"/>
+<circle id="TRACK_SELECT_PARAM_8" cx="71.02" cy="112.40" r="1" fill="#ff0000"/>
+<circle id="TRACK_SELECT_LIGHT_8" cx="71.02" cy="112.40" r="1" fill="#ff00ff"/>
+<circle id="PAD_PARAM_9" cx="79.98" cy="118.80" r="1" fill="#ff0000"/>
+<circle id="PAD_LIGHT_9" cx="79.98" cy="118.80" r="1" fill="#ff00ff"/>
+<circle id="TRACK_SELECT_PARAM_9" cx="79.98" cy="112.40" r="1" fill="#ff0000"/>
+<circle id="TRACK_SELECT_LIGHT_9" cx="79.98" cy="112.40" r="1" fill="#ff00ff"/>
+<circle id="PAD_PARAM_10" cx="88.94" cy="118.80" r="1" fill="#ff0000"/>
+<circle id="PAD_LIGHT_10" cx="88.94" cy="118.80" r="1" fill="#ff00ff"/>
+<circle id="TRACK_SELECT_PARAM_10" cx="88.94" cy="112.40" r="1" fill="#ff0000"/>
+<circle id="TRACK_SELECT_LIGHT_10" cx="88.94" cy="112.40" r="1" fill="#ff00ff"/>
+<circle id="PAD_PARAM_11" cx="97.90" cy="118.80" r="1" fill="#ff0000"/>
+<circle id="PAD_LIGHT_11" cx="97.90" cy="118.80" r="1" fill="#ff00ff"/>
+<circle id="TRACK_SELECT_PARAM_11" cx="97.90" cy="112.40" r="1" fill="#ff0000"/>
+<circle id="TRACK_SELECT_LIGHT_11" cx="97.90" cy="112.40" r="1" fill="#ff00ff"/>
+<circle id="PAD_PARAM_12" cx="106.86" cy="118.80" r="1" fill="#ff0000"/>
+<circle id="PAD_LIGHT_12" cx="106.86" cy="118.80" r="1" fill="#ff00ff"/>
+<circle id="TRACK_SELECT_PARAM_12" cx="106.86" cy="112.40" r="1" fill="#ff0000"/>
+<circle id="TRACK_SELECT_LIGHT_12" cx="106.86" cy="112.40" r="1" fill="#ff00ff"/>
+<circle id="PAD_PARAM_13" cx="115.82" cy="118.80" r="1" fill="#ff0000"/>
+<circle id="PAD_LIGHT_13" cx="115.82" cy="118.80" r="1" fill="#ff00ff"/>
+<circle id="TRACK_SELECT_PARAM_13" cx="115.82" cy="112.40" r="1" fill="#ff0000"/>
+<circle id="TRACK_SELECT_LIGHT_13" cx="115.82" cy="112.40" r="1" fill="#ff00ff"/>
+<circle id="PAD_PARAM_14" cx="124.78" cy="118.80" r="1" fill="#ff0000"/>
+<circle id="PAD_LIGHT_14" cx="124.78" cy="118.80" r="1" fill="#ff00ff"/>
+<circle id="TRACK_SELECT_PARAM_14" cx="124.78" cy="112.40" r="1" fill="#ff0000"/>
+<circle id="TRACK_SELECT_LIGHT_14" cx="124.78" cy="112.40" r="1" fill="#ff00ff"/>
+<circle id="PAD_PARAM_15" cx="133.74" cy="118.80" r="1" fill="#ff0000"/>
+<circle id="PAD_LIGHT_15" cx="133.74" cy="118.80" r="1" fill="#ff00ff"/>
+<circle id="TRACK_SELECT_PARAM_15" cx="133.74" cy="112.40" r="1" fill="#ff0000"/>
+<circle id="TRACK_SELECT_LIGHT_15" cx="133.74" cy="112.40" r="1" fill="#ff00ff"/>
+<circle id="PAD_PARAM_16" cx="142.70" cy="118.80" r="1" fill="#ff0000"/>
+<circle id="PAD_LIGHT_16" cx="142.70" cy="118.80" r="1" fill="#ff00ff"/>
+<circle id="TRACK_SELECT_PARAM_16" cx="142.70" cy="112.40" r="1" fill="#ff0000"/>
+<circle id="TRACK_SELECT_LIGHT_16" cx="142.70" cy="112.40" r="1" fill="#ff00ff"/>
+<circle id="PITCH_OUTPUT" cx="157.00" cy="106.50" r="1" fill="#0000ff"/>
+<circle id="GATE_OUTPUT" cx="167.50" cy="106.50" r="1" fill="#0000ff"/>
+<circle id="VELOCITY_OUTPUT" cx="178.00" cy="106.50" r="1" fill="#0000ff"/>
+<circle id="EOP_OUTPUT" cx="188.50" cy="106.50" r="1" fill="#0000ff"/>
+<circle id="CLOCK_OUTPUT" cx="157.00" cy="119.50" r="1" fill="#0000ff"/>
+<circle id="RESET_OUTPUT" cx="167.50" cy="119.50" r="1" fill="#0000ff"/>
 </g>
 </svg>

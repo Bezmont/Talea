@@ -7,7 +7,7 @@ Inspired in part by hardware algorithmic sequencers, including the Torso T-1. No
 affiliated with or endorsed by Torso Electronics.
 
 Parameters are grouped into four families — Shape, Groove, Tonal and Setup. Items marked
-**[Rack]** are features specific to this module that have no hardware counterpart.
+**[Rack]** are features specific to this VCV Rack module implementation.
 
 ---
 
@@ -77,6 +77,8 @@ Talea IN, Talea OUT; `tools/gen_panel.py`) are the current layout.
 ## 3. Panel elements
 
 ID prefixes: **K** knob · **B** button · **J** jack · **L** light · **D** display.
+Hover tooltips (every element's short name and description, and the context display's tips):
+[`src/rack/Tooltips.hpp`](../src/rack/Tooltips.hpp).
 `Enum` is the C++ identifier.
 
 ### 3.1 Transport, clock & performance
@@ -85,13 +87,18 @@ ID prefixes: **K** knob · **B** button · **J** jack · **L** light · **D** di
 | --- | ---------- | ------ | -------------------- | ------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | B01 | Play       | button | `PLAY_PARAM`       | toggle                          | off     | Play / pause: resumes from the current position; Reset (B02) returns to step 1. Pausing releases all gates.                          |
 | L01 | Play       | light  | `PLAY_LIGHT`       | —                              | —      |                                                                                                                                          |
-| B02 | Reset      | button | `RESET_PARAM`      | momentary                       | —      | All tracks to step 1. Right-click →*Kill stuck notes* (all gates low).                                                                |
+| B02 | Reset      | button | `RESET_PARAM`      | momentary                       | —      | All tracks to step 1. *Kill stuck notes* (all gates low) is in the module's context menu.                                                                |
 | B03 | Tap        | button | `TAP_PARAM`        | momentary                       | —      | Tap tempo (internal clock only).                                                                                                         |
 | K01 | Tempo      | knob   | `TEMPO_PARAM`      | 24–280 BPM                     | 120     | Internal clock; ignored when J01 patched.                                                                                                |
 | L02 | Clock      | light  | `CLOCK_LIGHT`      | —                              | —      | Quarter-note blink.                                                                                                                      |
 | J01 | Clock in   | input  | `CLOCK_INPUT`      | trigger                         | —      | PPQN in context menu (1, 2, 4, 8, 12, 24, 48, 96), default 4. Positions between pulses are interpolated from the measured period.      |
 | J02 | Reset in   | input  | `RESET_INPUT`      | trigger                         | —      |                                                                                                                                          |
 | J03 | Run in     | input  | `RUN_INPUT`        | gate / trigger                  | —      | Gate = run while high; trigger = toggle (menu).                                                                                          |
+| B58 | Rec        | button | `REC_PARAM`        | toggle                          | off     | **[Rack]** SEQ mode recording (§3.15): only while the selected track (the edited cycle in CYC EDIT) is in SEQ mode. Light solid = live recording, blinking = step recording (stopped). |
+| B59 | Overdub    | button | `OVERDUB_PARAM`    | toggle (saved)                  | off     | **[Rack]** Recording only (§3.15): on = notes played on a step that already has notes are added to its chord; off = they replace them. Light on while enabled. |
+| J26 | Note in V/Oct | input | `REC_PITCH_INPUT` | V/Oct, poly                    | —      | **[Rack]** Keyboard pitch for recording (e.g. from VCV MIDI-CV); channel n goes with gate channel n. |
+| J27 | Note in Gate  | input | `REC_GATE_INPUT`  | gate, poly                     | —      | **[Rack]** One channel per held key.                                                                                                     |
+| J28 | Note in Vel   | input | `REC_VELOCITY_INPUT` | 0–10 V, poly                | —      | **[Rack]** Unpatched: the Velocity knob.                                                                                                 |
 | B04 | Temp       | button | `TEMP_PARAM`       | click toggles (one mouse can't hold it and turn a knob) | off     | While active, every pattern edit (knobs, steps, cycles, random, page options) is a temporary overlay. Click again = revert; **Ctrl+click = keep** the changes; right-click menu: Keep / Discard. Mutes are never reverted; mutes staged during Temp apply when it ends. Saving while Temp is on saves the pattern without the overlay. Display shows a yellow TEMP tag. |
 | L04 | Temp       | light  | `TEMP_LIGHT`       | —                              | —      | Solid = held by J04, blinking = latched by B04.                                                                                                      |
 | J04 | Temp in    | —      | moved to the IN expander (Y-J19, §3.12b), v0.2 | | |
@@ -137,7 +144,7 @@ the display is edited by mouse.
 | K11 | Velocity    | knob | `VELOCITY_PARAM`    | 0–127                              | 100               | Base velocity.                                                                                                                                                           |
 | K12 | Probability | knob | `PROBABILITY_PARAM` | bipolar, centre = 100 % play        | centre            | CW = skip applies to all notes incl. repeats; CCW = pulses only (skipped pulse skips its repeats). Skip pattern follows a fixed random sequence keyed on each note's grid position, so the same notes skip on every replay and the knob only sets how many (seed/phase shift on RANDOM page, later). A skipped pulse plays no repeats and doesn't choke earlier ones. |
 | K13 | Sustain     | knob | `SUSTAIN_PARAM`     | shortest → very long (overlapping) | 50 % = 1 division | Note length relative to division: 0–100 % = 0–2 divisions (above 50 % notes overlap; the gate retriggers).                                                                                                                                        |
-| K14 | Accent      | knob | `ACCENT_PARAM`      | 0–100 %                            | 0                 | Bipolar velocity variation around Velocity, shaped by**Groove** (selected on GROOVE page). 100 % = ±63 velocity at the shape's peaks, evaluated at each note's time (repeats included). Percussion grooves (Agogo, Timbales, Congas, Bongo) are original one-bar 1/16 accent patterns; waveforms (Saw, Triangle, Sine, Pulse) span the Groove length. |
+| K14 | Accent      | knob | `ACCENT_PARAM`      | 0–100 %                            | 0                 | Bipolar velocity variation around Velocity, shaped by**Groove** (selected on GROOVE page). 100 % = ±63 velocity at the shape's peaks, evaluated at each note's time (repeats included). Percussion grooves (Agogo, Timbales, Congas, Bongo) are original one-bar 1/16 accent patterns; waveforms (Saw, Triangle, Sine, Pulse) span the Groove length. **[Rack]** GROOVE page SYNC: BARS (default) runs the shapes on pattern time; LOOP counts Groove length in loops of the track and restarts the accents with step 1 (percussion bars count from each loop's start), so a loop that isn't a whole number of bars (e.g. 14 × 1/16) doesn't drift against them. |
 | K15 | Timing      | knob | `TIMING_PARAM`      | bipolar, centre = straight          | centre            | Shifts every 2nd step later (CW) / earlier (CCW) = swing. Subdivision ×1/×2/×4 on GROOVE page: every 2nd unit of 1/2/4 steps moves; full Timing = half a unit. Counted from the start of each Length loop. Repeats follow their (shifted) pulse. |
 | K16 | Delay       | knob | `DELAY_PARAM`       | bipolar, centre = 0                 | centre            | Shifts the whole track earlier/later vs the grid, ±100 % = ±1 step. Notes pulled before the start of playback are skipped on the first pass. |
 
@@ -148,7 +155,7 @@ the display is edited by mouse.
 | K17 | Pitch   | knob | `PITCH_PARAM`   | ±4 octaves (±48 semitones, piano span), snapped to scale | 0 | Transposes the track's**note pool** in semitones; the result is snapped to the scale (nearest scale note, ties down), so with a scale some knob positions give the same notes. Pool itself is entered in the KEYS page (default pool: C4 alone). |
 | K18 | Harmony | knob | `HARMONY_PARAM` | relative (endless feel) | —      | Shifts**one chord tone at a time**: each CW detent moves the lowest pool note up one scale step, each CCW detent the highest down one, skipping notes already in the pool. Hysteretic (turning back moves a different note; alternating directions contracts the pool towards a cluster). Edits the pool itself. Right-click →*Restore pool*: back to the pool the current run of detents started from, for the whole group. A run ends when anything else edits the pool (KEYS, paste, clear, random) or the edit target changes (track vs. a cycle's own pool), so the next detent starts a fresh one. **[Rack]** Session state, not saved with the patch; one step in Rack's undo history like any other panel edit. |
 | K19 | Voicing | knob | `VOICING_PARAM` | 0–16 motion steps      | 0       | Amount of motion applied by the selected Style: position p = p moves, each taking the lowest note up an octave (or the highest down, VOICE = DOWN). Style sets the path through positions 0…Voicing over successive notes: Fixed = always Voicing; Ramp 0,1…V,0…; Climb 0,1,2,1,2,3…; Up/Down 0…V…1; Climb Up/Down = Climb folded back at V. Motion counter: Choke = every note played (pulses and repeats) advances it, restarting each Length loop; Tail = pulses play position 0 and each burst's repeats advance it. **Mono** arpeggiates the voiced pool one note per event (the voicing moves on after each full pass); **Poly** chords play their lowest note on the main outputs (full chords on the expander, later). Style chosen on STYLE page. |
-| K20 | Range   | knob | `RANGE_PARAM`   | 0–48 semitones (12-tone steps up to 4 octaves); display shows e.g. "1 oct + 5" | 0 | Adds up to Range semitones above the pool, following the selected**Phrase** (0 = pool, 1 = +Range) over the Phrase length; the sum is snapped to the scale. Cadence 1–4 are original 8-segment contours; Saw/Triangle/Sine/Pulse are waveforms; CV input maps −5…+5 V to 0…1; User is a drawn 16-column contour (PHRASE page). Every shape is a contour, not pitches: Range alone decides how far it reaches, and the result is snapped to the scale, so two levels can land on the same note. |
+| K20 | Range   | knob | `RANGE_PARAM`   | 0–48 semitones (12-tone steps up to 4 octaves); display shows e.g. "1 oct + 5" | 0 | Adds up to Range semitones above the pool, following the selected**Phrase** (0 = pool, 1 = +Range) over the Phrase length; the sum is snapped to the scale. Cadence 1–4 are original 8-segment contours; Saw/Triangle/Sine/Pulse are waveforms; CV input maps −5…+5 V to 0…1; User is a drawn 16-column contour (PHRASE page). **[Rack]** PHRASE page SYNC: BARS (default) runs the phrase on pattern time; LOOP counts Phrase length in loops of the track (each cycle's own loop with cycles), so the phrase restarts with step 1 however long the loop is. Every shape is a contour, not pitches: Range alone decides how far it reaches, and the result is snapped to the scale, so two levels can land on the same note. |
 
 Scale and Root are selected on the SCALE page (list + user-scale editor), not knobs.
 
@@ -192,12 +199,14 @@ around the steps, random Repeats stays finite, and Probability's amount adds ski
 
 ### 3.9 Inputs
 
-Main panel (v0.2): Clock, Reset and Run only (J01–J03, §3.1). Everything else — parameter
+Main panel (v0.2): Clock, Reset and Run (J01–J03, §3.1), and since v0.3 the NOTE IN jacks
+V/Oct, Gate and Velocity with REC (J26–J28, B58; §3.15) under them in the TRANSPORT box, which
+runs down beside the first knob row. Everything else — parameter
 CV, Transpose, Phrase CV, Pattern select, Temp gate, Mute apply, mute gates, Random
 regenerate — is on the IN expander (§3.12b). The old jacks J04, J10–J17, the Mod amounts
 K23–K26 and lights L40–L43 are retired (their ids stay reserved in the module so saved
 patches keep their indices). Main-panel Temp / All tracks / Random assign (B04–B06) sit in
-the PERFORM box above the outputs.
+the PERFORM box under TRANSPORT (the same width), beside GROOVE / TONAL.
 
 ### 3.10 Outputs
 
@@ -316,6 +325,55 @@ pulse plays a **value** instead of a note:
 - The pitch settings (Pitch, pool, scale, Harmony, Voicing, Range, Phrase, Style) are unused:
   the PHRASE / SCALE / STYLE pages show dimmed.
 
+### 3.15 SEQ mode (v0.3) **[Rack]**
+
+A track — or one cycle of it — can be a plain step sequencer instead of a Euclidean one.
+SETUP page **MODE** EUCLID / SEQ (in CYC EDIT **CYC MODE**: the edited cycle's own mode; also in
+the context menu). Stored per track, per cycle and per pattern like everything else.
+
+- **The sequence**: per step, a chord of up to 8 notes (none = a rest), a velocity (1–127)
+  and a gate length in **steps** (1–64; more than one = tied over the next steps until they
+  end, or until the next step with notes cuts them). Steps, Division and Length still set the
+  loop, so cycles, loop sync, random per cycle and the pattern length work unchanged.
+- **Not used in SEQ mode**: Pulses, Rotate, the Euclidean step edits; Scale, Root, Voicing /
+  Style, Mono, Range / Phrase and Harmony (the PHRASE / SCALE / STYLE pages show dimmed; the
+  Pulses, Rotate, Harmony, Voicing and Range knobs are dimmed and don't turn). The Velocity
+  knob gives new notes (KEYS, recording without a VEL input) their velocity.
+  Notes play as entered, **+ Pitch and Transpose** (no quantizing).
+- **Still applies**: Velocity locks (over the step's velocity), random, IN-expander CV, Accent,
+  Ramp, Probability, Repeats (with repeats the gate follows their spacing), Timing, Delay,
+  Sustain (shapes the last step of the gate: 50 % = the whole step).
+- **Switching to SEQ** with an empty sequence fills it from the hits playing now (each with
+  the Euclid pool's notes and the Velocity knob, one step long), so the rhythm carries over.
+- **Cycles** play the track's sequence until edited: the first edit in CYC EDIT (pads, KEYS,
+  lanes, recording) copies the track's into the cycle, which then keeps its own. CYCLE page
+  CLEAR **SEQ** (or ALL) puts the cycle back on the track's sequence; **MODE** drops its own mode.
+- **Editing**: STEP pad mode click = selects just that step (green) for the KEYS page and the
+  info line, with no locks; a rest stays a rest until KEYS gives it notes (a step's first note
+  brings the Velocity knob, 1 step). Right-click = the step becomes a rest. Ctrl+click starts / changes the step **lock**
+  selection as in EUCLID mode (blue; knobs turned lock those steps), a plain-clicked step
+  joining it. The KEYS page edits the selected steps' chord (any key — the scale doesn't apply; **REST** clears them) and the STEP page shows
+  **N.VEL** (velocity) and **GATE** (1–16 steps) lanes first, click / drag to set, right-click
+  = default. SEQ mode has no pool: without a selection the KEYS page is empty. The KEYS
+  page marks every note of the chord sounding now. COPY /
+  PASTE / CLEAR on a step pad include its notes; on a track button its sequence.
+- **Recording** (REC, B58; only in SEQ mode): notes at NOTE IN (poly V/Oct + Gate + Velocity,
+  J26–J28) go into the selected track's sequence — the edited cycle's in CYC EDIT.
+  - *Playing* = live: each note goes to the **nearest step** (quantized to the Division; past a
+    loop's last step, the next loop's first), its length rounded to whole steps (min 1). Notes
+    starting on a step while an earlier note there is held join its chord (loudest velocity,
+    longest gate); a step played again on a later pass is replaced, or with **OVD** (B59)
+    the new notes join its chord (loudest velocity, longest gate kept).
+  - *Stopped* = step record: each chord goes to the **cursor** (blinking red pad; starts at the
+    first selected step or step 1; a pad click moves it), gate 1 (with OVD: added to the
+    step's notes, its gate kept); when all keys are released
+    the cursor moves on, wrapping at Steps.
+  - A take (REC on → off) is one undo step. REC goes off when the target leaves SEQ mode.
+- **Monitoring**: in SEQ mode the keys held at NOTE IN always sound on the selected track's
+  outputs (main jacks, OUT expander, MIDI), REC on or off, with the playback pitch path (+ Pitch
+  and Transpose) and their velocity. While keys are held they take the track's outputs over
+  from its sequence; keys added to a held chord don't retrigger the gate. Not on CC tracks.
+
 ## 4. Context display pages (D01)
 
 Header: page name · track number/colour · cycle number (red if CYC EDIT) · step (if locking).
@@ -323,18 +381,18 @@ Header: page name · track number/colour · cycle number (red if CYC EDIT) · st
 | Page    | Shows                                                                                                                                                   | Editable here                                                                                                                                 |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | TRACK   | Euclidean ring of selected track with playhead, generated vs manual hits, repeats ticks; overview of all 16 tracks as mini rings.                       | Track name/colour; track type (Note / CC / FX — §5).                                                                                        |
-| STEP    | With several cycles (TRACK/STEP pages): the current 16-step page as an edit row (TRACK, or EDIT n in CYC EDIT) plus one lane per cycle showing that page as the cycle plays it (label white = playing, blue-grey = muted, * = has changes, box = selected, red in CYC EDIT; playhead on the playing lane). STEP page: the current 16-step page as an edit row (TRACK, or EDIT n in CYC EDIT; selection / lock marks) and a **lane per locked parameter** (up to 4; a + on the last label when more are locked) showing each step's lock as a bar (from the centre for bipolar parameters). Click or drag in a lane sets that step's lock (drawing across steps); right-click removes it. In CYC EDIT the lanes show and edit the edited cycle's locks over the track's. Later: retrigger markers. | Toggle pulses, add/remove locks, draw lock values across steps, retrigger, copy/clear step.                                                   |
-| CYCLE   | Cycle count (1–8, default 1), slots (* = overrides, (n) = muted), selected and playing cycle, override count. | Count; select; mute; clear all overrides or one parameter of the selected cycle. |
-| KEYS    | Piano keyboard, 4 octaves (C2–B5 by default; < > shift an octave, C0 up to B8), C keys named. Pool notes orange, the sounding note a white dot, root marked, out-of-scale keys tinted. With steps selected (STEP mode, Ctrl+click): the first selected step's pool — blue = its own **step pool** lock, orange = the track's pool it would start from. Dimmed on a CC track. | Click a key = add / remove it from the pool (max 8, last note stays; out-of-scale keys can't be added, an out-of-scale pool note can be removed); in CYC EDIT the edited cycle's pool. With steps selected a click edits their **step pool** (starting from the track's pool; every selected step gets the result; in CYC EDIT the edited cycle's locks); **TRACK POOL** drops their step pools. |
+| STEP    | With several cycles (TRACK/STEP pages): the current 16-step page as an edit row (TRACK, or EDIT n in CYC EDIT) plus one lane per cycle showing that page as the cycle plays it (label white = playing, blue-grey = muted, * = has changes, box = selected, red in CYC EDIT; playhead on the playing lane). STEP page: the current 16-step page as an edit row (TRACK, or EDIT n in CYC EDIT; selection / lock marks) and a **lane per locked parameter** (up to 4; a + on the last label when more are locked) showing each step's lock as a bar (from the centre for bipolar parameters). Click or drag in a lane sets that step's lock (drawing across steps); right-click removes it. In CYC EDIT the lanes show and edit the edited cycle's locks over the track's. Later: retrigger markers. | Toggle pulses, add/remove locks, draw lock values across steps, retrigger, copy/clear step. SEQ mode: N.VEL / GATE lanes first (§3.15).                                                   |
+| CYCLE   | Cycle count (1–8, default 1), slots (* = overrides, (n) = muted), selected and playing cycle, override count. | Count; select; mute; clear all overrides or one parameter of the selected cycle (SEQ / MODE: its own sequence / mode, §3.15). |
+| KEYS    | Piano keyboard, 4 octaves (C2–B5 by default; < > shift an octave, C0 up to B8), C keys named. Pool notes orange, the sounding note a white dot, root marked, out-of-scale keys tinted. With steps selected (STEP mode, Ctrl+click): the first selected step's pool — blue = its own **step pool** lock, orange = the track's pool it would start from. Dimmed on a CC track. | Click a key = add / remove it from the pool (max 8, last note stays; out-of-scale keys can't be added, an out-of-scale pool note can be removed); in CYC EDIT the edited cycle's pool. With steps selected a click edits their **step pool** (starting from the track's pool; every selected step gets the result; in CYC EDIT the edited cycle's locks); **TRACK POOL** drops their step pools. SEQ mode (§3.15): any key; selected steps' chord, **REST** clears them. |
 | SCALE   | SCALE (2 rows) and ROOT rows; NOTES = a one-octave keyboard (the KEYS page component, shorter): scale notes orange, root marked; click toggles a note (turns the scale into User).                                                                                         | Preset scale (list below), user scale editor (C-rooted, transposed by Root), Root C…B.                                                       |
-| PHRASE  | Selected phrase shape drawn over Phrase Length, notes resulting from Range. **User**: the drawn grid instead — 16 columns across the phrase × 12 levels, the set cell bright with its stem below, the playing column lit; the corner shows the note it is reaching for. Click / drag a column to set its level. | Phrase: Cadence 1–4, Saw, Triangle, Sine, Pulse, CV input, **User** · Phrase length 1/2/4/8/16/32/64 bars (default 4). Phrase, length and the User grid are per track **and per cycle** (CYC EDIT edits the cycle's own copy, made from the track's on the first edit). |
+| PHRASE  | Selected phrase shape drawn over Phrase Length, notes resulting from Range. **User**: the drawn grid instead — 16 columns across the phrase × 12 levels, the set cell bright with its stem below, the playing column lit; the corner shows the note it is reaching for. Click / drag a column to set its level. | Phrase: Cadence 1–4, Saw, Triangle, Sine, Pulse, CV input, **User** · Phrase length 1/2/4/8/16/32/64 bars (default 4), or loops · **SYNC** BARS / LOOP (the length row reads LOOPS when synced; the diagram then spans that many loops). Phrase, length, sync and the User grid are per track **and per cycle** (CYC EDIT edits the cycle's own copy, made from the track's on the first edit). |
 | STYLE   | Chord/arp motion diagram for current pool + Voicing amount.                                                                                             | Style: Fixed, Ramp, Climb, Up/Down, Climb Up/Down · Poly / Mono (arp) · Direction up/down.                                                  |
 | REPEAT  | One pulse's repeat burst: spacing (Time/Pace), velocity ramp.                                                                                           | Mode Choke / Tail · Division mode (fixed / triplet / free). (Time is set by K09 only.)                            |
-| GROOVE  | Groove curve over Groove Length; per-step accent result; swing grid.                                                                                    | Groove: Agogo, Timbales, Congas, Bongo, Saw, Triangle, Sine, Pulse · Groove length 1–64 bars (default 4) · Timing subdivision ×1/×2/×4. |
+| GROOVE  | Groove curve over Groove Length; per-step accent result; swing grid.                                                                                    | Groove: Agogo, Timbales, Congas, Bongo, Saw, Triangle, Sine, Pulse · Groove length 1–64 bars (default 4), or loops (waveforms only: the row is dimmed while a percussion groove is selected) · Timing subdivision ×1/×2/×4 · **SYNC** BARS / LOOP (see K14). |
 | RANDOM  | Table of every randomisable parameter: amount (bipolar) and unit (click: per cycle / per Random Rate); C = per cycle, R = per Random Rate. SEQ row: REGEN (new seed), PHASE −/+ (shift every sequence one value), LOCK (freeze the sequences as they are now, Variance stops re-rolling; click again to unlock), PROB −/+ (shift Probability's skip pattern one step), SLEW (click steps 0/25/50/75/100 %: Random Rate values glide to the next over that much of each tick). CLEAR row (ALL / one parameter); info line shows Variance, Rate, phases, lock. Opens when Rnd assign turns on. | Amount, lock, slew, phase shift ±1, regenerate 16-step sequence, probability phase shift.                                                    |
 | PATTERN | PLAY row: the 16 slots (orange = playing, * = holds a pattern, outline = queued / in chain), click = queue. COPY TO n: copies the playing pattern to slot n (while Temp is on the row reads TEMP TO and commits the Temp state there; onto the playing slot it keeps the Temp edits). CLEAR n: slot back to the default. SWITCH: switch timing (Now / Beat / Bar / Pattern end, default Pattern end; one setting per module). Info line: playing, queued with beats to go, chain. PATTERN mode opens this page.                                                                                                              | Chain edit, copy/clear pattern, commit Temp state to a slot.                                                                                  |
 | SONG    | **Song mode**: a list of up to 64 entries, each a pattern slot played for a number of bars (1–999). Top row: SONG ON/OFF, LOOP, FOLLOW, < > pages of 16 entries. Grid (2 × 8 cells, "P5 x8"): click = select (blue outline), + = add the playing pattern, mouse wheel = bars; the playing entry shows its progress, the entry the song resumes at is outlined red. Rows: PATTERN (the selected entry's slot; its bars follow the new pattern's length), BARS (− / + / 1 2 4 8 16 32 / PAT = the pattern's length), EDIT (ADD the playing pattern, INSERT a copy before the selected entry, DELETE, CLEAR SONG). With the SONG page shown in PATTERN pad mode, pattern pads add their pattern to the song. Info line: entry, pattern, bar, total bars. | **Playback**: a new entry's bars = its pattern's length rounded up to whole bars. With SONG ON, Reset puts the song at entry 1 (Play starts it); turning it on mid-play starts entry 1 on the next bar line. Each entry plays its pattern for its bars, restarting the pattern from step 1 every time it ends, then the next entry starts on the bar line. After the last entry: LOOP = back to entry 1, otherwise the sequencer stops and rewinds to entry 1 (a Run gate has to go low before it runs again). Stop / Play continues where it stopped. **Override**: any pattern switch that isn't the song's (pad click, chain, CV) takes over; SONG ON blinks and the song remembers the bar it left. Clicking SONG resumes it there on the next bar line (dropping the queued switch / chain). The song and SONG ON / FOLLOW are saved with the module, not per pattern. |
-| SETUP   | Pattern Quantize, MIDI channel, track→track Output routing, Mod 1–4 routing matrix.                                                                   | Quantize (one per module, set on the PATTERN page for now), channel, routing, mod destinations/scope.                                                                             |
+| SETUP   | Pattern Quantize, MIDI channel, TYPE NOTE / CC, **MODE EUCLID / SEQ** (§3.15), track→track Output routing, Mod 1–4 routing matrix.                                                                   | Quantize (one per module, set on the PATTERN page for now), channel, routing, mod destinations/scope.                                                                             |
 
 **Preset scales** (common sequencer set): Chromatic · Major (Ionian) · Natural Minor (Aeolian) ·
 Harmonic Minor · Melodic Minor · Dorian · Phrygian · Lydian · Mixolydian · Locrian ·

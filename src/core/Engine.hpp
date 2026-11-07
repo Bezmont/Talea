@@ -308,6 +308,14 @@ public:
 
 	/** Cycle slot `track` plays at musical time `t` (its first cycle before time 0). */
 	int cycleAt(int track, double t) const;
+	/** Position of `track` in its loops at musical time `t` (loops completed since the pattern
+	started plus the fraction through the current one; 0 before time 0). What Phrase and Groove
+	follow when synced to the loop (Track::loopPosition). */
+	double loopsAt(int track, double t) const;
+	/** SEQ recording: the step of `track` nearest musical time `t` (quantized to the step grid
+	of the cycle playing then; past the last step of a loop, the next loop's first), and that
+	step's length in quarter notes. */
+	int nearestStep(int track, double t, double& stepQuarters) const;
 	/** Step index of `track` at musical time `t`, or -1 before time 0. */
 	int stepAt(int track, double t) const;
 	/** End-of-pattern period in quarter notes: the longest track period (the sum of its
@@ -318,7 +326,8 @@ public:
 	TrackRandom::locked). */
 	void lockRandom(int track, double now);
 
-	/** Rotated hit mask of a track, or of one of its cycles, cached between calls. */
+	/** Rotated hit mask of a track, or of one of its cycles, cached between calls. In SEQ mode
+	the steps of its sequence that have notes. */
 	StepMask hits(int track);
 	StepMask hits(int track, int cycle);
 
@@ -339,7 +348,8 @@ private:
 		StepMask hits = 0;
 	};
 	HitCache cache_[kNumTracks][kMaxCycles];
-	StepMask hitsOf(int track, int slot, const Track& t);
+	/** `t` is the track as cycle `cycle` plays it (-1 = the track itself), cached in `slot`. */
+	StepMask hitsOf(int track, int slot, const Track& t, int cycle);
 
 	/** A stretch of time one cycle plays: a track's spans run back to back from time 0,
 	numbered from 0. */
@@ -371,6 +381,8 @@ private:
 		double grid = 0.0;  // the pulse's grid time and loop count, for its random values
 		long randomLoop = 0;
 		int lockPos = -1; // step whose locks the repeats play with, -1 = none
+		double loopStart = 0.0, loopLength = 1.0; // the pulse's loop (randomLoop counts it)
+		int seqPos = -1; // SEQ mode: the sequence step it plays, -1 = none
 	};
 	static constexpr int kMaxBursts = 16; // per track, for Tail mode
 	Burst bursts_[kNumTracks][kMaxBursts];

@@ -2,6 +2,7 @@
 #include "Widgets.hpp"
 #include "InLayout.hpp"
 #include "Expander.hpp"
+#include "Tooltips.hpp"
 
 using namespace talea;
 
@@ -33,16 +34,18 @@ struct TaleaIn : Module {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 		for (int i = 0; i < kNumModParams; i++) {
 			const char* name = kTrackParams[kModParams[i]].name;
-			configParam(ATTEN_PARAM + i, -1.f, 1.f, 1.f, string::f("%s CV amount", name), "%", 0.f, 100.f);
-			configInput(CV_INPUT + i, string::f("%s CV (+-5 V = full range; channel n = track n)", name));
+			configParam(ATTEN_PARAM + i, -1.f, 1.f, 1.f, string::f("%s CV amount", name), "%", 0.f, 100.f)
+				->description = tips::kInAmount;
+			configInput(CV_INPUT + i, string::f("%s CV", name))->description = tips::kInCv;
 		}
-		configInput(TRANSPOSE_INPUT, "Transpose (V/oct, channel n = track n)");
-		configInput(PHRASE_INPUT, "Phrase CV (channel n = track n)");
-		configInput(PATTERN_INPUT, "Pattern select (0-10 V)");
-		configInput(TEMP_INPUT, "Temp gate (Temp while high)");
-		configInput(MUTE_INPUT, "Mute gates (high = muted; channel n = track n)");
-		configInput(MUTE_APPLY_INPUT, "Mute apply (trigger applies staged mutes)");
-		configInput(REGEN_INPUT, "Random regenerate (trigger; channel n = track n)");
+		configInput(TRANSPOSE_INPUT, "Transpose")->description = tips::kInTranspose;
+		configInput(PHRASE_INPUT, "Phrase CV")->description = tips::kInPhrase;
+		configInput(PATTERN_INPUT, "Pattern select")->description = tips::kInPattern;
+		configInput(TEMP_INPUT, "Temp gate")->description = tips::kInTemp;
+		configInput(MUTE_INPUT, "Mute gates")->description = tips::kInMute;
+		configInput(MUTE_APPLY_INPUT, "Mute apply")->description = tips::kInMuteApply;
+		configInput(REGEN_INPUT, "Random regenerate")->description = tips::kInRegen;
+		configLight(LINK_LIGHT, "Link")->description = tips::kInLink;
 		lightDivider.setDivision(256);
 	}
 

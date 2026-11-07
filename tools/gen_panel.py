@@ -149,10 +149,17 @@ art.append(f'<rect x="0" y="0" width="{W:.2f}" height="{H}" fill="{BG}"/>')
 TITLE_W, SUB_W, TITLE_GAP = 9.73 * 1.05, 23.29, 2.5
 title_x = W / 2 - (TITLE_W + TITLE_GAP + SUB_W) / 2
 text(title_x, 6.0, "Talea", size=4.0, color=TEXT, anchor="start", weight="bold")
-text(title_x + TITLE_W + TITLE_GAP, 6.0, "EUCLIDEAN SEQUENCER", size=1.9, color=DIM, anchor="start")
+text(title_x + TITLE_W + TITLE_GAP, 6.0, "MULTI-SEQUENCER", size=1.9, color=DIM, anchor="start")
 
-# Transport block
-box(3, 8, 38, 46, "TRANSPORT")
+# Every gap between sections (and above the knob rows) is GAP. The left column (TRANSPORT,
+# PERFORM under it) ends GAP before the display and the knob rows.
+GAP = 2
+RIGHT_X = 44                # display and knob rows
+LEFT_W = RIGHT_X - GAP - 3  # left column width
+
+# Transport block: down to the bottom of the first knob row, with the recording inputs (SEQ
+# mode) under the transport inputs.
+box(3, 8, LEFT_W, 66.5, "TRANSPORT")
 button("B01", "PLAY_PARAM", 10, 17, "PLAY", light="PLAY_LIGHT")
 button("B02", "RESET_PARAM", 22, 17, "RESET")
 button("B03", "TAP_PARAM", 34, 17, "TAP")
@@ -168,9 +175,21 @@ text(4.5, 39.0, "IN", size=1.6, color=DIM, anchor="start")
 text(10, 51.3, "CLK", size=1.8)
 text(22, 51.3, "RST", size=1.8)
 text(34, 51.3, "RUN", size=1.8)
+REC_Y = 65.4
+text(4.5, 56.9, "NOTE IN", size=1.6, color=DIM, anchor="start")
+button("B58", "REC_PARAM", 34, 56.3, None, light="REC_LIGHT")
+button("B59", "OVERDUB_PARAM", 22, 56.3, None, light="OVERDUB_LIGHT")
+text(17.6, 56.9, "OVD", size=1.8, anchor="end")
+text(29.6, 56.9, "REC", size=1.8, anchor="end")
+jack("J26", "REC_PITCH_INPUT", 10, REC_Y, None)
+jack("J27", "REC_GATE_INPUT", 22, REC_Y, None)
+jack("J28", "REC_VELOCITY_INPUT", 34, REC_Y, None)
+text(10, REC_Y + 7.3, "V/OCT", size=1.8)
+text(22, REC_Y + 7.3, "GATE", size=1.8)
+text(34, REC_Y + 7.3, "VEL", size=1.8)
 
 # Context display
-DX, DY, DW, DH = 44, 8, W - 44 - 3, 47
+DX, DY, DW, DH = RIGHT_X, 8, W - RIGHT_X - 3, 47
 components.append(("widget", "ContextDisplay", DX, DY, DW, DH))
 art.append(
     f'<rect x="{DX}" y="{DY}" width="{DW:.2f}" height="{DH}" rx="1" fill="#0d0f12" '
@@ -219,53 +238,72 @@ for t in range(16):
         f'fill="{DIM}" text-anchor="middle">{t + 1}</text>'
     )
 
-# Knob rows
-ROW1_Y, ROW2_Y = 68.5, 87.5
+# Knob rows: 17.5 high, GAP apart, the first GAP under the display. Each row's groups share the
+# width from RIGHT_X to the panel edge, GAP apart, at one knob pitch.
+ROW_H = 17.5
+ROW1_TOP = DY + DH + GAP
+ROW2_TOP = ROW1_TOP + ROW_H + GAP
+ROW1_Y, ROW2_Y = ROW1_TOP + 11.5, ROW2_TOP + 11.5
 
 
-def knob_group(title, x0, y, items):
+def row_pitch(knobs, groups):
+    return (W - 3 - RIGHT_X - (groups - 1) * GAP) / knobs
+
+
+def knob_group(title, x0, y, items, pitch):
     n = len(items)
-    x_first = x0 + 6.5
-    box(x0, y - 11.5, n * 13 + 0, 17.5, title)
+    box(x0, y - 11.5, n * pitch, ROW_H, title)
     for i, (spec_id, name, label) in enumerate(items):
-        knob(spec_id, name, x_first + i * 13, y + 0.5, label)
+        knob(spec_id, name, x0 + pitch / 2 + i * pitch, y + 0.5, label)
+    return x0 + n * pitch + GAP
 
 
-knob_group("SHAPE", 3, ROW1_Y, [
+P1 = row_pitch(11, 3)
+x = knob_group("SHAPE", RIGHT_X, ROW1_Y, [
     ("K02", "STEPS_PARAM", "STEPS"),
     ("K03", "PULSES_PARAM", "PULSES"),
     ("K04", "ROTATE_PARAM", "ROTATE"),
     ("K05", "DIVISION_PARAM", "DIVISION"),
     ("K06", "LENGTH_PARAM", "LENGTH"),
-])
-knob_group("REPEATS", 70, ROW1_Y, [
+], P1)
+x = knob_group("REPEATS", x, ROW1_Y, [
     ("K07", "REPEATS_PARAM", "REPEATS"),
     ("K08", "RAMP_PARAM", "RAMP"),
     ("K09", "REPEAT_TIME_PARAM", "TIME"),
     ("K10", "PACE_PARAM", "PACE"),
-])
-knob_group("RANDOM", 124, ROW1_Y, [
+], P1)
+knob_group("RANDOM", x, ROW1_Y, [
     ("K21", "VARIANCE_PARAM", "VARIANCE"),
     ("K22", "RANDOM_RATE_PARAM", "RATE"),
-])
-knob_group("GROOVE", 3, ROW2_Y, [
+], P1)
+# Second row: PERFORM in the left column under TRANSPORT, GROOVE / TONAL across the rest.
+P2 = row_pitch(10, 2)
+x = knob_group("GROOVE", RIGHT_X, ROW2_Y, [
     ("K11", "VELOCITY_PARAM", "VELOCITY"),
     ("K12", "PROBABILITY_PARAM", "PROB"),
     ("K13", "SUSTAIN_PARAM", "SUSTAIN"),
     ("K14", "ACCENT_PARAM", "ACCENT"),
     ("K15", "TIMING_PARAM", "TIMING"),
     ("K16", "DELAY_PARAM", "DELAY"),
-])
-knob_group("TONAL", 83, ROW2_Y, [
+], P2)
+knob_group("TONAL", x, ROW2_Y, [
     ("K17", "PITCH_PARAM", "PITCH"),
     ("K18", "HARMONY_PARAM", "HARMONY"),
     ("K19", "VOICING_PARAM", "VOICING"),
     ("K20", "RANGE_PARAM", "RANGE"),
-])
+], P2)
+box(3, ROW2_TOP, LEFT_W, ROW_H, "PERFORM")
+for x, (sid, name, label) in zip([10, 22, 34], [("B04", "TEMP_PARAM", "TEMP"), ("B05", "ALL_PARAM", "ALL TRACKS"),
+                                                ("B06", "RND_ASSIGN_PARAM", "RND ASSIGN")]):
+    button(sid, name, x, ROW2_Y + 0.5, None, light=name.replace("_PARAM", "_LIGHT"))
+    text(x, ROW2_Y - 4.7, label, size=1.7)
 
-# Mode / edit row
-MODE_Y = 102
-box(3, 95.5, 145, 30.5)
+# Mode / edit row: the pad box and OUT, GAP under the knob rows (D3 = offset from the old
+# layout, which put this row's top at 95.5).
+ROW3_TOP = ROW2_TOP + ROW_H + GAP
+D3 = ROW3_TOP - 95.5
+MODE_Y = 102 + D3
+box(3, ROW3_TOP, 145, 30.5)
 # B13 (KEYS) is retired: the display's KEYS page replaced it.
 modes = [("B11", "MODE_STEP_PARAM", "STEP"), ("B12", "MODE_CYCLE_PARAM", "CYCLE"),
          ("B14", "MODE_MUTE_PARAM", "MUTE"), ("B15", "MODE_PATTERN_PARAM", "PATTERN")]
@@ -274,7 +312,7 @@ mode_x = [9 + i * 10.5 for i in (0, 1, 3, 4)]
 for i, (sid, name, label) in enumerate(modes):
     button(sid, name, mode_x[i], MODE_Y, None, light=f"MODE_LIGHT_{i}")
     text(mode_x[i], MODE_Y + 5.3, label, size=1.7)
-text(5, 98.4, "PAD MODE", size=1.6, color=ACCENT, anchor="start", weight="bold")
+text(5, 98.4 + D3, "PAD MODE", size=1.6, color=ACCENT, anchor="start", weight="bold")
 button("B16", "CYCLE_EDIT_PARAM", 9 + 2 * 10.5, MODE_Y, None, light="CYCLE_EDIT_LIGHT")
 text(9 + 2 * 10.5, MODE_Y + 5.3, "CYC EDIT", size=1.7)
 for i, (sid, name, label) in enumerate([("B17", "COPY_PARAM", "COPY"), ("B18", "PASTE_PARAM", "PASTE"),
@@ -285,9 +323,9 @@ for i, (sid, name, label) in enumerate([("B17", "COPY_PARAM", "COPY"), ("B18", "
 
 # Step pages (steps 1-16 / 17-32 / 33-48 / 49-64) + follow playhead
 R_SMALL = 2.3
-art.append(f'<rect x="110.5" y="96.6" width="36.3" height="13.2" rx="0.8" fill="none" '
+art.append(f'<rect x="110.5" y="{96.6 + D3:.2f}" width="36.3" height="13.2" rx="0.8" fill="none" '
            f'stroke="{BOX_STROKE}" stroke-width="0.3"/>')
-text(112, 98.9, "STEP PAGE", size=1.5, color=ACCENT, anchor="start", weight="bold")
+text(112, 98.9 + D3, "STEP PAGE", size=1.5, color=ACCENT, anchor="start", weight="bold")
 for i in range(4):
     x = 114.5 + i * 6.5
     button(f"B{36 + i}", f"STEP_PAGE_PARAM_{i}", x, MODE_Y + 0.6, None,
@@ -298,8 +336,8 @@ text(142.3, MODE_Y + 5.3, "FOLLOW", size=1.35)
 
 # Pads: spread evenly inside the pad box (x 3..148) keeping BOX_MARGIN to each border, with a
 # row of track-select buttons (numbered 1-16, which also numbers the pads) just above.
-TRACK_BTN_Y = 111.9
-PAD_Y = 118.3
+TRACK_BTN_Y = 111.9 + D3
+PAD_Y = 118.3 + D3
 PAD_BOX_L, PAD_BOX_R = 3, 3 + 145
 first = PAD_BOX_L + BOX_MARGIN + PAD / 2
 last = PAD_BOX_R - BOX_MARGIN - PAD / 2
@@ -309,22 +347,18 @@ for n in range(16):
     pad(f"B{20 + n}", n + 1, x, PAD_Y)
     track_button(f"B{42 + n}", n + 1, x, TRACK_BTN_Y)
 
-# Performance buttons (the inputs live on the IN expander) and the outputs
-IO_X = 151
-cols = [158, 168.5, 179, 189.5]
-box(IO_X, 57, W - IO_X - 3, 35, "PERFORM")
-for x, (sid, name, label) in zip([160, 175.5, 191], [("B04", "TEMP_PARAM", "TEMP"), ("B05", "ALL_PARAM", "ALL TRACKS"),
-                                                     ("B06", "RND_ASSIGN_PARAM", "RND ASSIGN")]):
-    button(sid, name, x, 73, None, light=name.replace("_PARAM", "_LIGHT"))
-    text(x, 79.6, label, size=1.7)
-box(IO_X, 94, W - IO_X - 3, 32, "OUT", fill=OUT_FILL)
+# The outputs (the inputs live on the IN expander): OUT level with the pad box, GAP right of
+# it; the columns keep their place in the box.
+IO_X = 3 + 145 + GAP
+cols = [c + IO_X - 151 for c in (158, 168.5, 179, 189.5)]
+box(IO_X, ROW3_TOP, W - IO_X - 3, 30.5, "OUT", fill=OUT_FILL)
 for i, (sid, name, label) in enumerate([("J20", "PITCH_OUTPUT", "PITCH"), ("J21", "GATE_OUTPUT", "GATE"),
                                         ("J22", "VELOCITY_OUTPUT", "VEL"), ("J25", "EOP_OUTPUT", "EOP")]):
-    jack(sid, name, cols[i], 105, label, output=True)
+    jack(sid, name, cols[i], 106 + D3, label, output=True)
 for i, (sid, name, label) in enumerate([("J23", "CLOCK_OUTPUT", "CLK"), ("J24", "RESET_OUTPUT", "RST")]):
-    jack(sid, name, cols[i], 118, label, output=True)
-text(cols[2] + 5, 117.4, "poly 16:", size=1.6, color=DIM)
-text(cols[2] + 5, 119.6, "ch n = track n", size=1.6, color=DIM)
+    jack(sid, name, cols[i], 119 + D3, label, output=True)
+text(cols[2] + 5, 118.4 + D3, "poly 16:", size=1.6, color=DIM)
+text(cols[2] + 5, 120.6 + D3, "ch n = track n", size=1.6, color=DIM)
 
 
 # ---------------------------------------------------------------- checks

@@ -20,13 +20,16 @@ CXXFLAGS += -std=c++17
 TEST_SOURCES := $(wildcard src/core/*.cpp) $(wildcard tests/*.cpp)
 TEST_HEADERS := $(wildcard src/core/*.hpp) $(wildcard tests/*.hpp)
 TEST_BIN := build/tests/talea_tests$(if $(ARCH_WIN),.exe,)
+# Tests keep Engines (~0.8 MB each) on the stack; Windows' default stack is 1 MB.
+comma := ,
+TEST_LDFLAGS := $(if $(ARCH_WIN),-Wl$(comma)--stack$(comma)16777216,)
 
 test: $(TEST_BIN)
 	./$(TEST_BIN)
 
 $(TEST_BIN): $(TEST_SOURCES) $(TEST_HEADERS)
 	@mkdir -p $(@D)
-	$(CXX) -std=c++17 -O1 -g -Wall -Wextra -Werror -Isrc -o $@ $(TEST_SOURCES)
+	$(CXX) -std=c++17 -O1 -g -Wall -Wextra -Werror -Isrc -o $@ $(TEST_SOURCES) $(TEST_LDFLAGS)
 
 # Regenerate the panel SVG, previews and src/rack/PanelLayout.hpp.
 panel:

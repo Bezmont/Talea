@@ -4,7 +4,7 @@
   "version": "2.0.0",
   "license": "GPL-3.0-or-later",
   "brand": "Jezric",
-  "author": "Bezmont",
+  "author": "Jezric Software",
   "authorEmail": "",
   "authorUrl": "https://github.com/Bezmont",
   "pluginUrl": "",
@@ -16,7 +16,7 @@
     {
       "slug": "Talea",
       "name": "Talea",
-      "description": "16-track Euclidean / algorithmic sequencer and composition tool",
+      "description": "16-Track Multi-mode sequencer",
       "tags": ["Sequencer", "Polyphonic"]
     },
     {

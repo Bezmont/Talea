@@ -24,66 +24,73 @@ constexpr Pos CLOCK_LIGHT = {35.00f, 30.00f};
 constexpr Pos CLOCK_INPUT = {10.00f, 44.00f};
 constexpr Pos RESET_INPUT = {22.00f, 44.00f};
 constexpr Pos RUN_INPUT = {34.00f, 44.00f};
+constexpr Pos REC_PARAM = {34.00f, 56.30f};
+constexpr Pos REC_LIGHT = {34.00f, 56.30f};
+constexpr Pos OVERDUB_PARAM = {22.00f, 56.30f};
+constexpr Pos OVERDUB_LIGHT = {22.00f, 56.30f};
+constexpr Pos REC_PITCH_INPUT = {10.00f, 65.40f};
+constexpr Pos REC_GATE_INPUT = {22.00f, 65.40f};
+constexpr Pos REC_VELOCITY_INPUT = {34.00f, 65.40f};
 constexpr Rect ContextDisplay = {44.00f, 8.00f, 156.20f, 47.00f};
-constexpr Pos STEPS_PARAM = {9.50f, 69.00f};
-constexpr Pos PULSES_PARAM = {22.50f, 69.00f};
-constexpr Pos ROTATE_PARAM = {35.50f, 69.00f};
-constexpr Pos DIVISION_PARAM = {48.50f, 69.00f};
-constexpr Pos LENGTH_PARAM = {61.50f, 69.00f};
-constexpr Pos REPEATS_PARAM = {76.50f, 69.00f};
-constexpr Pos RAMP_PARAM = {89.50f, 69.00f};
-constexpr Pos REPEAT_TIME_PARAM = {102.50f, 69.00f};
-constexpr Pos PACE_PARAM = {115.50f, 69.00f};
-constexpr Pos VARIANCE_PARAM = {130.50f, 69.00f};
-constexpr Pos RANDOM_RATE_PARAM = {143.50f, 69.00f};
-constexpr Pos VELOCITY_PARAM = {9.50f, 88.00f};
-constexpr Pos PROBABILITY_PARAM = {22.50f, 88.00f};
-constexpr Pos SUSTAIN_PARAM = {35.50f, 88.00f};
-constexpr Pos ACCENT_PARAM = {48.50f, 88.00f};
-constexpr Pos TIMING_PARAM = {61.50f, 88.00f};
-constexpr Pos DELAY_PARAM = {74.50f, 88.00f};
-constexpr Pos PITCH_PARAM = {89.50f, 88.00f};
-constexpr Pos HARMONY_PARAM = {102.50f, 88.00f};
-constexpr Pos VOICING_PARAM = {115.50f, 88.00f};
-constexpr Pos RANGE_PARAM = {128.50f, 88.00f};
-constexpr Pos MODE_STEP_PARAM = {9.00f, 102.00f};
-constexpr Pos MODE_CYCLE_PARAM = {19.50f, 102.00f};
-constexpr Pos MODE_MUTE_PARAM = {40.50f, 102.00f};
-constexpr Pos MODE_PATTERN_PARAM = {51.00f, 102.00f};
-constexpr Pos CYCLE_EDIT_PARAM = {30.00f, 102.00f};
-constexpr Pos CYCLE_EDIT_LIGHT = {30.00f, 102.00f};
-constexpr Pos COPY_PARAM = {85.00f, 102.00f};
-constexpr Pos COPY_LIGHT = {85.00f, 102.00f};
-constexpr Pos PASTE_PARAM = {94.50f, 102.00f};
-constexpr Pos PASTE_LIGHT = {94.50f, 102.00f};
-constexpr Pos CLEAR_PARAM = {104.00f, 102.00f};
-constexpr Pos CLEAR_LIGHT = {104.00f, 102.00f};
-constexpr Pos FOLLOW_PARAM = {142.30f, 102.60f};
-constexpr Pos FOLLOW_LIGHT = {142.30f, 102.60f};
-constexpr Pos TEMP_PARAM = {160.00f, 73.00f};
-constexpr Pos TEMP_LIGHT = {160.00f, 73.00f};
-constexpr Pos ALL_PARAM = {175.50f, 73.00f};
-constexpr Pos ALL_LIGHT = {175.50f, 73.00f};
-constexpr Pos RND_ASSIGN_PARAM = {191.00f, 73.00f};
-constexpr Pos RND_ASSIGN_LIGHT = {191.00f, 73.00f};
-constexpr Pos PITCH_OUTPUT = {158.00f, 105.00f};
-constexpr Pos GATE_OUTPUT = {168.50f, 105.00f};
-constexpr Pos VELOCITY_OUTPUT = {179.00f, 105.00f};
-constexpr Pos EOP_OUTPUT = {189.50f, 105.00f};
-constexpr Pos CLOCK_OUTPUT = {158.00f, 118.00f};
-constexpr Pos RESET_OUTPUT = {168.50f, 118.00f};
-constexpr Pos MODE_LIGHT[4] = {{9.00f, 102.00f}, {19.50f, 102.00f}, {40.50f, 102.00f}, {51.00f, 102.00f}};
-constexpr Pos STEP_PAGE_PARAM[4] = {{114.50f, 102.60f}, {121.00f, 102.60f}, {127.50f, 102.60f}, {134.00f, 102.60f}};
-constexpr Pos STEP_PAGE_LIGHT[4] = {{114.50f, 102.60f}, {121.00f, 102.60f}, {127.50f, 102.60f}, {134.00f, 102.60f}};
-constexpr Pos PAD_PARAM[16] = {{8.30f, 118.30f}, {17.26f, 118.30f}, {26.22f, 118.30f}, {35.18f, 118.30f}, {44.14f, 118.30f}, {53.10f, 118.30f}, {62.06f, 118.30f}, {71.02f, 118.30f}, {79.98f, 118.30f}, {88.94f, 118.30f}, {97.90f, 118.30f}, {106.86f, 118.30f}, {115.82f, 118.30f}, {124.78f, 118.30f}, {133.74f, 118.30f}, {142.70f, 118.30f}};
-constexpr Pos PAD_LIGHT[16] = {{8.30f, 118.30f}, {17.26f, 118.30f}, {26.22f, 118.30f}, {35.18f, 118.30f}, {44.14f, 118.30f}, {53.10f, 118.30f}, {62.06f, 118.30f}, {71.02f, 118.30f}, {79.98f, 118.30f}, {88.94f, 118.30f}, {97.90f, 118.30f}, {106.86f, 118.30f}, {115.82f, 118.30f}, {124.78f, 118.30f}, {133.74f, 118.30f}, {142.70f, 118.30f}};
-constexpr Pos TRACK_SELECT_PARAM[16] = {{8.30f, 111.90f}, {17.26f, 111.90f}, {26.22f, 111.90f}, {35.18f, 111.90f}, {44.14f, 111.90f}, {53.10f, 111.90f}, {62.06f, 111.90f}, {71.02f, 111.90f}, {79.98f, 111.90f}, {88.94f, 111.90f}, {97.90f, 111.90f}, {106.86f, 111.90f}, {115.82f, 111.90f}, {124.78f, 111.90f}, {133.74f, 111.90f}, {142.70f, 111.90f}};
-constexpr Pos TRACK_SELECT_LIGHT[16] = {{8.30f, 111.90f}, {17.26f, 111.90f}, {26.22f, 111.90f}, {35.18f, 111.90f}, {44.14f, 111.90f}, {53.10f, 111.90f}, {62.06f, 111.90f}, {71.02f, 111.90f}, {79.98f, 111.90f}, {88.94f, 111.90f}, {97.90f, 111.90f}, {106.86f, 111.90f}, {115.82f, 111.90f}, {124.78f, 111.90f}, {133.74f, 111.90f}, {142.70f, 111.90f}};
+constexpr Pos STEPS_PARAM = {50.92f, 69.00f};
+constexpr Pos PULSES_PARAM = {64.75f, 69.00f};
+constexpr Pos ROTATE_PARAM = {78.59f, 69.00f};
+constexpr Pos DIVISION_PARAM = {92.43f, 69.00f};
+constexpr Pos LENGTH_PARAM = {106.26f, 69.00f};
+constexpr Pos REPEATS_PARAM = {122.10f, 69.00f};
+constexpr Pos RAMP_PARAM = {135.94f, 69.00f};
+constexpr Pos REPEAT_TIME_PARAM = {149.77f, 69.00f};
+constexpr Pos PACE_PARAM = {163.61f, 69.00f};
+constexpr Pos VARIANCE_PARAM = {179.45f, 69.00f};
+constexpr Pos RANDOM_RATE_PARAM = {193.28f, 69.00f};
+constexpr Pos VELOCITY_PARAM = {51.71f, 88.50f};
+constexpr Pos PROBABILITY_PARAM = {67.13f, 88.50f};
+constexpr Pos SUSTAIN_PARAM = {82.55f, 88.50f};
+constexpr Pos ACCENT_PARAM = {97.97f, 88.50f};
+constexpr Pos TIMING_PARAM = {113.39f, 88.50f};
+constexpr Pos DELAY_PARAM = {128.81f, 88.50f};
+constexpr Pos PITCH_PARAM = {146.23f, 88.50f};
+constexpr Pos HARMONY_PARAM = {161.65f, 88.50f};
+constexpr Pos VOICING_PARAM = {177.07f, 88.50f};
+constexpr Pos RANGE_PARAM = {192.49f, 88.50f};
+constexpr Pos TEMP_PARAM = {10.00f, 88.50f};
+constexpr Pos TEMP_LIGHT = {10.00f, 88.50f};
+constexpr Pos ALL_PARAM = {22.00f, 88.50f};
+constexpr Pos ALL_LIGHT = {22.00f, 88.50f};
+constexpr Pos RND_ASSIGN_PARAM = {34.00f, 88.50f};
+constexpr Pos RND_ASSIGN_LIGHT = {34.00f, 88.50f};
+constexpr Pos MODE_STEP_PARAM = {9.00f, 102.50f};
+constexpr Pos MODE_CYCLE_PARAM = {19.50f, 102.50f};
+constexpr Pos MODE_MUTE_PARAM = {40.50f, 102.50f};
+constexpr Pos MODE_PATTERN_PARAM = {51.00f, 102.50f};
+constexpr Pos CYCLE_EDIT_PARAM = {30.00f, 102.50f};
+constexpr Pos CYCLE_EDIT_LIGHT = {30.00f, 102.50f};
+constexpr Pos COPY_PARAM = {85.00f, 102.50f};
+constexpr Pos COPY_LIGHT = {85.00f, 102.50f};
+constexpr Pos PASTE_PARAM = {94.50f, 102.50f};
+constexpr Pos PASTE_LIGHT = {94.50f, 102.50f};
+constexpr Pos CLEAR_PARAM = {104.00f, 102.50f};
+constexpr Pos CLEAR_LIGHT = {104.00f, 102.50f};
+constexpr Pos FOLLOW_PARAM = {142.30f, 103.10f};
+constexpr Pos FOLLOW_LIGHT = {142.30f, 103.10f};
+constexpr Pos PITCH_OUTPUT = {157.00f, 106.50f};
+constexpr Pos GATE_OUTPUT = {167.50f, 106.50f};
+constexpr Pos VELOCITY_OUTPUT = {178.00f, 106.50f};
+constexpr Pos EOP_OUTPUT = {188.50f, 106.50f};
+constexpr Pos CLOCK_OUTPUT = {157.00f, 119.50f};
+constexpr Pos RESET_OUTPUT = {167.50f, 119.50f};
+constexpr Pos MODE_LIGHT[4] = {{9.00f, 102.50f}, {19.50f, 102.50f}, {40.50f, 102.50f}, {51.00f, 102.50f}};
+constexpr Pos STEP_PAGE_PARAM[4] = {{114.50f, 103.10f}, {121.00f, 103.10f}, {127.50f, 103.10f}, {134.00f, 103.10f}};
+constexpr Pos STEP_PAGE_LIGHT[4] = {{114.50f, 103.10f}, {121.00f, 103.10f}, {127.50f, 103.10f}, {134.00f, 103.10f}};
+constexpr Pos PAD_PARAM[16] = {{8.30f, 118.80f}, {17.26f, 118.80f}, {26.22f, 118.80f}, {35.18f, 118.80f}, {44.14f, 118.80f}, {53.10f, 118.80f}, {62.06f, 118.80f}, {71.02f, 118.80f}, {79.98f, 118.80f}, {88.94f, 118.80f}, {97.90f, 118.80f}, {106.86f, 118.80f}, {115.82f, 118.80f}, {124.78f, 118.80f}, {133.74f, 118.80f}, {142.70f, 118.80f}};
+constexpr Pos PAD_LIGHT[16] = {{8.30f, 118.80f}, {17.26f, 118.80f}, {26.22f, 118.80f}, {35.18f, 118.80f}, {44.14f, 118.80f}, {53.10f, 118.80f}, {62.06f, 118.80f}, {71.02f, 118.80f}, {79.98f, 118.80f}, {88.94f, 118.80f}, {97.90f, 118.80f}, {106.86f, 118.80f}, {115.82f, 118.80f}, {124.78f, 118.80f}, {133.74f, 118.80f}, {142.70f, 118.80f}};
+constexpr Pos TRACK_SELECT_PARAM[16] = {{8.30f, 112.40f}, {17.26f, 112.40f}, {26.22f, 112.40f}, {35.18f, 112.40f}, {44.14f, 112.40f}, {53.10f, 112.40f}, {62.06f, 112.40f}, {71.02f, 112.40f}, {79.98f, 112.40f}, {88.94f, 112.40f}, {97.90f, 112.40f}, {106.86f, 112.40f}, {115.82f, 112.40f}, {124.78f, 112.40f}, {133.74f, 112.40f}, {142.70f, 112.40f}};
+constexpr Pos TRACK_SELECT_LIGHT[16] = {{8.30f, 112.40f}, {17.26f, 112.40f}, {26.22f, 112.40f}, {35.18f, 112.40f}, {44.14f, 112.40f}, {53.10f, 112.40f}, {62.06f, 112.40f}, {71.02f, 112.40f}, {79.98f, 112.40f}, {88.94f, 112.40f}, {97.90f, 112.40f}, {106.86f, 112.40f}, {115.82f, 112.40f}, {124.78f, 112.40f}, {133.74f, 112.40f}, {142.70f, 112.40f}};
 
 // align: 0 = left, 1 = centre, 2 = right; y is the text baseline
 constexpr Label kLabels[] = {
     {83.60f, 6.00f, 4.0f, "Talea", {216, 220, 226}, 0, true},
-    {96.31f, 6.00f, 1.9f, "EUCLIDEAN SEQUENCER", {138, 145, 156}, 0, false},
+    {96.31f, 6.00f, 1.9f, "MULTI-SEQUENCER", {138, 145, 156}, 0, false},
     {5.00f, 10.90f, 2.0f, "TRANSPORT", {240, 138, 36}, 0, true},
     {10.00f, 12.80f, 1.8f, "PLAY", {216, 220, 226}, 1, false},
     {22.00f, 12.80f, 1.8f, "RESET", {216, 220, 226}, 1, false},
@@ -95,60 +102,66 @@ constexpr Label kLabels[] = {
     {10.00f, 51.30f, 1.8f, "CLK", {216, 220, 226}, 1, false},
     {22.00f, 51.30f, 1.8f, "RST", {216, 220, 226}, 1, false},
     {34.00f, 51.30f, 1.8f, "RUN", {216, 220, 226}, 1, false},
-    {5.00f, 59.90f, 2.0f, "SHAPE", {240, 138, 36}, 0, true},
-    {9.50f, 63.80f, 1.9f, "STEPS", {216, 220, 226}, 1, false},
-    {22.50f, 63.80f, 1.9f, "PULSES", {216, 220, 226}, 1, false},
-    {35.50f, 63.80f, 1.9f, "ROTATE", {216, 220, 226}, 1, false},
-    {48.50f, 63.80f, 1.9f, "DIVISION", {216, 220, 226}, 1, false},
-    {61.50f, 63.80f, 1.9f, "LENGTH", {216, 220, 226}, 1, false},
-    {72.00f, 59.90f, 2.0f, "REPEATS", {240, 138, 36}, 0, true},
-    {76.50f, 63.80f, 1.9f, "REPEATS", {216, 220, 226}, 1, false},
-    {89.50f, 63.80f, 1.9f, "RAMP", {216, 220, 226}, 1, false},
-    {102.50f, 63.80f, 1.9f, "TIME", {216, 220, 226}, 1, false},
-    {115.50f, 63.80f, 1.9f, "PACE", {216, 220, 226}, 1, false},
-    {126.00f, 59.90f, 2.0f, "RANDOM", {240, 138, 36}, 0, true},
-    {130.50f, 63.80f, 1.9f, "VARIANCE", {216, 220, 226}, 1, false},
-    {143.50f, 63.80f, 1.9f, "RATE", {216, 220, 226}, 1, false},
-    {5.00f, 78.90f, 2.0f, "GROOVE", {240, 138, 36}, 0, true},
-    {9.50f, 82.80f, 1.9f, "VELOCITY", {216, 220, 226}, 1, false},
-    {22.50f, 82.80f, 1.9f, "PROB", {216, 220, 226}, 1, false},
-    {35.50f, 82.80f, 1.9f, "SUSTAIN", {216, 220, 226}, 1, false},
-    {48.50f, 82.80f, 1.9f, "ACCENT", {216, 220, 226}, 1, false},
-    {61.50f, 82.80f, 1.9f, "TIMING", {216, 220, 226}, 1, false},
-    {74.50f, 82.80f, 1.9f, "DELAY", {216, 220, 226}, 1, false},
-    {85.00f, 78.90f, 2.0f, "TONAL", {240, 138, 36}, 0, true},
-    {89.50f, 82.80f, 1.9f, "PITCH", {216, 220, 226}, 1, false},
-    {102.50f, 82.80f, 1.9f, "HARMONY", {216, 220, 226}, 1, false},
-    {115.50f, 82.80f, 1.9f, "VOICING", {216, 220, 226}, 1, false},
-    {128.50f, 82.80f, 1.9f, "RANGE", {216, 220, 226}, 1, false},
-    {9.00f, 107.30f, 1.7f, "STEP", {216, 220, 226}, 1, false},
-    {19.50f, 107.30f, 1.7f, "CYCLE", {216, 220, 226}, 1, false},
-    {40.50f, 107.30f, 1.7f, "MUTE", {216, 220, 226}, 1, false},
-    {51.00f, 107.30f, 1.7f, "PATTERN", {216, 220, 226}, 1, false},
-    {5.00f, 98.40f, 1.6f, "PAD MODE", {240, 138, 36}, 0, true},
-    {30.00f, 107.30f, 1.7f, "CYC EDIT", {216, 220, 226}, 1, false},
-    {85.00f, 107.30f, 1.7f, "COPY", {216, 220, 226}, 1, false},
-    {94.50f, 107.30f, 1.7f, "PASTE", {216, 220, 226}, 1, false},
-    {104.00f, 107.30f, 1.7f, "CLEAR", {216, 220, 226}, 1, false},
-    {112.00f, 98.90f, 1.5f, "STEP PAGE", {240, 138, 36}, 0, true},
-    {114.50f, 107.30f, 1.35f, "1–16", {216, 220, 226}, 1, false},
-    {121.00f, 107.30f, 1.35f, "17–32", {216, 220, 226}, 1, false},
-    {127.50f, 107.30f, 1.35f, "33–48", {216, 220, 226}, 1, false},
-    {134.00f, 107.30f, 1.35f, "49–64", {216, 220, 226}, 1, false},
-    {142.30f, 107.30f, 1.35f, "FOLLOW", {216, 220, 226}, 1, false},
-    {153.00f, 59.90f, 2.0f, "PERFORM", {240, 138, 36}, 0, true},
-    {160.00f, 79.60f, 1.7f, "TEMP", {216, 220, 226}, 1, false},
-    {175.50f, 79.60f, 1.7f, "ALL TRACKS", {216, 220, 226}, 1, false},
-    {191.00f, 79.60f, 1.7f, "RND ASSIGN", {216, 220, 226}, 1, false},
-    {153.00f, 96.90f, 2.0f, "OUT", {240, 138, 36}, 0, true},
-    {158.00f, 99.80f, 1.8f, "PITCH", {216, 220, 226}, 1, false},
-    {168.50f, 99.80f, 1.8f, "GATE", {216, 220, 226}, 1, false},
-    {179.00f, 99.80f, 1.8f, "VEL", {216, 220, 226}, 1, false},
-    {189.50f, 99.80f, 1.8f, "EOP", {216, 220, 226}, 1, false},
-    {158.00f, 112.80f, 1.8f, "CLK", {216, 220, 226}, 1, false},
-    {168.50f, 112.80f, 1.8f, "RST", {216, 220, 226}, 1, false},
-    {184.00f, 117.40f, 1.6f, "poly 16:", {138, 145, 156}, 1, false},
-    {184.00f, 119.60f, 1.6f, "ch n = track n", {138, 145, 156}, 1, false},
+    {4.50f, 56.90f, 1.6f, "NOTE IN", {138, 145, 156}, 0, false},
+    {17.60f, 56.90f, 1.8f, "OVD", {216, 220, 226}, 2, false},
+    {29.60f, 56.90f, 1.8f, "REC", {216, 220, 226}, 2, false},
+    {10.00f, 72.70f, 1.8f, "V/OCT", {216, 220, 226}, 1, false},
+    {22.00f, 72.70f, 1.8f, "GATE", {216, 220, 226}, 1, false},
+    {34.00f, 72.70f, 1.8f, "VEL", {216, 220, 226}, 1, false},
+    {46.00f, 59.90f, 2.0f, "SHAPE", {240, 138, 36}, 0, true},
+    {50.92f, 63.80f, 1.9f, "STEPS", {216, 220, 226}, 1, false},
+    {64.75f, 63.80f, 1.9f, "PULSES", {216, 220, 226}, 1, false},
+    {78.59f, 63.80f, 1.9f, "ROTATE", {216, 220, 226}, 1, false},
+    {92.43f, 63.80f, 1.9f, "DIVISION", {216, 220, 226}, 1, false},
+    {106.26f, 63.80f, 1.9f, "LENGTH", {216, 220, 226}, 1, false},
+    {117.18f, 59.90f, 2.0f, "REPEATS", {240, 138, 36}, 0, true},
+    {122.10f, 63.80f, 1.9f, "REPEATS", {216, 220, 226}, 1, false},
+    {135.94f, 63.80f, 1.9f, "RAMP", {216, 220, 226}, 1, false},
+    {149.77f, 63.80f, 1.9f, "TIME", {216, 220, 226}, 1, false},
+    {163.61f, 63.80f, 1.9f, "PACE", {216, 220, 226}, 1, false},
+    {174.53f, 59.90f, 2.0f, "RANDOM", {240, 138, 36}, 0, true},
+    {179.45f, 63.80f, 1.9f, "VARIANCE", {216, 220, 226}, 1, false},
+    {193.28f, 63.80f, 1.9f, "RATE", {216, 220, 226}, 1, false},
+    {46.00f, 79.40f, 2.0f, "GROOVE", {240, 138, 36}, 0, true},
+    {51.71f, 83.30f, 1.9f, "VELOCITY", {216, 220, 226}, 1, false},
+    {67.13f, 83.30f, 1.9f, "PROB", {216, 220, 226}, 1, false},
+    {82.55f, 83.30f, 1.9f, "SUSTAIN", {216, 220, 226}, 1, false},
+    {97.97f, 83.30f, 1.9f, "ACCENT", {216, 220, 226}, 1, false},
+    {113.39f, 83.30f, 1.9f, "TIMING", {216, 220, 226}, 1, false},
+    {128.81f, 83.30f, 1.9f, "DELAY", {216, 220, 226}, 1, false},
+    {140.52f, 79.40f, 2.0f, "TONAL", {240, 138, 36}, 0, true},
+    {146.23f, 83.30f, 1.9f, "PITCH", {216, 220, 226}, 1, false},
+    {161.65f, 83.30f, 1.9f, "HARMONY", {216, 220, 226}, 1, false},
+    {177.07f, 83.30f, 1.9f, "VOICING", {216, 220, 226}, 1, false},
+    {192.49f, 83.30f, 1.9f, "RANGE", {216, 220, 226}, 1, false},
+    {5.00f, 79.40f, 2.0f, "PERFORM", {240, 138, 36}, 0, true},
+    {10.00f, 83.30f, 1.7f, "TEMP", {216, 220, 226}, 1, false},
+    {22.00f, 83.30f, 1.7f, "ALL TRACKS", {216, 220, 226}, 1, false},
+    {34.00f, 83.30f, 1.7f, "RND ASSIGN", {216, 220, 226}, 1, false},
+    {9.00f, 107.80f, 1.7f, "STEP", {216, 220, 226}, 1, false},
+    {19.50f, 107.80f, 1.7f, "CYCLE", {216, 220, 226}, 1, false},
+    {40.50f, 107.80f, 1.7f, "MUTE", {216, 220, 226}, 1, false},
+    {51.00f, 107.80f, 1.7f, "PATTERN", {216, 220, 226}, 1, false},
+    {5.00f, 98.90f, 1.6f, "PAD MODE", {240, 138, 36}, 0, true},
+    {30.00f, 107.80f, 1.7f, "CYC EDIT", {216, 220, 226}, 1, false},
+    {85.00f, 107.80f, 1.7f, "COPY", {216, 220, 226}, 1, false},
+    {94.50f, 107.80f, 1.7f, "PASTE", {216, 220, 226}, 1, false},
+    {104.00f, 107.80f, 1.7f, "CLEAR", {216, 220, 226}, 1, false},
+    {112.00f, 99.40f, 1.5f, "STEP PAGE", {240, 138, 36}, 0, true},
+    {114.50f, 107.80f, 1.35f, "1–16", {216, 220, 226}, 1, false},
+    {121.00f, 107.80f, 1.35f, "17–32", {216, 220, 226}, 1, false},
+    {127.50f, 107.80f, 1.35f, "33–48", {216, 220, 226}, 1, false},
+    {134.00f, 107.80f, 1.35f, "49–64", {216, 220, 226}, 1, false},
+    {142.30f, 107.80f, 1.35f, "FOLLOW", {216, 220, 226}, 1, false},
+    {152.00f, 98.90f, 2.0f, "OUT", {240, 138, 36}, 0, true},
+    {157.00f, 101.30f, 1.8f, "PITCH", {216, 220, 226}, 1, false},
+    {167.50f, 101.30f, 1.8f, "GATE", {216, 220, 226}, 1, false},
+    {178.00f, 101.30f, 1.8f, "VEL", {216, 220, 226}, 1, false},
+    {188.50f, 101.30f, 1.8f, "EOP", {216, 220, 226}, 1, false},
+    {157.00f, 114.30f, 1.8f, "CLK", {216, 220, 226}, 1, false},
+    {167.50f, 114.30f, 1.8f, "RST", {216, 220, 226}, 1, false},
+    {183.00f, 118.90f, 1.6f, "poly 16:", {138, 145, 156}, 1, false},
+    {183.00f, 121.10f, 1.6f, "ch n = track n", {138, 145, 156}, 1, false},
 };
 
 } // namespace layout

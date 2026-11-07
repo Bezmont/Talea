@@ -81,7 +81,16 @@ struct Pulse {
 	double grid;     // grid time before Timing / Delay
 	long randomLoop; // loop count the per-cycle random values follow
 	int lockPos;     // step whose locks it plays with, -1 = none
+	double loopStart, loopLength; // the loop randomLoop counts, for shapes synced to loops
+	int seqPos;      // SEQ mode: the sequence step it plays, -1 = none
 };
+
+/** Loop position (Track::loopPosition) of a note at `time` in loop `count` starting at
+`start`. A note shifted earlier than its loop's start counts as its start; repeats running past
+the end count on into the next loop. */
+double loopsOf(long count, double start, double length, double time) {
+	return count + std::max(time - start, 0.0) / length;
+}
 // Pulses landing in a one-step slice: at most ~2 x reach / step + 2, and reach <= 3 steps.
 constexpr int kMaxSlicePulses = 16;
 
@@ -107,17 +116,19 @@ void EventList::sort() {
 }
 
 StepMask Engine::hits(int track) {
-	return hitsOf(track, 0, pattern.tracks[track]);
+	return hitsOf(track, 0, pattern.tracks[track], -1);
 }
 
 StepMask Engine::hits(int track, int cycle) {
 	const TrackCycles& cyc = pattern.cycles[track];
 	if (cycle < 0 || cycle >= kMaxCycles || !cyc.cycles[cycle].modified())
 		return hits(track);
-	return hitsOf(track, cycle, cyc.resolve(pattern.tracks[track], cycle));
+	return hitsOf(track, cycle, cyc.resolve(pattern.tracks[track], cycle), cycle);
 }
 
-StepMask Engine::hitsOf(int track, int slot, const Track& t) {
+StepMask Engine::hitsOf(int track, int slot, const Track& t, int cycle) {
+	if (t.seqMode)
+		return pattern.sequenceOf(track, cycle).used & fullMask(t.steps());
 	HitCache& c = cache_[track][slot];
 	int steps = t.steps(), pulses = t.pulses(), rot = t.getInt(TP_ROTATE);
 	if (steps != c.steps || pulses != c.pulses || rot != c.rotate || t.manualHits != c.manual
@@ -495,14 +506,22 @@ void Engine::processTrack(int track, double from, double to, EventList& out) {
 	bool modOn = false;
 	for (int p = 0; p < kNumTrackParams; p++)
 		modOn |= trackMod[p] != 0.f && randomisable(TrackParam(p));
-	auto settingsFor = [&](int c, long randomLoop, double grid, int lockPos) -> const Track& {
+	// SEQ mode: a step's own velocity stands in for the knob's, under its locks, random and CV.
+	auto seqStep = [&](int c, int seqPos) -> const SeqStep* {
+		const SeqStep* s = seqPos >= 0 && trackFor(c).seqMode ? &pattern.sequenceOf(track, c).steps[seqPos] : nullptr;
+		return s && s->count ? s : nullptr;
+	};
+	auto settingsFor = [&](int c, long randomLoop, double grid, int lockPos, int seqPos = -1) -> const Track& {
 		const Track& t = trackFor(c);
 		bool active;
 		const TrackRandom& r = randomFor(c, active);
 		bool locked = lockPos >= 0 && lockedAt(c, lockPos);
-		if (!active && !locked && !modOn)
+		const SeqStep* step = seqStep(c, seqPos);
+		if (!active && !locked && !modOn && !step)
 			return t;
 		randomised = t;
+		if (step)
+			randomised.values[TP_VELOCITY] = step->velocity;
 		if (locked) {
 			locks.apply(randomised, lockPos);
 			cyc.cycles[c].locks.apply(randomised, lockPos);
@@ -525,8 +544,11 @@ void Engine::processTrack(int track, double from, double to, EventList& out) {
 		v.active = false;
 	};
 
-	auto noteOn = [&](const Track& t, double time, const int* chord, int chordSize, int velocity, double gap) {
-		double gate = t.gateQuarters(gap);
+	// `gate` < 0: Sustain over `gap`.
+	auto noteOn = [&](const Track& t, double time, const int* chord, int chordSize, int velocity, double gap,
+	                  double gate = -1.0) {
+		if (gate < 0.0)
+			gate = t.gateQuarters(gap);
 		if (v.active)
 			noteOff(std::min(v.offTime, time));
 		v.active = true;
@@ -548,8 +570,11 @@ void Engine::processTrack(int track, double from, double to, EventList& out) {
 	// Style motion: in Choke mode every note played moves it on (restarting each cycle
 	// span); in Tail mode pulses play the starting position and each burst's repeats move.
 	int chord[kMaxPool];
-	auto chordFor = [&](const Track& t, long ordinal, double time) {
-		return t.chordFor(ordinal, time, chord, phraseCv[track], transpose[track]);
+	// SEQ mode: the step's own chord instead.
+	auto chordFor = [&](const Track& t, long ordinal, double time, double loops, int c, int seqPos) {
+		if (const SeqStep* s = t.seqMode ? seqStep(c, seqPos) : nullptr)
+			return t.seqChord(*s, chord, transpose[track]);
+		return t.chordFor(ordinal, time, chord, phraseCv[track], transpose[track], loops);
 	};
 
 	// Plays due repeats, earliest first across bursts, up to `limit`.
@@ -561,7 +586,7 @@ void Engine::processTrack(int track, double from, double to, EventList& out) {
 				Burst& burst = bursts[b];
 				if (!burst.live)
 					continue;
-				const Track& t = settingsFor(burst.cycle, burst.randomLoop, burst.grid, burst.lockPos);
+				const Track& t = settingsFor(burst.cycle, burst.randomLoop, burst.grid, burst.lockPos, burst.seqPos);
 				int repeats = t.repeats();
 				double time = std::max(burst.prev + t.repeatInterval(burst.fired), from);
 				// An infinite burst lasts until its pulse comes round again.
@@ -578,7 +603,7 @@ void Engine::processTrack(int track, double from, double to, EventList& out) {
 			}
 			if (!next)
 				break;
-			const Track& t = settingsFor(next->cycle, next->randomLoop, next->grid, next->lockPos);
+			const Track& t = settingsFor(next->cycle, next->randomLoop, next->grid, next->lockPos, next->seqPos);
 			next->fired++;
 			next->prev = nextTime;
 			// A Tail repeat landing on a note that just started on this track adds nothing.
@@ -588,9 +613,10 @@ void Engine::processTrack(int track, double from, double to, EventList& out) {
 				continue;
 			if (v.active && v.offTime <= nextTime)
 				noteOff(v.offTime);
-			int velocity = t.accented(t.repeatVelocity(next->fired), nextTime);
+			double loops = loopsOf(next->randomLoop, next->loopStart, next->loopLength, nextTime);
+			int velocity = t.accented(t.repeatVelocity(next->fired), nextTime, loops);
 			long ordinal = t.repeatTail ? next->fired : v.ordinal++;
-			int n = chordFor(t, ordinal, nextTime);
+			int n = chordFor(t, ordinal, nextTime, loops, next->cycle, next->seqPos);
 			noteOn(t, nextTime, chord, n, velocity, t.repeatInterval(next->fired));
 		}
 	};
@@ -611,7 +637,7 @@ void Engine::processTrack(int track, double from, double to, EventList& out) {
 			if (bursts[b].start < slot->start)
 				slot = &bursts[b]; // all busy: replace the oldest
 		}
-		*slot = Burst{true, time, time, 0, id, p.cycle, p.grid, p.randomLoop, p.lockPos};
+		*slot = Burst{true, time, time, 0, id, p.cycle, p.grid, p.randomLoop, p.lockPos, p.loopStart, p.loopLength, p.seqPos};
 	};
 
 	// A skipped or muted pulse plays nothing: no note, no repeats, and it doesn't choke
@@ -620,7 +646,7 @@ void Engine::processTrack(int track, double from, double to, EventList& out) {
 		playRepeats(p.time, false);
 		if (base.muted || cyc.cycles[p.cycle].muted)
 			return; // earlier repeats finish unless the mute cut them
-		const Track& t = settingsFor(p.cycle, p.randomLoop, p.grid, p.lockPos);
+		const Track& t = settingsFor(p.cycle, p.randomLoop, p.grid, p.lockPos, p.seqPos);
 		// Probability phase moves the skip pattern along the steps.
 		uint64_t id = (uint64_t(p.loop) << 32) ^ uint64_t(p.step - pattern.random[track].probPhase);
 		if (t.skipChance() > 0.0 && chance(id, 0) < t.skipChance())
@@ -634,8 +660,12 @@ void Engine::processTrack(int track, double from, double to, EventList& out) {
 			v.ordinal = 0;
 		}
 		long ordinal = t.repeatTail ? 0 : v.ordinal++;
-		int n = chordFor(t, ordinal, p.time);
-		noteOn(t, p.time, chord, n, t.accented(t.getInt(TP_VELOCITY), p.time), gap);
+		double loops = loopsOf(p.randomLoop, p.loopStart, p.loopLength, p.time);
+		int n = chordFor(t, ordinal, p.time, loops, p.cycle, p.seqPos);
+		// SEQ mode: the step's gate counts steps (ties); with repeats it follows them as usual.
+		const SeqStep* s = t.repeats() == 0 ? seqStep(p.cycle, p.seqPos) : nullptr;
+		noteOn(t, p.time, chord, n, t.accented(t.getInt(TP_VELOCITY), p.time, loops), gap,
+		       s ? t.seqGateQuarters(s->gate) : -1.0);
 		startBurst(t, p.time, id, p);
 	};
 
@@ -678,9 +708,12 @@ void Engine::processTrack(int track, double from, double to, EventList& out) {
 		int count = 0;
 		forEachGridStep(sliceFrom - reach, sliceTo + reach, [&](double grid, const Span& s, long k) {
 			// An endless span counts its loops per pass of the steps.
-			long randomLoop = s.end == INFINITY ? k / trackFor(s.cycle).steps() : s.index;
+			bool endless = s.end == INFINITY;
+			long randomLoop = endless ? k / trackFor(s.cycle).steps() : s.index;
+			double loopLength = endless ? trackFor(s.cycle).steps() * stepOf(base, cyc, s.cycle) : s.end - s.start;
+			double loopStart = endless ? s.start + randomLoop * loopLength : s.start;
 			const Track& unlocked = settingsFor(s.cycle, randomLoop, grid, -1);
-			StepMask mask = hitsOf(track, s.cycle, unlocked);
+			StepMask mask = hitsOf(track, s.cycle, unlocked, s.cycle);
 			int step = int(k % unlocked.steps());
 			if (!hasHit(mask, step))
 				return;
@@ -688,8 +721,9 @@ void Engine::processTrack(int track, double from, double to, EventList& out) {
 			int lockPos = lockedAt(s.cycle, pos) ? pos : -1;
 			const Track& t = lockPos >= 0 ? settingsFor(s.cycle, randomLoop, grid, lockPos) : unlocked;
 			double time = grid + t.stepShift(k);
+			int seqPos = t.seqMode ? step : -1;
 			if (time > sliceFrom && time <= sliceTo && count < kMaxSlicePulses)
-				pulses[count++] = {time, s.index, k, s.cycle, grid, randomLoop, lockPos};
+				pulses[count++] = {time, s.index, k, s.cycle, grid, randomLoop, lockPos, loopStart, loopLength, seqPos};
 		});
 		std::sort(pulses, pulses + count, [](const Pulse& a, const Pulse& b) { return a.time < b.time; });
 		for (int i = 0; i < count; i++)
@@ -760,6 +794,32 @@ Track Engine::settingsAt(int track, double t) const {
 		rnd.apply(out, randomLoop, grid);
 	applyMod(out, mod[track]);
 	return out;
+}
+
+double Engine::loopsAt(int track, double t) const {
+	t = std::max(t - origin_, 0.0);
+	Span s = spanAt(track, t);
+	if (s.end == INFINITY) // one endless span: a loop per pass of the steps
+		return t / pattern.cycles[track].loopQuarters(pattern.tracks[track], s.cycle);
+	return s.index + (t - s.start) / (s.end - s.start);
+}
+
+int Engine::nearestStep(int track, double t, double& stepQuarters) const {
+	t = std::max(t - origin_, 0.0);
+	const Track& base = pattern.tracks[track];
+	const TrackCycles& cyc = pattern.cycles[track];
+	Span s = spanAt(track, t);
+	double step = stepOf(base, cyc, s.cycle);
+	long k = long(std::floor((t - s.start) / step + 0.5));
+	if (s.end != INFINITY && s.start + k * step >= s.end - kEps) {
+		// Rounds past this loop's end: the next loop's first step.
+		s = spanByIndex(track, s.index + 1);
+		step = stepOf(base, cyc, s.cycle);
+		k = 0;
+	}
+	stepQuarters = step;
+	int steps = std::clamp(int(cyc.value(base, s.cycle, TP_STEPS)), 1, kMaxSteps);
+	return int(k % steps);
 }
 
 int Engine::stepAt(int track, double t) const {

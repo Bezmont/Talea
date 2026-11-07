@@ -2,6 +2,7 @@
 #include "Widgets.hpp"
 #include "OutLayout.hpp"
 #include "Expander.hpp"
+#include "Tooltips.hpp"
 
 using namespace talea;
 
@@ -29,10 +30,12 @@ struct TaleaOut : Module {
 	TaleaOut() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 		for (int t = 0; t < kNumTracks; t++) {
-			configOutput(PITCH_OUTPUT + t, string::f("Track %d pitch (V/oct, one channel per chord note)", t + 1));
-			configOutput(GATE_OUTPUT + t, string::f("Track %d gate", t + 1));
-			configOutput(VELOCITY_OUTPUT + t, string::f("Track %d velocity (0-10 V)", t + 1));
+			configOutput(PITCH_OUTPUT + t, string::f("Track %d pitch", t + 1))->description = tips::kOutPitch;
+			configOutput(GATE_OUTPUT + t, string::f("Track %d gate", t + 1))->description = tips::kOutGate;
+			configOutput(VELOCITY_OUTPUT + t, string::f("Track %d velocity", t + 1))->description = tips::kOutVelocity;
+			configLight(TRACK_LIGHT + 3 * t, string::f("Track %d", t + 1))->description = tips::kOutTrackLight;
 		}
+		configLight(LINK_LIGHT, "Link")->description = tips::kOutLink;
 		leftExpander.producerMessage = &messages[0];
 		leftExpander.consumerMessage = &messages[1];
 		lightDivider.setDivision(64);

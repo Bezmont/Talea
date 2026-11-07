@@ -17,6 +17,8 @@ enum Groove { GROOVE_AGOGO, GROOVE_TIMBALES, GROOVE_CONGAS, GROOVE_BONGO, GROOVE
 inline constexpr const char* kGrooveNames[kNumGrooves] = {"Agogo", "Timbales", "Congas", "Bongo", "Saw", "Triangle", "Sine", "Pulse"};
 inline constexpr int kGrooveBars[] = {1, 2, 4, 8, 16, 32, 64};
 inline constexpr int kDefaultGrooveLength = 2; // 4 bars
+/** Loop position argument meaning "work it out from the time" (see Track::loopPosition). */
+inline constexpr double kLoopsFromTime = -1.0;
 /** Timing (swing) subdivision: which steps count as "every 2nd". */
 inline constexpr int kSwingSubdivisions[] = {1, 2, 4};
 /** Accent at 100 % moves velocity this far above or below Velocity at the shape's peaks. */
@@ -29,6 +31,56 @@ constexpr int kNumCcNumbers = 120;
 constexpr int kDefaultCc = 1;
 /** Cycles per track (T-1: 16; 8 here leaves room for a lane per cycle on the display). */
 constexpr int kMaxCycles = 8;
+/** SEQ mode: default velocity of a new step, and the longest gate in steps. */
+constexpr int kDefaultSeqVelocity = 100;
+constexpr int kMaxGateSteps = kMaxSteps;
+
+/** SEQ mode: one step of a track's manual sequence. A step with notes plays them as a chord
+(up to kMaxPool, sorted and unique) at its velocity, held for `gate` steps (1 = this step;
+more = tied over the next ones, until they end or the next step with notes cuts them). A step
+without notes is a rest. */
+struct SeqStep {
+	uint8_t notes[kMaxPool] = {};
+	uint8_t count = 0;
+	uint8_t velocity = kDefaultSeqVelocity; // 1-127
+	uint8_t gate = 1;                       // 1..kMaxGateSteps
+
+	bool operator==(const SeqStep& o) const;
+};
+
+/** SEQ mode: a track's (or a cycle's own) manual sequence, one entry per step position. */
+struct StepSequence {
+	SeqStep steps[kMaxSteps];
+	StepMask used = 0; // steps with notes
+
+	bool has(int pos) const {
+		return pos >= 0 && pos < kMaxSteps && (used & (StepMask(1) << pos));
+	}
+	/** Step `pos`'s notes (sorted, duplicates dropped, clamped to 0-127, at most kMaxPool),
+	velocity and gate; n = 0 makes it a rest. Ignores positions outside 0..kMaxSteps-1. */
+	void set(int pos, const int* notes, int n, int velocity, int gate);
+	/** Adds `note` to step `pos`'s chord (a rest becomes a step with this note at `velocity`
+	and a 1-step gate); false if the chord is full or holds it already. */
+	bool addNote(int pos, int note, int velocity);
+	/** Toggles `note` in step `pos`'s chord, starting it like addNote(). Removing the last
+	note makes the step a rest. */
+	void toggleNote(int pos, int note, int velocity);
+	void setVelocity(int pos, int velocity);
+	void setGate(int pos, int gate);
+	void clear(int pos);
+	void reset() {
+		*this = StepSequence();
+	}
+	bool empty() const {
+		return used == 0;
+	}
+	/** Same notes, velocities and gates on the steps that play (rests compare equal whatever
+	their unused fields hold). */
+	bool operator==(const StepSequence& o) const;
+	bool operator!=(const StepSequence& o) const {
+		return !(*this == o);
+	}
+};
 
 /** A parameter value clamped to its range and snapped where the parameter snaps. */
 float clampParam(TrackParam p, float v);
@@ -49,6 +101,10 @@ struct Track {
 	int groove = GROOVE_AGOGO;
 	int grooveLength = kDefaultGrooveLength;
 	int swingSubdivision = 0;
+	/** GROOVE page SYNC: false = Groove length counts bars of pattern time; true = loops of
+	the track, so the accents restart with step 1 (the percussion bars count from each loop's
+	start). */
+	bool grooveLoop = false;
 
 	/** Note pool, MIDI notes sorted ascending, at least one. Entered in KEYS mode. */
 	int pool[kMaxPool] = {kBaseNote};
@@ -64,6 +120,9 @@ struct Track {
 	/** PHRASE page: Phrase shape, index into kGrooveBars. */
 	int phrase = PHRASE_CADENCE_1;
 	int phraseLength = kDefaultGrooveLength;
+	/** PHRASE page SYNC: false = Phrase length counts bars of pattern time; true = loops of
+	the track (or cycle), so the phrase restarts with step 1. */
+	bool phraseLoop = false;
 	/** The drawn shape behind PHRASE_USER (unused by the other shapes, but kept so switching
 	away and back doesn't lose it). */
 	PhraseGrid userPhrase = kDefaultPhraseGrid;
@@ -75,6 +134,12 @@ struct Track {
 	host sends it as a CV lane and as MIDI CC `ccNumber`. */
 	bool cc = false;
 	int ccNumber = kDefaultCc;
+	/** Sequencer mode (SETUP page): false = EUCLID (Steps / Pulses / Rotate and the step edits
+	make the hits, the pitch settings make the notes); true = SEQ, a manual sequence
+	(Pattern::seqs / a cycle's own): steps with notes are the hits, Pulses and Rotate don't
+	apply, and the notes play as entered (+ Pitch and transpose) without Scale, Voicing or
+	Phrase. Gate length counts steps. */
+	bool seqMode = false;
 
 	Track() {
 		reset();
@@ -100,8 +165,13 @@ struct Track {
 	/** Pad edit on a played step position: turns that one step off or on without moving
 	any other hit. */
 	void toggleStep(int step);
-	/** Unrotated position of played step `step` (where manual hits and locks are kept). */
+	/** Unrotated position of played step `step` (where manual hits and locks are kept). SEQ
+	mode doesn't rotate: the position is the step. */
 	int unrotated(int step) const;
+	/** Rotate as it applies: 0 in SEQ mode. */
+	int rotation() const {
+		return seqMode ? 0 : getInt(TP_ROTATE);
+	}
 
 	/** Repeats after each pulse; kInfiniteRepeats at the knob's last position. */
 	int repeats() const;
@@ -123,10 +193,16 @@ struct Track {
 	double skipChance() const;
 	/** Probability CW: skipping also applies to each repeat. CCW: pulses only. */
 	bool skipsRepeats() const;
-	/** Groove shape value (-1..1) at musical time `time`. */
-	double grooveValue(double time) const;
-	/** `velocity` with Accent applied for a note at `time`. */
-	int accented(int velocity, double time) const;
+	/** Position in the track's loops at musical time `time`: loops completed plus the fraction
+	through the current one. `loops` >= 0 is that position as the engine knows it (exact with
+	cycles of different lengths); kLoopsFromTime derives it from `time` and this track's own
+	loop length, which is exact for a single cycle. */
+	double loopPosition(double time, double loops) const;
+	/** Groove shape value (-1..1) at musical time `time` / loop position `loops` (see
+	loopPosition(); used when grooveLoop is on). */
+	double grooveValue(double time, double loops = kLoopsFromTime) const;
+	/** `velocity` with Accent applied for a note at `time` / `loops`. */
+	int accented(int velocity, double time, double loops = kLoopsFromTime) const;
 	/** Quarter notes step `k` of a loop plays away from the grid (Timing + Delay). */
 	double stepShift(long k) const;
 	/** Largest |stepShift()| at the current settings. */
@@ -152,12 +228,21 @@ struct Track {
 	void harmony(int dir);
 	/** The note played as the `ordinal`-th note of the Style motion at musical time `time`:
 	pool + Pitch, voiced by Voicing/Style (Mono: arpeggiated, Poly: lowest chord note),
-	plus Range x Phrase and `transpose` semitones, quantized to the scale. */
-	int noteFor(long ordinal, double time, double phraseCv = 0.0, int transpose = 0) const;
+	plus Range x Phrase and `transpose` semitones, quantized to the scale. `loops` is the loop
+	position (see loopPosition()), used when phraseLoop is on. */
+	int noteFor(long ordinal, double time, double phraseCv = 0.0, int transpose = 0, double loops = kLoopsFromTime) const;
 	/** The notes sounding for the `ordinal`-th note: Poly = the whole voiced chord, Mono = the
 	one arpeggiated note. Same pitch path as noteFor(); sorted ascending, duplicates (notes
 	the scale folds together) removed, so out[0] == noteFor(). Returns the count (>= 1). */
-	int chordFor(long ordinal, double time, int* out, double phraseCv = 0.0, int transpose = 0) const;
+	int chordFor(long ordinal, double time, int* out, double phraseCv = 0.0, int transpose = 0,
+	             double loops = kLoopsFromTime) const;
+	/** SEQ mode: the notes step `s` sounds: its chord + Pitch and `transpose` semitones, sorted,
+	duplicates removed, clamped to 0-127. No Scale, Voicing or Phrase. Returns the count (0 for
+	a rest). */
+	int seqChord(const SeqStep& s, int* out, int transpose = 0) const;
+	/** SEQ mode: gate length in quarter notes of a note held `steps` steps: the steps before
+	the last whole, the last shaped by Sustain like any note (50 % = the whole step). */
+	double seqGateQuarters(int steps) const;
 };
 
 /** Steps, Pulses, Rotate, Division and Length shape the whole loop, so a step can't lock them. */
@@ -243,6 +328,13 @@ struct CycleOverrides {
 	CycleLocks locks;
 	bool ownTonal = false;
 	Track tonal; // its scale, root, userScale and pool when ownTonal (other fields unused)
+	/** Its own sequencer mode (SEQ / EUCLID) instead of the track's. */
+	bool ownMode = false;
+	bool seqMode = false;
+	/** SEQ mode: its own sequence. Until it is edited the cycle plays the track's; the first
+	edit copies the track's (Pattern::sequenceEdit), and from then on it is the cycle's. */
+	bool ownSeq = false;
+	StepSequence seq;
 	bool muted = false;
 
 	bool has(TrackParam p) const {
@@ -253,7 +345,7 @@ struct CycleOverrides {
 	}
 	/** Plays differently from the track (ignoring the mute). */
 	bool modified() const {
-		return overridden || randomOverridden || ownHits || !locks.empty() || ownTonal;
+		return overridden || randomOverridden || ownHits || !locks.empty() || ownTonal || ownMode || ownSeq;
 	}
 	bool empty() const {
 		return !modified() && !muted;
@@ -266,6 +358,14 @@ struct CycleOverrides {
 		manualHits = removedHits = 0;
 		locks.reset();
 		ownTonal = false;
+		ownMode = false;
+		ownSeq = false;
+		seq.reset();
+	}
+	/** Back to the track's sequence (CLEAR). */
+	void clearSequence() {
+		ownSeq = false;
+		seq.reset();
 	}
 };
 
@@ -398,6 +498,8 @@ struct Pattern {
 	TrackCycles cycles[kNumTracks];
 	TrackRandom random[kNumTracks];
 	StepLocks locks[kNumTracks];
+	/** SEQ mode: each track's manual sequence (cycles play it unless they have their own). */
+	StepSequence seqs[kNumTracks];
 
 	Pattern() {
 		reset();
@@ -412,7 +514,18 @@ struct Pattern {
 			random[i].reset(i);
 		for (StepLocks& l : locks)
 			l.reset();
+		for (StepSequence& s : seqs)
+			s.reset();
 	}
+
+	/** The sequence cycle `c` of `track` plays: its own, else the track's. c < 0 = the track's. */
+	const StepSequence& sequenceOf(int track, int c) const {
+		const CycleOverrides* o = c >= 0 && c < kMaxCycles ? &cycles[track].cycles[c] : nullptr;
+		return o && o->ownSeq ? o->seq : seqs[track];
+	}
+	/** Where a sequence edit goes: cycle `c`'s own (copied from the track's on its first
+	edit), or the track's for c < 0. */
+	StepSequence& sequenceEdit(int track, int c);
 
 	/** Sets a track's own value of `p`; overrides in its cycles move by the same amount. */
 	void setBase(int track, TrackParam p, float v);

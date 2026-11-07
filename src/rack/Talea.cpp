@@ -3,8 +3,12 @@
 #include "PanelLayout.hpp"
 #include "Expander.hpp"
 #include "MidiOut.hpp"
+#include "Tooltips.hpp"
 #include "core/Engine.hpp"
+#include "core/Record.hpp"
 #include "core/State.hpp"
+
+#include <memory>
 
 using namespace talea;
 
@@ -65,6 +69,34 @@ struct RepeatsQuantity : ParamQuantity {
 	}
 };
 
+// Tooltip text that depends on the module's state (defined after Talea).
+std::string paramNote(Module* m, int paramId);
+std::string padLabel(Module* m, int pad);
+std::string padDescription(Module* m, int pad);
+
+/** A param whose tooltip adds a state-dependent note (paramNote) under its description. */
+template <class Base>
+struct NotedQuantity : Base {
+	std::string getDescription() override {
+		std::string d = Base::getDescription();
+		std::string n = this->module ? paramNote(this->module, this->paramId) : "";
+		if (n.empty())
+			return d;
+		return d.empty() ? n : d + "\n" + n;
+	}
+};
+
+/** A pad: its tooltip names and describes what it is in the current pad mode. */
+struct PadQuantity : ParamQuantity {
+	int pad = 0;
+	std::string getLabel() override {
+		return module ? padLabel(module, pad) : ParamQuantity::getLabel();
+	}
+	std::string getDescription() override {
+		return module ? padDescription(module, pad) : "";
+	}
+};
+
 } // namespace
 
 struct Talea : Module {
@@ -120,6 +152,8 @@ struct Talea : Module {
 		FOLLOW_PARAM,
 		ENUMS(MOD_ATTEN_PARAM, kNumMods), // retired: CV moved to the IN expander
 		ENUMS(TRACK_SELECT_PARAM, kNumTracks),
+		REC_PARAM,
+		OVERDUB_PARAM,
 		PARAMS_LEN
 	};
 	enum InputId {
@@ -133,6 +167,10 @@ struct Talea : Module {
 		PHRASE_CV_INPUT,
 		PATTERN_INPUT,
 		MUTE_APPLY_INPUT,
+		// SEQ mode recording (a keyboard, e.g. from MIDI-CV)
+		REC_PITCH_INPUT,
+		REC_GATE_INPUT,
+		REC_VELOCITY_INPUT,
 		INPUTS_LEN
 	};
 	enum OutputId {
@@ -160,6 +198,8 @@ struct Talea : Module {
 		FOLLOW_LIGHT,
 		ENUMS(MOD_LIGHT, kNumMods),
 		ENUMS(TRACK_SELECT_LIGHT, kNumTracks * 3),
+		REC_LIGHT,
+		OVERDUB_LIGHT,
 		LIGHTS_LEN
 	};
 
@@ -191,7 +231,8 @@ struct Talea : Module {
 	int selectedCycle = 0;
 	/** CYCLE page clicks, run on the audio thread so knobs never write stale values into a
 	cycle: action << 8 | argument, 0 = none. */
-	enum CycleAction { CYCLE_SELECT = 1, CYCLE_COUNT, CYCLE_CLEAR_ALL, CYCLE_CLEAR_PARAM, CYCLE_CLEAR_STEPS, CYCLE_CLEAR_RANDOM, CYCLE_CLEAR_LOCKS, CYCLE_CLEAR_TONAL };
+	enum CycleAction { CYCLE_SELECT = 1, CYCLE_COUNT, CYCLE_CLEAR_ALL, CYCLE_CLEAR_PARAM, CYCLE_CLEAR_STEPS, CYCLE_CLEAR_RANDOM, CYCLE_CLEAR_LOCKS, CYCLE_CLEAR_TONAL,
+	                   CYCLE_CLEAR_SEQ, CYCLE_CLEAR_MODE };
 	std::atomic<int> cycleAction{0};
 	int keysOctave = 2;      // KEYS page: the keyboard starts at C0 + 12 x this (C2 by default)
 	float harmonyLast = 0.f; // Harmony knob position already applied, in detents
@@ -202,6 +243,7 @@ struct Talea : Module {
 	double uiClock = 0.0;    // seconds, for blinking lights
 	std::atomic<bool> padCtrl[kNumPads] = {}; // Ctrl held on the latest click of each pad
 	std::atomic<bool> padShift[kNumPads] = {};
+	std::atomic<bool> padRight[kNumPads] = {}; // SEQ mode: a right-click on a step pad (a rest)
 	std::atomic<bool> trackCtrl[kNumTracks] = {}, trackShift[kNumTracks] = {};
 	/** Tracks grouped with the selected one (Ctrl/Shift+click track buttons): plain knob
 	turns move them by the same amount. All groups every track. */
@@ -242,6 +284,9 @@ struct Talea : Module {
 		int param = 0;
 		float value = 0.f;
 		PoolLock stepPool;
+		StepSequence sequence; // CLIP_TRACK: the track's SEQ mode sequence
+		SeqStep seqStep;       // CLIP_STEP: the step of the sequence, if it has notes
+		bool seqStepHas = false;
 		bool stepHit = false;
 		uint32_t stepMask = 0;
 		float stepValues[kNumTrackParams] = {};
@@ -249,6 +294,8 @@ struct Talea : Module {
 	/** STEP mode lock selection (Ctrl+click pads): unrotated step positions of the selected
 	track. While set, knobs of lockable parameters edit these steps' locks. */
 	StepMask lockSel = 0;
+	/** SEQ mode: the step a plain pad click selected (KEYS / info show and edit it; no locks). */
+	StepMask seqSel = 0;
 	std::atomic<bool> randomLockRequest{false}; // RANDOM page LOCK click (UI thread)
 	/** Live settings of the selected track (playing cycle, step locks, random, CV), refreshed
 	with the lights, for the knob rings and the display. */
@@ -277,6 +324,28 @@ struct Talea : Module {
 	bits. */
 	std::atomic<uint64_t> laneEdits[kMaxSteps] = {};
 	std::atomic<bool> laneEditPending{false};
+	/** STEP page lanes of a SEQ mode track: its steps' own velocity and gate (in steps), past
+	the parameter ids so they travel through requestLaneEdit() like locks. */
+	static constexpr int kLaneSeqVelocity = kNumTrackParams + 1;
+	static constexpr int kLaneSeqGate = kNumTrackParams + 2;
+	static constexpr int kLaneGateMax = 16; // the gate lane's top: longer gates come from recording
+
+	// SEQ mode
+	/** SETUP page MODE click (UI thread): 0 = EUCLID, 1 = SEQ, for the track or the edited cycle. */
+	std::atomic<int> seqModeRequest{-1};
+	/** REC: notes at the NOTE IN jacks go into the selected track's sequence (the edited cycle's in
+	Cycle edit). Only while that plays in SEQ mode. Not saved. */
+	bool recording = false;
+	talea::SeqRecorder recorder;
+	dsp::SchmittTrigger recGate[16];
+	bool recHigh[16] = {};
+	int recNote[16] = {};
+	int recVelocity[16] = {};
+	bool recWasPlaying = false;
+	/** Track the NOTE IN keys are sounding on (SEQ mode monitoring), -1 = none. Its sequence's
+	own note events are skipped meanwhile. */
+	int monitorTrack = -1;
+	double recStepQuarters = 0.25;
 
 	void requestLaneEdit(int pos, int tp, float v, bool remove) {
 		uint32_t bits;
@@ -405,7 +474,8 @@ struct Talea : Module {
 	CcLane ccLane[kNumTracks];
 	dsp::ClockDivider ccDivider; // MIDI CC at most ~1 kHz
 
-	dsp::BooleanTrigger playTrigger, resetTrigger, tapTrigger, allTrigger, rndTrigger, cycleEditTrigger, followTrigger;
+	dsp::BooleanTrigger playTrigger, resetTrigger, tapTrigger, allTrigger, rndTrigger, cycleEditTrigger, followTrigger, recTrigger,
+		overdubTrigger;
 	dsp::BooleanTrigger modeTriggers[kNumModes];
 	dsp::BooleanTrigger pageTriggers[kNumStepPages];
 	dsp::BooleanTrigger padTriggers[kNumPads];
@@ -441,7 +511,7 @@ struct Talea : Module {
 		if (!data)
 			return "";
 		for (const char* key : {"selectedTrack", "selectedCycle", "padMode", "follow", "displayFollows", "keysOctave", "trackGroup", "allTracks",
-		                        "songFollow"})
+		                        "songFollow", "overdub"})
 			json_object_del(data, key);
 		char* text = json_dumps(data, JSON_COMPACT | JSON_SORT_KEYS);
 		std::string key = text ? text : "";
@@ -493,21 +563,58 @@ struct Talea : Module {
 			undoFinish();
 	}
 
+	/** A REC take is one undo step: the module as it was when REC went on, pushed when it goes
+	off if the recording changed anything (each UI frame, like undoStep()). */
+	json_t* recUndoBefore = nullptr;
+	bool recUndoOn = false;
+
+	void recUndoStep() {
+		if (recording == recUndoOn)
+			return;
+		recUndoOn = recording;
+		if (recording) {
+			if (recUndoBefore)
+				json_decref(recUndoBefore);
+			recUndoBefore = APP->engine->moduleToJson(this);
+			return;
+		}
+		if (!recUndoBefore)
+			return;
+		json_t* after = APP->engine->moduleToJson(this);
+		if (undoDataKey(after) != undoDataKey(recUndoBefore)) {
+			history::ModuleChange* h = new history::ModuleChange;
+			h->name = "Talea record";
+			h->moduleId = id;
+			h->oldModuleJ = recUndoBefore;
+			h->newModuleJ = after;
+			APP->history->push(h);
+		}
+		else {
+			json_decref(recUndoBefore);
+			json_decref(after);
+		}
+		recUndoBefore = nullptr;
+	}
+
 	~Talea() {
 		undoCancel();
+		if (recUndoBefore)
+			json_decref(recUndoBefore);
 	}
 
 	Talea() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 
-		configButton(PLAY_PARAM, "Play / pause");
-		configButton(RESET_PARAM, "Reset");
-		configButton(TAP_PARAM, "Tap tempo");
-		configParam(TEMPO_PARAM, 24.f, 280.f, 120.f, "Tempo", " BPM");
+		// Tooltips: names here, descriptions from Tooltips.hpp.
+		configButton(PLAY_PARAM, "Play / pause")->description = tips::kPlay;
+		configButton(RESET_PARAM, "Reset")->description = tips::kReset;
+		configButton(TAP_PARAM, "Tap tempo")->description = tips::kTap;
+		configParam(TEMPO_PARAM, 24.f, 280.f, 120.f, "Tempo", " BPM")->description = tips::kTempo;
 		paramQuantities[TEMPO_PARAM]->snapEnabled = true;
-		configButton(TEMP_PARAM, "Temp (click: on / off and revert; Ctrl+click: keep changes)");
-		configButton(ALL_PARAM, "All tracks (knob turns move every track by the same amount)");
-		configButton(RND_ASSIGN_PARAM, "Random assign");
+		configLight(CLOCK_LIGHT, "Clock")->description = tips::kClockLight;
+		configButton(TEMP_PARAM, "Temp")->description = tips::kTemp;
+		configButton(ALL_PARAM, "All tracks")->description = tips::kAll;
+		configButton(RND_ASSIGN_PARAM, "Random assign")->description = tips::kRndAssign;
 		configParam(DATA_PARAM, -kEndlessRange, kEndlessRange, 0.f, "Data");
 		paramQuantities[DATA_PARAM]->snapEnabled = true;
 		paramQuantities[DATA_PARAM]->resetEnabled = false;
@@ -517,40 +624,46 @@ struct Talea : Module {
 			const ParamInfo& info = kTrackParams[tp];
 			int id = knobOf(tp);
 			if (info.list)
-				configSwitch(id, info.min, info.max, info.def, info.name, names(info.list, info.listSize));
+				configSwitch<NotedQuantity<SwitchQuantity>>(id, info.min, info.max, info.def, info.name, names(info.list, info.listSize));
 			else if (tp == TP_REPEATS)
-				configParam<RepeatsQuantity>(id, info.min, info.max, info.def, info.name, info.unit);
+				configParam<NotedQuantity<RepeatsQuantity>>(id, info.min, info.max, info.def, info.name, info.unit);
 			else
-				configParam(id, info.min, info.max, info.def, info.name, info.unit);
+				configParam<NotedQuantity<ParamQuantity>>(id, info.min, info.max, info.def, info.name, info.unit);
 			paramQuantities[id]->snapEnabled = info.snap;
+			paramQuantities[id]->description = tips::kTrackParam[tp];
 		}
-		configParam(HARMONY_PARAM, -kEndlessRange, kEndlessRange, 0.f, "Harmony");
+		paramQuantities[knobOf(TP_PROBABILITY)]->name = tips::kProbabilityName;
+		paramQuantities[knobOf(TP_TIMING)]->name = tips::kTimingName;
+		configParam<NotedQuantity<ParamQuantity>>(HARMONY_PARAM, -kEndlessRange, kEndlessRange, 0.f, "Harmony")->description = tips::kHarmony;
 		paramQuantities[HARMONY_PARAM]->snapEnabled = true;
 		paramQuantities[HARMONY_PARAM]->resetEnabled = false;
 
-		configParam(VARIANCE_PARAM, 0.f, 100.f, 0.f, "Variance", "%");
-		configSwitch(RANDOM_RATE_PARAM, 0.f, float(countOf(kRandomRates) - 1), float(kDefaultRandomRate), "Random rate", names(kRandomRates, countOf(kRandomRates)));
+		configParam(VARIANCE_PARAM, 0.f, 100.f, 0.f, "Variance", "%")->description = tips::kVariance;
+		configSwitch(RANDOM_RATE_PARAM, 0.f, float(countOf(kRandomRates) - 1), float(kDefaultRandomRate), "Random rate", names(kRandomRates, countOf(kRandomRates)))
+			->description = tips::kRandomRate;
 
 		const char* modeNames[kNumModes] = {"Track", "Step", "Cycle", "Keys (retired)", "Mute", "Pattern"};
+		const char* modeTips[kNumModes] = {"", tips::kModeStep, tips::kModeCycle, "", tips::kModeMute, tips::kModePattern};
 		for (int i = 0; i < kNumModes; i++)
-			configButton(MODE_TRACK_PARAM + i, string::f("Pad mode: %s", modeNames[i]));
-		configButton(CYCLE_EDIT_PARAM, "Cycle edit");
-		configButton(COPY_PARAM, "Copy (then click a track button, knob, cycle or pattern pad)");
-		configButton(PASTE_PARAM, "Paste (every target clicked receives the clipboard; click again to stop)");
-		configButton(CLEAR_PARAM, "Clear (then click a target; Ctrl+click: stays armed until clicked again)");
+			configButton(MODE_TRACK_PARAM + i, string::f("Pad mode: %s", modeNames[i]))->description = modeTips[i];
+		configButton(CYCLE_EDIT_PARAM, "Cycle edit")->description = tips::kCycleEdit;
+		configButton(COPY_PARAM, "Copy")->description = tips::kCopy;
+		configButton(PASTE_PARAM, "Paste")->description = tips::kPaste;
+		configButton(CLEAR_PARAM, "Clear")->description = tips::kClear;
 		for (int i = 0; i < kNumPads; i++)
-			configButton(PAD_PARAM + i, string::f("Pad %d", i + 1));
+			configButton<PadQuantity>(PAD_PARAM + i, string::f("Pad %d", i + 1))->pad = i;
 		for (int i = 0; i < kNumStepPages; i++)
-			configButton(STEP_PAGE_PARAM + i, string::f("Step page %d (steps %d-%d)", i + 1, i * 16 + 1, i * 16 + 16));
-		configButton(FOLLOW_PARAM, "Follow playhead");
+			configButton(STEP_PAGE_PARAM + i, string::f("Step page %d (steps %d-%d)", i + 1, i * 16 + 1, i * 16 + 16))
+				->description = tips::kStepPage;
+		configButton(FOLLOW_PARAM, "Follow playhead")->description = tips::kFollow;
 		for (int i = 0; i < kNumTracks; i++)
-			configButton(TRACK_SELECT_PARAM + i, string::f("Track %d (click: select; Ctrl: group; Shift: group range)", i + 1));
+			configButton(TRACK_SELECT_PARAM + i, string::f("Track %d", i + 1))->description = tips::kTrackSelect;
 		for (int i = 0; i < kNumMods; i++)
 			configParam(MOD_ATTEN_PARAM + i, -1.f, 1.f, 0.f, string::f("Mod %d amount", i + 1), "%", 0.f, 100.f);
 
-		configInput(CLOCK_INPUT, "Clock");
-		configInput(RESET_INPUT, "Reset");
-		configInput(RUN_INPUT, "Run");
+		configInput(CLOCK_INPUT, "Clock")->description = tips::kClockIn;
+		configInput(RESET_INPUT, "Reset")->description = tips::kResetIn;
+		configInput(RUN_INPUT, "Run")->description = tips::kRunIn;
 		configInput(TEMP_INPUT, "Temp gate (Temp while high)");
 		for (int i = 0; i < kNumMods; i++)
 			configInput(MOD_INPUT + i, string::f("Mod %d", i + 1));
@@ -558,13 +671,18 @@ struct Talea : Module {
 		configInput(PHRASE_CV_INPUT, "Phrase CV (channel n = track n)");
 		configInput(PATTERN_INPUT, "Pattern select (0-10 V)");
 		configInput(MUTE_APPLY_INPUT, "Mute apply (trigger applies staged mutes)");
+		configButton<NotedQuantity<ParamQuantity>>(REC_PARAM, "Record")->description = tips::kRec;
+		configButton(OVERDUB_PARAM, "Overdub")->description = tips::kOverdub;
+		configInput(REC_PITCH_INPUT, "Note in V/oct")->description = tips::kRecPitch;
+		configInput(REC_GATE_INPUT, "Note in gate")->description = tips::kRecGate;
+		configInput(REC_VELOCITY_INPUT, "Note in velocity")->description = tips::kRecVelocity;
 
-		configOutput(PITCH_OUTPUT, "Pitch (V/oct, channel n = track n)");
-		configOutput(GATE_OUTPUT, "Gate (channel n = track n)");
-		configOutput(VELOCITY_OUTPUT, "Velocity (0-10 V, channel n = track n)");
-		configOutput(CLOCK_OUTPUT, "Clock");
-		configOutput(RESET_OUTPUT, "Reset");
-		configOutput(EOP_OUTPUT, "End of pattern");
+		configOutput(PITCH_OUTPUT, "Pitch")->description = tips::kPitchOut;
+		configOutput(GATE_OUTPUT, "Gate")->description = tips::kGateOut;
+		configOutput(VELOCITY_OUTPUT, "Velocity")->description = tips::kVelocityOut;
+		configOutput(CLOCK_OUTPUT, "Clock")->description = tips::kClockOut;
+		configOutput(RESET_OUTPUT, "Reset")->description = tips::kResetOut;
+		configOutput(EOP_OUTPUT, "End of pattern")->description = tips::kEopOut;
 
 		lightDivider.setDivision(64);
 		leftExpander.producerMessage = &inMessages[0];
@@ -603,11 +721,21 @@ struct Talea : Module {
 	}
 
 	int firstLockStep() {
+		return firstStepOf(lockSel);
+	}
+
+	static int firstStepOf(StepMask m) {
 		for (int s = 0; s < kMaxSteps; s++) {
-			if (hasHit(lockSel, s))
+			if (hasHit(m, s))
 				return s;
 		}
 		return 0;
+	}
+
+	/** SEQ mode: the steps the KEYS page edits, the lock selection (Ctrl+click) or else the
+	plain-click one. */
+	StepMask keysSel() {
+		return lockSel ? lockSel : seqSel;
 	}
 
 	/** Where scale / root / pool edits go: the edited cycle's own (made from the track's on
@@ -686,6 +814,216 @@ struct Talea : Module {
 		return cycles().cycles[selectedCycle].locks;
 	}
 
+	// ------------------------------------------------------------ SEQ mode
+
+	/** The cycle step edits reach: the edited one in Cycle edit, else -1 (the track). */
+	int editCycle() const {
+		return cycleEdit ? selectedCycle : -1;
+	}
+
+	/** The selected track (the edited cycle in Cycle edit) plays a manual sequence. */
+	bool seqTarget() {
+		return viewTrack().seqMode;
+	}
+
+	/** The sequence step edits show... */
+	const StepSequence& seqView() {
+		return seq.pattern.sequenceOf(selectedTrack, editCycle());
+	}
+
+	/** ...and the one they change: in Cycle edit the cycle's own, copied from the track's on
+	its first edit. */
+	StepSequence& seqEdit() {
+		return seq.pattern.sequenceEdit(selectedTrack, editCycle());
+	}
+
+	/** Velocity of a step entered by hand (or recorded without a velocity input): the knob. */
+	int defaultSeqVelocity() {
+		return clamp(viewTrack().getInt(TP_VELOCITY), 1, 127);
+	}
+
+	/** SETUP page MODE (audio thread): EUCLID or SEQ for the track, or as the edited cycle's
+	own mode in Cycle edit. A sequence that is still empty starts from the hits the track plays
+	now, each with its pool and the Velocity knob, so switching keeps the rhythm. */
+	void setSeqMode(bool on) {
+		if (on == seqTarget())
+			return;
+		StepMask hits = seq.hits(selectedTrack, editCycle());
+		Track view = viewTrack();
+		if (cycleEdit) {
+			CycleOverrides& o = cycles().cycles[selectedCycle];
+			o.ownMode = true;
+			o.seqMode = on;
+		}
+		else
+			track().seqMode = on;
+		if (on && seqView().empty()) {
+			StepSequence& sq = seqEdit();
+			for (int s = 0; s < view.playedSteps(); s++) {
+				if (hasHit(hits, s))
+					sq.set(s, view.pool, view.poolSize, defaultSeqVelocity(), 1);
+			}
+		}
+		if (!on)
+			recording = false;
+		lockSel = 0;
+		seqSel = 0;
+		loadKnobs();
+	}
+
+	/** KEYS page with steps selected in SEQ mode: toggles `note` in the first selected step's
+	chord and gives every selected step that chord (each keeping its velocity and gate). Any
+	key: the scale doesn't apply. */
+	void toggleSeqNote(int note) {
+		StepSequence& sq = seqEdit();
+		StepMask sel = keysSel();
+		int first = firstStepOf(sel);
+		sq.toggleNote(first, note, defaultSeqVelocity());
+		const SeqStep& f = sq.steps[first];
+		int notes[kMaxPool];
+		for (int i = 0; i < f.count; i++)
+			notes[i] = f.notes[i];
+		for (int pos = 0; pos < kMaxSteps; pos++) {
+			if (pos == first || !hasHit(sel, pos))
+				continue;
+			bool had = sq.has(pos);
+			sq.set(pos, notes, f.count, had ? sq.steps[pos].velocity : defaultSeqVelocity(), had ? sq.steps[pos].gate : 1);
+		}
+	}
+
+	/** REST (KEYS page, SEQ mode): the selected steps lose their notes. */
+	void clearSeqSteps() {
+		StepMask sel = keysSel();
+		for (int pos = 0; pos < kMaxSteps; pos++) {
+			if (hasHit(sel, pos))
+				seqEdit().clear(pos);
+		}
+	}
+
+	/** A SEQ lane's value on step `pos` (only steps with notes have one). */
+	bool seqLaneValue(int pos, int lane, float& v) {
+		const StepSequence& sq = seqView();
+		if (!sq.has(pos))
+			return false;
+		v = lane == kLaneSeqGate ? float(sq.steps[pos].gate) : float(sq.steps[pos].velocity);
+		return true;
+	}
+
+	/** REC button and NOTE IN (audio thread). Live while playing, step record while stopped;
+	the gate channels are the voices. */
+	void processRecording() {
+		bool target = seqTarget();
+		if (recording && !target)
+			recording = false;
+		if (playing != recWasPlaying) {
+			recorder.release();
+			recWasPlaying = playing;
+		}
+		Input& gateIn = inputs[REC_GATE_INPUT];
+		int channels = gateIn.isConnected() ? gateIn.getChannels() : 0;
+		bool changed = false;
+		for (int c = 0; c < 16; c++) {
+			bool high = false;
+			if (c < channels) {
+				recGate[c].process(gateIn.getVoltage(c), 0.1f, 1.f);
+				high = recGate[c].isHigh();
+			}
+			if (high == recHigh[c])
+				continue;
+			recHigh[c] = high;
+			changed = true;
+			if (high) {
+				recNote[c] = clamp(int(std::lround(inputs[REC_PITCH_INPUT].getPolyVoltage(c) * 12.f)) + kBaseNote, 0, 127);
+				recVelocity[c] = inputs[REC_VELOCITY_INPUT].isConnected()
+				                     ? clamp(int(std::lround(inputs[REC_VELOCITY_INPUT].getPolyVoltage(c) / 10.f * 127.f)), 1, 127)
+				                     : defaultSeqVelocity();
+			}
+			if (!recording)
+				continue;
+			if (high) {
+				int note = recNote[c], velocity = recVelocity[c];
+				if (playing) {
+					int pos = seq.nearestStep(selectedTrack, beat, recStepQuarters);
+					recorder.liveOn(seqEdit(), pos, beat, note, velocity);
+				}
+				else {
+					recorder.cursor = clamp(recorder.cursor, 0, viewTrack().steps() - 1);
+					recorder.stepOn(seqEdit(), note, velocity);
+				}
+			}
+			else if (playing)
+				recorder.liveOff(seqEdit(), recNote[c], beat, recStepQuarters);
+			else
+				recorder.stepOff(recNote[c], viewTrack().steps());
+		}
+		// The selected track changed or left SEQ mode under held keys: they stop sounding there.
+		if (monitorTrack >= 0 && (monitorTrack != selectedTrack || !target))
+			releaseMonitor();
+		if (changed && target)
+			updateMonitor();
+	}
+
+	/** SEQ mode monitoring: the keys held at NOTE IN sound on the selected track's outputs
+	(main jacks, OUT expander, MIDI) as they would play back (+ Pitch and Transpose), with or
+	without REC. While keys are held they take the track's outputs over from its sequence.
+	Adding keys to a held chord doesn't retrigger the gate; the first key after all were
+	released does. Not on a CC track. */
+	void updateMonitor() {
+		int t = selectedTrack;
+		Track view = viewTrack();
+		int held[16], n = 0, velocity = 1;
+		for (int c = 0; c < 16; c++) {
+			if (recHigh[c]) {
+				held[n++] = recNote[c];
+				velocity = std::max(velocity, recVelocity[c]);
+			}
+		}
+		if (n == 0 || view.cc) {
+			releaseMonitor();
+			return;
+		}
+		StepSequence chordOf; // the held keys as a step, through the playback pitch path
+		chordOf.set(0, held, n, velocity, 1);
+		int chord[kMaxPool];
+		int count = view.seqChord(chordOf.steps[0], chord, seq.transpose[t]);
+		if (monitorTrack != t && gate[t])
+			retrig[t] = 1e-3f; // cutting a sequence note: a fresh gate
+		monitorTrack = t;
+		gate[t] = true;
+		ccLane[t].on = false;
+		pitchV[t] = (chord[0] - kBaseNote) / 12.f;
+		velocityV[t] = velocity * 10.f / 127.f;
+		chordN[t] = count;
+		uint8_t notes[kMaxPool];
+		for (int i = 0; i < count; i++) {
+			chordV[t][i] = (chord[i] - kBaseNote) / 12.f;
+			notes[i] = uint8_t(chord[i]);
+		}
+		midi.noteOn(t, notes, count, velocity);
+	}
+
+	void releaseMonitor() {
+		if (monitorTrack < 0)
+			return;
+		gate[monitorTrack] = false;
+		midi.off(monitorTrack);
+		monitorTrack = -1;
+	}
+
+	void toggleRecording() {
+		if (recording) {
+			recording = false;
+			recorder.release();
+			return;
+		}
+		if (!seqTarget())
+			return; // only in SEQ mode
+		recording = true;
+		recorder.release();
+		// Step record starts at the first selected step, else step 1.
+		recorder.cursor = firstStepOf(keysSel());
+	}
+
 	/** Step `pos` has locks that play in cycle `c` (the track's or the cycle's own); c < 0 =
 	what step edits reach: the edited cycle in Cycle edit, else the track. */
 	bool locksAt(int pos, int c = -1) {
@@ -707,8 +1045,18 @@ struct Talea : Module {
 		return false;
 	}
 
-	/** Lock edits go to the edited cycle in Cycle edit, else to the track. */
+	/** Lock edits go to the edited cycle in Cycle edit, else to the track. The SEQ lanes edit
+	the sequence's velocity / gate on steps with notes. */
 	void setLock(int pos, int tp, float v) {
+		if (tp == kLaneSeqVelocity || tp == kLaneSeqGate) {
+			if (!seqView().has(pos))
+				return;
+			if (tp == kLaneSeqGate)
+				seqEdit().setGate(pos, int(std::lround(v)));
+			else
+				seqEdit().setVelocity(pos, int(std::lround(v)));
+			return;
+		}
 		if (cycleEdit)
 			cycleLocks().set(pos, TrackParam(tp), v);
 		else
@@ -716,6 +1064,11 @@ struct Talea : Module {
 	}
 
 	void clearLock(int pos, int tp) {
+		// SEQ lanes: right-click puts the default back (the Velocity knob, one step).
+		if (tp == kLaneSeqVelocity || tp == kLaneSeqGate) {
+			setLock(pos, tp, tp == kLaneSeqGate ? 1.f : float(defaultSeqVelocity()));
+			return;
+		}
 		if (cycleEdit)
 			cycleLocks().clear(pos, TrackParam(tp));
 		else
@@ -723,6 +1076,7 @@ struct Talea : Module {
 	}
 
 	void clearLockSelection() {
+		seqSel = 0;
 		if (!lockSel)
 			return;
 		lockSel = 0;
@@ -770,9 +1124,106 @@ struct Talea : Module {
 		return cycleEdit ? cycles().value(track(), selectedCycle, TrackParam(tp)) : track().values[tp];
 	}
 
-	/** Under Rnd assign the knobs of parameters that can't be randomised are locked, and
-	while steps are selected those that can't be step-locked. */
+	// ------------------------------------------------------------ tooltips (UI thread)
+
+	/** The state-dependent line under a knob's (or REC's) tooltip: why it's locked, or what a
+	turn does right now. Empty = none. */
+	std::string paramNote(int paramId) {
+		if (paramId == REC_PARAM)
+			return seqTarget() ? "" : "Unavailable: the selected track is in EUCLID mode (SETUP page, MODE).";
+		bool seqMode = seqTarget();
+		if (paramId == HARMONY_PARAM) {
+			if (seqMode)
+				return "Not used in SEQ mode (no note pool).";
+			return grouped() ? "Moves the pool of every grouped track." : "";
+		}
+		int tp = -1;
+		for (int p = 0; p < kNumTrackParams; p++) {
+			if (knobOf(p) == paramId)
+				tp = p;
+		}
+		if (tp < 0)
+			return "";
+		if (seqMode && seqIgnores(tp))
+			return "Not used in SEQ mode.";
+		if (rndAssign)
+			return randomisable(TrackParam(tp)) ? "RND ASSIGN: turning sets the random amount."
+			                                    : "Can't be randomised: it sets the loop length.";
+		if (lockSel)
+			return lockable(TrackParam(tp)) ? "Steps selected: turning locks this value on them."
+			                                : "Can't be step-locked (steps are selected).";
+		std::vector<std::string> notes;
+		if (seqMode && tp == TP_VELOCITY)
+			notes.push_back("SEQ mode: each step plays its own velocity; this sets new notes' velocity.");
+		if (seqMode && tp == TP_PITCH)
+			notes.push_back("SEQ mode: transposes the sequence in semitones (no scale).");
+		if (seqMode && tp == TP_SUSTAIN)
+			notes.push_back("SEQ mode: shapes the last step of each note's gate.");
+		if (cycleEdit)
+			notes.push_back(string::f("CYC EDIT: turning overrides it in cycle %d only.", selectedCycle + 1));
+		else if (grouped())
+			notes.push_back("Grouped: every grouped track moves by the same amount.");
+		std::string s;
+		for (const std::string& n : notes)
+			s += (s.empty() ? "" : "\n") + n;
+		return s;
+	}
+
+	/** A pad's tooltip name in the current pad mode. */
+	std::string padLabel(int i) {
+		switch (padMode) {
+			case MODE_STEP: return string::f("Step %d", stepPage * 16 + i + 1);
+			case MODE_CYCLE: return i < kMaxCycles ? string::f("Cycle %d", i + 1) : string::f("Pad %d", i + 1);
+			case MODE_MUTE: return string::f("Track %d", i + 1);
+			case MODE_PATTERN: return string::f("Pattern %d", i + 1);
+			default: return string::f("Pad %d", i + 1);
+		}
+	}
+
+	/** What clicking the pad does in the current pad mode. */
+	std::string padDescription(int i) {
+		switch (padMode) {
+			case MODE_STEP: {
+				if (stepPage * 16 + i >= viewTrack().steps())
+					return "Past the track's Steps.";
+				if (!seqTarget())
+					return "Click: turn the pulse on / off. Ctrl+click: select for step locks (blue).";
+				if (recording && !playing)
+					return "Step record: click moves the cursor (blinking red) here.";
+				return "SEQ mode. Click: select (KEYS shows its notes). Ctrl+click: select for step locks (blue). "
+				       "Right-click: make it a rest.";
+			}
+			case MODE_CYCLE:
+				if (i >= kMaxCycles)
+					return "Unused in CYCLE mode.";
+				return "Click: select this cycle (past the last adds cycles). Ctrl+click: mute it.";
+			case MODE_MUTE: return "Click: stage a mute change (MUTE applies). Ctrl+click: mute / unmute at once.";
+			case MODE_PATTERN:
+				if (songPageShown)
+					return "SONG page: click adds this pattern to the song.";
+				return "Click: queue this pattern. Shift+click: add it to the chain. Ctrl+click: switch at once.";
+			default: return "";
+		}
+	}
+
+	/** Parameters a SEQ mode track (or edited cycle) doesn't use: no Euclid pattern (Pulses,
+	Rotate), no voicing or phrase (Voicing, Range). Harmony (no pool) is checked by its knob. */
+	static bool seqIgnores(int tp) {
+		return tp == TP_PULSES || tp == TP_ROTATE || tp == TP_VOICING || tp == TP_RANGE;
+	}
+
+	/** Knobs that don't turn (dimmed): in SEQ mode those it doesn't use; under Rnd assign those
+	of parameters that can't be randomised, and while steps are selected those that can't be
+	step-locked. */
 	bool knobLocked(int paramId) {
+		if (seqTarget()) {
+			if (paramId == HARMONY_PARAM)
+				return true;
+			for (int tp = 0; tp < kNumTrackParams; tp++) {
+				if (knobOf(tp) == paramId && seqIgnores(tp))
+					return true;
+			}
+		}
 		if (!rndAssign && !lockSel)
 			return false;
 		for (int tp = 0; tp < kNumTrackParams; tp++) {
@@ -912,6 +1363,7 @@ struct Talea : Module {
 				clip.track = pat.tracks[t];
 				clip.cycles = pat.cycles[t];
 				clip.random = pat.random[t];
+				clip.sequence = pat.seqs[t];
 				armed = ARM_NONE;
 				return true;
 			case ARM_PASTE:
@@ -919,6 +1371,7 @@ struct Talea : Module {
 					pat.tracks[t] = clip.track;
 					pat.cycles[t] = clip.cycles;
 					pat.random[t] = clip.random;
+					pat.seqs[t] = clip.sequence;
 				}
 				else if (clip.kind == CLIP_PARAM)
 					pat.setBase(t, TrackParam(clip.param), clip.value);
@@ -929,6 +1382,7 @@ struct Talea : Module {
 				pat.tracks[t].reset();
 				pat.cycles[t].reset();
 				pat.random[t].reset(t);
+				pat.seqs[t].reset();
 				clearDone();
 				break;
 			default: return false;
@@ -960,6 +1414,8 @@ struct Talea : Module {
 					clip.stepHit = hit;
 					clip.stepMask = 0;
 					clip.stepPool = poolLockAt(pos) ? *poolLockAt(pos) : PoolLock();
+					clip.seqStepHas = seqTarget() && seqView().has(pos);
+					clip.seqStep = clip.seqStepHas ? seqView().steps[pos] : SeqStep();
 					for (int p = 0; p < kNumTrackParams; p++) {
 						float v;
 						if (lockValue(pos, p, v)) {
@@ -972,7 +1428,18 @@ struct Talea : Module {
 				case ARM_PASTE:
 					if (clip.kind != CLIP_STEP)
 						return true;
-					if (hit != clip.stepHit) {
+					if (seqTarget()) {
+						// SEQ mode: the step's notes, velocity and gate (a rest stays a rest).
+						if (clip.seqStepHas) {
+							int notes[kMaxPool];
+							for (int k = 0; k < clip.seqStep.count; k++)
+								notes[k] = clip.seqStep.notes[k];
+							seqEdit().set(pos, notes, clip.seqStep.count, clip.seqStep.velocity, clip.seqStep.gate);
+						}
+						else
+							seqEdit().clear(pos);
+					}
+					else if (hit != clip.stepHit) {
 						if (cycleEdit)
 							cycles().toggleStep(track(), selectedCycle, step);
 						else
@@ -993,13 +1460,17 @@ struct Talea : Module {
 						lk.copyStep(pos, clip.stepMask, clip.stepValues, clip.stepPool);
 					break;
 				case ARM_CLEAR: {
-					// Its locks and its manual on/off edit (the edited cycle's in Cycle edit).
+					// Its locks and its manual on/off edit (the edited cycle's in Cycle edit); in
+					// SEQ mode its notes too.
+					if (seqTarget() && seqView().has(pos))
+						seqEdit().clear(pos);
 					if (cycleEdit)
 						cycleLocks().clearStep(pos);
 					else
 						lk.clearStep(pos);
 					StepMask keep = ~(StepMask(1) << pos);
 					lockSel &= keep; // a cleared step leaves the lock selection
+					seqSel &= keep;
 					CycleOverrides& o = cycles().cycles[selectedCycle];
 					if (cycleEdit && o.ownHits) {
 						o.manualHits &= keep;
@@ -1174,6 +1645,7 @@ struct Talea : Module {
 
 	void selectTrack(int t) {
 		lockSel = 0;
+		seqSel = 0;
 		selectedTrack = t;
 		selectedCycle = std::min(selectedCycle, cycles().count - 1);
 		loadKnobs();
@@ -1209,6 +1681,8 @@ struct Talea : Module {
 			case CYCLE_CLEAR_RANDOM: cycles().clearRandom(selectedCycle, TrackParam(argument)); break;
 			case CYCLE_CLEAR_LOCKS: cycles().cycles[selectedCycle].locks.reset(); break;
 			case CYCLE_CLEAR_TONAL: cycles().cycles[selectedCycle].ownTonal = false; break;
+			case CYCLE_CLEAR_SEQ: cycles().cycles[selectedCycle].clearSequence(); break;
+			case CYCLE_CLEAR_MODE: cycles().cycles[selectedCycle].ownMode = false; break;
 			default: return;
 		}
 		loadKnobs();
@@ -1227,6 +1701,13 @@ struct Talea : Module {
 	otherwise the pool (the edited cycle's in Cycle edit). Out-of-scale keys can't be added,
 	but a pool note left outside by a scale change can still be removed. */
 	void pressKey(int note) {
+		if (seqTarget()) {
+			// SEQ mode: the selected steps take the note (no scale); no pool, so with no
+			// step selected a key does nothing.
+			if (keysSel())
+				toggleSeqNote(note);
+			return;
+		}
 		if (lockSel) {
 			toggleStepPoolNote(note);
 			return;
@@ -1269,6 +1750,8 @@ struct Talea : Module {
 		bool turnedOff[kNumTracks] = {};
 		for (const NoteEvent& e : events) {
 			int t = e.track;
+			if (t == monitorTrack)
+				continue; // NOTE IN keys are sounding there (SEQ mode monitoring)
 			if (e.on) {
 				if (gate[t] || turnedOff[t])
 					retrig[t] = 1e-3f;
@@ -1400,6 +1883,10 @@ struct Talea : Module {
 
 		// Harmony is endless: each detent moves one pool note a scale step.
 		int detents = int(std::lround(params[HARMONY_PARAM].getValue() - harmonyLast));
+		if (knobLocked(HARMONY_PARAM)) {
+			harmonyLast += float(detents); // SEQ mode: no pool to move
+			detents = 0;
+		}
 		uint16_t group = groupMask();
 		for (int t = 0; t < kNumTracks && detents != 0; t++) {
 			if (group & (1u << t)) {
@@ -1449,8 +1936,13 @@ struct Talea : Module {
 			}
 		}
 
+		int mode = seqModeRequest.exchange(-1);
+		if (mode >= 0)
+			setSeqMode(mode == 1);
+
 		uiClock += args.sampleTime;
 		handleButtons(args);
+		processRecording();
 		advanceClock(args);
 		if (!playing) {
 			// Stopped: "Immediately" mutes and Ctrl+click cuts still take effect.
@@ -1640,6 +2132,10 @@ struct Talea : Module {
 		}
 		if (pressed(followTrigger, FOLLOW_PARAM))
 			follow ^= true;
+		if (pressed(recTrigger, REC_PARAM))
+			toggleRecording();
+		if (pressed(overdubTrigger, OVERDUB_PARAM))
+			recorder.overdub ^= true;
 		for (int i = MODE_STEP; i < kNumModes; i++) {
 			if (!pressed(modeTriggers[i], MODE_TRACK_PARAM + i))
 				continue;
@@ -1665,8 +2161,12 @@ struct Talea : Module {
 		int key = keyRequest.exchange(-1);
 		if (key >= 0)
 			pressKey(key);
-		else if (key == kKeyTrackPool)
-			clearStepPools();
+		else if (key == kKeyTrackPool) {
+			if (seqTarget())
+				clearSeqSteps();
+			else
+				clearStepPools();
+		}
 		if (leaveMuteRequest.exchange(false) && padMode == MODE_MUTE) {
 			seq.clearStagedMutes();
 			padMode = preMuteMode;
@@ -1720,6 +2220,12 @@ struct Talea : Module {
 				clickTrack(i, ctrl, shift);
 		}
 		for (int i = 0; i < kNumPads; i++) {
+			// SEQ mode: right-click on a step pad makes the step a rest.
+			if (padRight[i].exchange(false) && padMode == MODE_STEP && seqTarget()) {
+				int step = stepPage * 16 + i;
+				if (step < viewTrack().steps() && seqView().has(step))
+					seqEdit().clear(step);
+			}
 			if (!pressed(padTriggers[i], PAD_PARAM + i))
 				continue;
 			bool ctrl = padCtrl[i].exchange(false);
@@ -1750,8 +2256,26 @@ struct Talea : Module {
 				int step = stepPage * 16 + i;
 				if (ctrl) {
 					if (step < view.steps()) {
+						// A plain-clicked SEQ step joins the selection it starts.
+						if (!lockSel && seqTarget())
+							lockSel = seqSel;
 						lockSel ^= StepMask(1) << view.unrotated(step);
+						seqSel = 0;
 						loadKnobs();
+					}
+				}
+				else if (seqTarget()) {
+					// SEQ mode: a click selects just this step for KEYS (no locks: that's
+					// Ctrl+click); a rest stays one until KEYS gives it notes. Recording while
+					// stopped, it also moves the step-record cursor. Right-click = rest.
+					if (step < view.steps()) {
+						if (recording && !playing)
+							recorder.cursor = step;
+						seqSel = StepMask(1) << step;
+						if (lockSel) {
+							lockSel = 0;
+							loadKnobs();
+						}
 					}
 				}
 				else if (cycleEdit)
@@ -1817,6 +2341,9 @@ struct Talea : Module {
 		lights[RND_ASSIGN_LIGHT].setBrightness(rndAssign);
 		lights[CYCLE_EDIT_LIGHT].setBrightness(cycleEdit);
 		lights[FOLLOW_LIGHT].setBrightness(follow);
+		// REC: solid while recording live, blinking while step recording (stopped).
+		lights[REC_LIGHT].setBrightness(recording && (playing || slowBlink));
+		lights[OVERDUB_LIGHT].setBrightness(recorder.overdub ? 1.f : 0.f);
 		bool fastBlink = std::fmod(uiClock, 0.2) < 0.1;
 		for (int i = 0; i < kNumModes; i++)
 			lights[MODE_LIGHT + i].setBrightness(padMode == i);
@@ -1891,8 +2418,19 @@ struct Talea : Module {
 						g = hit ? 0.14f : 0.02f;
 						b = hit ? 0.04f : 0.02f;
 					}
+					else if (recording && !playing && step == recorder.cursor) {
+						// Step record: the cursor blinks red.
+						r = slowBlink ? 1.f : 0.3f;
+						g = b = slowBlink ? 0.12f : 0.03f;
+					}
 					else if (step == playStep)
 						r = g = b = hasHit(playHits, step) ? 1.f : 0.35f;
+					else if (hasHit(seqSel, step) && seqTarget()) {
+						// SEQ mode, selected for KEYS: green.
+						r = hit ? 0.25f : 0.05f;
+						g = hit ? 0.95f : 0.3f;
+						b = hit ? 0.4f : 0.1f;
+					}
 					else if (hasHit(lockSel, view.unrotated(step))) {
 						// Selected for locking: blue.
 						r = hit ? 0.3f : 0.08f;
@@ -2021,12 +2559,15 @@ struct Talea : Module {
 		tempLatched = false;
 		armed = ARM_NONE;
 		clip.kind = CLIP_NONE;
+		recording = false;
+		recorder.release();
 		// MIDI: notes off, channels back to track n -> channel n, clock off (device kept).
 		midi.allOff();
 		for (int t = 0; t < kNumTracks; t++)
 			midi.channel[t] = t;
 		midi.clock = false;
 		lockSel = 0;
+		seqSel = 0;
 		trackGroup = 0;
 		selectedTrack = 0;
 		padMode = MODE_STEP;
@@ -2082,6 +2623,7 @@ struct Talea : Module {
 		json_object_set_new(root, "song", json_string(songToJson(seq.song).c_str()));
 		json_object_set_new(root, "songOn", json_boolean(seq.songOn()));
 		json_object_set_new(root, "songFollow", json_boolean(songFollow));
+		json_object_set_new(root, "overdub", json_boolean(recorder.overdub));
 		return root;
 	}
 
@@ -2097,10 +2639,11 @@ struct Talea : Module {
 
 	void dataFromJson(json_t* root) override {
 		seq.resetBank();
-		Pattern p;
+		// On the heap: a Pattern is ~0.4 MB.
+		std::unique_ptr<Pattern> p(new Pattern);
 		auto load = [&](json_t* core, int slot) {
-			if (core && json_string_value(core) && patternFromJson(json_string_value(core), p))
-				seq.storePattern(slot, p);
+			if (core && json_string_value(core) && patternFromJson(json_string_value(core), *p))
+				seq.storePattern(slot, *p);
 		};
 		if (json_t* patterns = json_object_get(root, "patterns")) {
 			size_t i;
@@ -2146,6 +2689,8 @@ struct Talea : Module {
 		songSel = clamp(songSel, 0, std::max(seq.song.count - 1, 0));
 		if (json_t* j = json_object_get(root, "runGateMode"))
 			runGateMode = json_boolean_value(j);
+		if (json_t* j = json_object_get(root, "overdub"))
+			recorder.overdub = json_boolean_value(j);
 		if (json_t* j = json_object_get(root, "keysOctave"))
 			keysOctave = clamp(int(json_integer_value(j)), 0, kKeysOctaveMax);
 		if (json_t* j = json_object_get(root, "muteTiming"))
@@ -2161,6 +2706,22 @@ struct Talea : Module {
 
 /** Context display (D01): page tabs, an info line for the selected track, and per page
 either option rows (clickable selections) with a diagram, or the step grid. */
+namespace {
+
+std::string paramNote(Module* m, int paramId) {
+	return static_cast<Talea*>(m)->paramNote(paramId);
+}
+
+std::string padLabel(Module* m, int pad) {
+	return static_cast<Talea*>(m)->padLabel(pad);
+}
+
+std::string padDescription(Module* m, int pad) {
+	return static_cast<Talea*>(m)->padDescription(pad);
+}
+
+} // namespace
+
 struct ContextDisplay : widget::OpaqueWidget {
 	Talea* module = nullptr;
 	int page = 0; // UI-only state
@@ -2185,6 +2746,9 @@ struct ContextDisplay : widget::OpaqueWidget {
 		std::function<bool(int)> on;
 		std::function<void(int)> select;
 		float endMm;
+		/** Drawn faded: the setting has no effect right now (it stays editable, so it can be
+		set up before it applies). */
+		bool dim = false;
 	};
 
 	static OptionRow choice(std::string label, int count, std::function<std::string(int)> name, int* field, float endMm) {
@@ -2237,6 +2801,20 @@ struct ContextDisplay : widget::OpaqueWidget {
 	}
 
 	/** A pitch page (KEYS, PHRASE, SCALE, STYLE) while the selected track is a CC track. */
+	/** PHRASE, SCALE or STYLE while the selected track (or edited cycle) is in SEQ mode: its notes
+	play as entered. */
+	bool seqUnused() {
+		return module && module->seqTarget() && (page == kPhrasePage || page == kScalePage || page == kStylePage)
+		       && !muteView();
+	}
+
+	/** Hits of the selected track as cycle `c` plays it (-1 = the track), SEQ mode included. */
+	StepMask hitsOf(const Track& t, int c) {
+		if (module && t.seqMode)
+			return module->seq.pattern.sequenceOf(module->selectedTrack, c).used & fullMask(t.steps());
+		return t.hits();
+	}
+
 	bool pitchUnused() {
 		return module && module->track().cc
 		       && (page == kKeysPage || page == kPhrasePage || page == kScalePage || page == kStylePage)
@@ -2257,7 +2835,11 @@ struct ContextDisplay : widget::OpaqueWidget {
 	math::Rect trackPoolButton() {
 		return math::Rect(mm2px(Vec(128.f, 12.f)), mm2px(Vec(25.f, 4.2f)));
 	}
+	/** The button right of the KEYS header: TRACK POOL (selected steps' own pool) or, in SEQ mode,
+	REST (selected steps with notes). */
 	bool stepPoolShown() {
+		if (module && module->seqTarget())
+			return module->keysSel() && module->seqView().has(Talea::firstStepOf(module->keysSel()));
 		return module && module->lockSel && module->poolLockAt(module->firstLockStep());
 	}
 
@@ -2283,15 +2865,30 @@ struct ContextDisplay : widget::OpaqueWidget {
 		tr.userScale ^= ScaleMask(1u << (((pc - tr.root) % 12 + 12) % 12));
 	}
 
+	/** Note `n` sounds on the selected track now: any note of the chord at its outputs. */
+	bool soundingNote(const Track& view, int n) {
+		if (!module || view.cc)
+			return false;
+		int t = module->selectedTrack;
+		if (!module->gate[t])
+			return false;
+		for (int i = 0; i < module->chordN[t]; i++) {
+			if (int(std::lround(module->chordV[t][i] * 12.f)) + kBaseNote == n)
+				return true;
+		}
+		return false;
+	}
+
 	void drawKeys(NVGcontext* vg, const Track& view) {
+		if (module && module->seqTarget()) {
+			drawSeqKeys(vg, view);
+			return;
+		}
 		// With steps selected the keys show the first one's pool: blue = its own pool lock,
 		// orange = the track's pool it starts from.
 		bool steps = module && module->lockSel;
 		Track tr = steps ? module->stepPoolTrack() : view;
 		bool own = stepPoolShown();
-		int sounding = module && module->gate[module->selectedTrack]
-		                   ? int(std::lround(module->pitchV[module->selectedTrack] * 12.f)) + kBaseNote
-		                   : -1;
 		// Second header line: what a click does.
 		nvgFontSize(vg, mm2px(2.6f));
 		nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_BASELINE);
@@ -2319,9 +2916,14 @@ struct ContextDisplay : widget::OpaqueWidget {
 			if (tr.inPool(n))
 				l.fill = own ? lockBlue : accent;
 			l.marker = scale && ((n - tr.root) % 12 + 12) % 12 == 0;
-			l.dot = n == sounding;
+			l.dot = soundingNote(view, n);
 			return l;
 		});
+		drawOctaveArrows(vg);
+	}
+
+	/** The KEYS page's < > buttons either side of the keyboard. */
+	void drawOctaveArrows(NVGcontext* vg) {
 		nvgFontSize(vg, mm2px(3.f));
 		nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
 		int octave = module ? module->keysOctave : 2;
@@ -2335,6 +2937,53 @@ struct ContextDisplay : widget::OpaqueWidget {
 			nvgFillColor(vg, on ? text : dim);
 			nvgText(vg, r.pos.x + r.size.x / 2, r.pos.y + r.size.y / 2, dir < 0 ? "<" : ">", nullptr);
 		}
+	}
+
+	/** KEYS page in SEQ mode: any key (no scale). With steps selected, the first one's chord
+	(blue); otherwise the pool, the chord a pad click enters (orange). */
+	void drawSeqKeys(NVGcontext* vg, const Track& view) {
+		StepMask sel = module->keysSel();
+		bool steps = sel;
+		bool locking = module->lockSel;
+		const StepSequence& sq = module->seqView();
+		int first = Talea::firstStepOf(sel);
+		bool has = steps && sq.has(first);
+		auto inChord = [&](int n) {
+			if (!steps)
+				return false; // no pool in SEQ mode
+			const SeqStep& s = sq.steps[first];
+			return has && std::find(s.notes, s.notes + s.count, uint8_t(n)) != s.notes + s.count;
+		};
+		nvgFontSize(vg, mm2px(2.6f));
+		nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_BASELINE);
+		nvgFillColor(vg, labelColor);
+		nvgText(vg, mm2px(3.f), mm2px(14.6f),
+		        steps ? (has ? (locking ? "SEQ: SELECTED STEPS' CHORD. CLICK = ADD / REMOVE A NOTE"
+		                                : "SEQ: THE STEP'S CHORD. CLICK = ADD / REMOVE A NOTE")
+		                     : (locking ? "SEQ: SELECTED STEPS ARE RESTS. CLICK = GIVE THEM A NOTE"
+		                                : "SEQ: THE STEP IS A REST. CLICK = GIVE IT A NOTE"))
+		              : "SEQ: CLICK A STEP PAD TO SEE / EDIT ITS NOTES   CTRL+CLICK = SELECT SEVERAL (LOCKS)",
+		        nullptr);
+		if (has) {
+			math::Rect r = trackPoolButton();
+			nvgBeginPath(vg);
+			nvgRoundedRect(vg, r.pos.x, r.pos.y, r.size.x, r.size.y, mm2px(0.6f));
+			nvgFillColor(vg, nvgRGB(0x23, 0x26, 0x2b));
+			nvgFill(vg);
+			nvgFontSize(vg, mm2px(2.4f));
+			nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+			nvgFillColor(vg, text);
+			nvgText(vg, r.pos.x + r.size.x / 2, r.pos.y + r.size.y / 2 + 0.5f, "REST", nullptr);
+		}
+		keysKeyboard().draw(vg, [&](int n) {
+			KeyLook l;
+			l.enabled = true;
+			if (inChord(n))
+				l.fill = locking ? lockBlue : steps ? nvgRGB(0x40, 0xf0, 0x66) : accent;
+			l.dot = soundingNote(view, n);
+			return l;
+		});
+		drawOctaveArrows(vg);
 	}
 
 	void drawScaleKeys(NVGcontext* vg, const Track& tr) {
@@ -2397,6 +3046,10 @@ struct ContextDisplay : widget::OpaqueWidget {
 					params.push_back(-2);
 				if (sel.ownTonal)
 					params.push_back(-3);
+				if (sel.ownSeq)
+					params.push_back(-4);
+				if (sel.ownMode)
+					params.push_back(-5);
 				for (int p = 0; p < kNumTrackParams; p++) {
 					if (sel.has(TrackParam(p)))
 						params.push_back(p);
@@ -2410,6 +3063,10 @@ struct ContextDisplay : widget::OpaqueWidget {
 					                if (i == 0)
 						                return std::string("ALL");
 					                int e = params[i - 1];
+					                if (e == -5)
+						                return std::string("MODE");
+					                if (e == -4)
+						                return std::string("SEQ");
 					                if (e == -3)
 						                return std::string("SCALE");
 					                if (e == -2)
@@ -2422,6 +3079,10 @@ struct ContextDisplay : widget::OpaqueWidget {
 				                [m, params](int i) {
 					                if (i == 0)
 						                m->requestCycleAction(Talea::CYCLE_CLEAR_ALL);
+					                else if (params[i - 1] == -5)
+						                m->requestCycleAction(Talea::CYCLE_CLEAR_MODE);
+					                else if (params[i - 1] == -4)
+						                m->requestCycleAction(Talea::CYCLE_CLEAR_SEQ);
 					                else if (params[i - 1] == -3)
 						                m->requestCycleAction(Talea::CYCLE_CLEAR_TONAL);
 					                else if (params[i - 1] == -2)
@@ -2553,6 +3214,10 @@ struct ContextDisplay : widget::OpaqueWidget {
 				rows.push_back(toggle("CLOCK", "OFF", "ON", &m->midi.clock, 60.f));
 				// Track type, and a CC track's number in tens and ones (0-119).
 				rows.push_back(toggle("TYPE", "NOTE", "CC", &tr.cc, 60.f));
+				// Sequencer mode: EUCLID or SEQ (a manual sequence); in Cycle edit the cycle's own.
+				rows.push_back({m->cycleEdit ? "CYC MODE" : "MODE", 2, [](int i) { return std::string(i ? "SEQ" : "EUCLID"); },
+				                [m](int i) { return m->seqTarget() == (i == 1); },
+				                [m](int i) { m->seqModeRequest = i; }, 60.f});
 				if (tr.cc) {
 					rows.push_back({"CC x10", kNumCcNumbers / 10, [](int i) { return std::to_string(i * 10); },
 					                [&tr](int i) { return tr.ccNumber / 10 == i; },
@@ -2632,7 +3297,9 @@ struct ContextDisplay : widget::OpaqueWidget {
 			case kPhrasePage: {
 				const char* names[kNumPhrases] = {"CAD 1", "CAD 2", "CAD 3", "CAD 4", "SAW", "TRI", "SINE", "PULSE", "CV", "USER"};
 				rows.push_back(choice("PHRASE", kNumPhrases, [=](int i) { return std::string(names[i]); }, &tr.phrase, kRowsEndSide));
-				rows.push_back(choice("BARS", countOf(kGrooveBars), [](int i) { return std::to_string(kGrooveBars[i]); }, &tr.phraseLength, kRowsEndSide));
+				rows.push_back(choice(tr.phraseLoop ? "LOOPS" : "BARS", countOf(kGrooveBars), [](int i) { return std::to_string(kGrooveBars[i]); },
+				                      &tr.phraseLength, kRowsEndSide));
+				rows.push_back(toggle("SYNC", "BARS", "LOOP", &tr.phraseLoop, kRowsEndSide));
 				break;
 			}
 			case kScalePage: {
@@ -2658,9 +3325,12 @@ struct ContextDisplay : widget::OpaqueWidget {
 				break;
 			case kGroovePage:
 				rows.push_back(choice("GROOVE", kNumGrooves, [](int i) { return std::string(kGrooveShort[i]); }, &tr.groove, kRowsEndSide));
-				rows.push_back(choice("BARS", countOf(kGrooveBars), [](int i) { return std::to_string(kGrooveBars[i]); }, &tr.grooveLength, kRowsEndSide));
+				rows.push_back(choice(tr.grooveLoop ? "LOOPS" : "BARS", countOf(kGrooveBars), [](int i) { return std::to_string(kGrooveBars[i]); },
+				                      &tr.grooveLength, kRowsEndSide));
+				rows.back().dim = tr.groove < GROOVE_SAW; // percussion grooves are one bar long
 				rows.push_back(choice("SWING", countOf(kSwingSubdivisions), [](int i) { return string::f("x%d", kSwingSubdivisions[i]); },
 				                      &tr.swingSubdivision, kRowsEndSide));
+				rows.push_back(toggle("SYNC", "BARS", "LOOP", &tr.grooveLoop, kRowsEndSide));
 				break;
 			default: break;
 		}
@@ -2675,6 +3345,130 @@ struct ContextDisplay : widget::OpaqueWidget {
 
 	float tabWidth() {
 		return box.size.x / kNumPages;
+	}
+
+	// ------------------------------------------------------------ hover tooltips
+
+	static_assert(countOf(tips::kPage) == kNumPages, "a tooltip per page tab");
+	ui::Tooltip* tooltip = nullptr;
+	Vec hoverPos;
+
+	~ContextDisplay() override {
+		hideTooltip();
+	}
+
+	void hideTooltip() {
+		if (!tooltip)
+			return;
+		APP->scene->removeChild(tooltip);
+		delete tooltip;
+		tooltip = nullptr;
+	}
+
+	void onHover(const HoverEvent& e) override {
+		hoverPos = e.pos;
+		OpaqueWidget::onHover(e);
+	}
+
+	void onLeave(const LeaveEvent& e) override {
+		hideTooltip();
+		OpaqueWidget::onLeave(e);
+	}
+
+	/** Shows the tip of what's under the mouse (View > Show tooltips), hidden while dragging. */
+	void step() override {
+		OpaqueWidget::step();
+		bool show = settings::tooltips && APP->event->hoveredWidget == this && !APP->event->draggedWidget;
+		std::string s = show ? hoverText(hoverPos) : "";
+		if (s.empty()) {
+			hideTooltip();
+			return;
+		}
+		if (!tooltip) {
+			tooltip = new ui::Tooltip;
+			APP->scene->addChild(tooltip);
+		}
+		tooltip->text = s;
+	}
+
+	/** The tip at `pos`, from the same hit tests as the clicks; empty = none. */
+	std::string hoverText(Vec pos) {
+		if (pos.y < mm2px(4.5f)) {
+			int p = clamp(int(pos.x / tabWidth()), 0, kNumPages - 1);
+			return std::string(kPageNames[p]) + " page\n" + tips::kPage[p];
+		}
+		if (!module)
+			return "";
+		bool mute = muteView();
+		if (!mute && page == kStepPage && pos.y > mm2px(17.f)) {
+			int lane, step;
+			float norm;
+			if (laneAt(pos, lane, step, norm)) {
+				if (lane == Talea::kLaneSeqVelocity)
+					return string::f("N.VEL, step %d\n%s", step + 1, tips::kLaneSeqVelocity);
+				if (lane == Talea::kLaneSeqGate)
+					return string::f("GATE, step %d\n%s", step + 1, tips::kLaneSeqGate);
+				return string::f("%s lock, step %d\n%s", kParamShort[lane], step + 1, tips::kLane);
+			}
+		}
+		if (!mute && page == kPhrasePage && !pitchUnused() && rowsTrack().phrase == PHRASE_USER && phraseGridRect().contains(pos))
+			return tips::kPhraseGrid;
+		if (!mute && page == kKeysPage) {
+			for (int dir : {-1, 1}) {
+				if (octaveArrow(dir).contains(pos))
+					return dir < 0 ? std::string("Octave down\n") + tips::kKeysOctave : std::string("Octave up\n") + tips::kKeysOctave;
+			}
+			if (stepPoolShown() && trackPoolButton().contains(pos))
+				return module->seqTarget() ? std::string("REST\n") + tips::kKeysRest : std::string("TRACK POOL\n") + tips::kKeysTrackPool;
+			int n = keysKeyboard().keyAt(pos);
+			if (n < 0)
+				return "";
+			const char* tip = module->track().cc ? tips::kKeyCc
+			                  : module->seqTarget() ? (module->keysSel() ? tips::kKeySeqStep : tips::kKeySeqNone)
+			                  : module->lockSel ? tips::kKeyStepPool
+			                                    : tips::kKeyPool;
+			return noteName(n) + "\n" + tip;
+		}
+		if (!mute && page == kSongPage) {
+			const char* names[] = {"SONG", "LOOP", "FOLLOW"};
+			for (int i = 0; i < 3; i++) {
+				if (songButton(i).contains(pos))
+					return std::string(names[i]) + "\n" + tips::kSongButton[i];
+			}
+			if (songArrow(-1).contains(pos) || songArrow(1).contains(pos))
+				return tips::kSongArrow;
+			for (int k = 0; k < kSongPageSize; k++) {
+				if (!songCell(k).contains(pos))
+					continue;
+				int idx = module->songPage * kSongPageSize + k, count = module->seq.song.count;
+				if (idx < count)
+					return string::f("Entry %d\n%s", idx + 1, tips::kSongCell);
+				return idx == count ? tips::kSongAdd : "";
+			}
+		}
+		if (!mute && page == kScalePage) {
+			int n = scaleKeyboard().keyAt(pos);
+			if (n >= 0)
+				return std::string(kNoteNames[n % 12]) + "\n" + tips::kScaleNotes;
+		}
+		// Option rows: the label or any of its cells. A row without a label continues the one
+		// above (SCALE, RANDOM AMOUNT).
+		std::vector<OptionRow> rows = rowsFor(rowsTrack());
+		std::string label;
+		for (int row = 0; row < int(rows.size()); row++) {
+			const OptionRow& r = rows[row];
+			if (!r.label.empty())
+				label = r.label;
+			if (r.count == 0)
+				continue;
+			math::Rect first = optionRect(row, 0, r);
+			math::Rect area(Vec(mm2px(3.f), first.pos.y), Vec(mm2px(r.endMm) - mm2px(3.f), first.size.y));
+			if (!area.contains(pos))
+				continue;
+			const char* tip = tips::rowTip(mute ? "MUTE" : kPageNames[page], label);
+			return tip ? label + "\n" + tip : "";
+		}
+		return "";
 	}
 
 	void onButton(const ButtonEvent& e) override {
@@ -2760,6 +3554,10 @@ struct ContextDisplay : widget::OpaqueWidget {
 		for (int row = 0; row < int(rows.size()); row++) {
 			const OptionRow& r = rows[row];
 			math::Rect first = optionRect(row, 0, r);
+			if (r.dim) {
+				nvgSave(vg);
+				nvgGlobalAlpha(vg, 0.35f);
+			}
 			nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
 			nvgFillColor(vg, labelColor);
 			nvgText(vg, mm2px(3.f), first.pos.y + first.size.y / 2 + 0.5f, r.label.c_str(), nullptr);
@@ -2774,6 +3572,8 @@ struct ContextDisplay : widget::OpaqueWidget {
 				nvgFillColor(vg, on ? accent : labelColor);
 				nvgText(vg, cell.pos.x + cell.size.x / 2, cell.pos.y + cell.size.y / 2 + 0.5f, r.name(i).c_str(), nullptr);
 			}
+			if (r.dim)
+				nvgRestore(vg);
 		}
 	}
 
@@ -2898,8 +3698,21 @@ struct ContextDisplay : widget::OpaqueWidget {
 			return muteInfoLine();
 		if (module && module->lockSel && !module->rndAssign)
 			return lockInfoLine(tr);
+		if (module && module->seqSel && module->seqTarget()) {
+			int s = Talea::firstStepOf(module->seqSel);
+			const StepSequence& sq = module->seqView();
+			if (!sq.has(s))
+				return string::f("TRACK %d  STEP %d  REST", index + 1, s + 1);
+			const SeqStep& st = sq.steps[s];
+			std::string notes;
+			for (int i = 0; i < st.count; i++)
+				notes += (i ? " " : "") + noteName(st.notes[i]);
+			return string::f("TRACK %d  STEP %d  %s  VEL %d  GATE %d", index + 1, s + 1, notes.c_str(), st.velocity, st.gate);
+		}
 		if (pitchUnused())
 			return string::f("TRACK %d  CC TRACK: PITCH SETTINGS UNUSED (VALUE = VELOCITY, GLIDE = SUSTAIN)", index + 1);
+		if (seqUnused())
+			return string::f("TRACK %d  SEQ MODE: NOTES PLAY AS ENTERED (NO SCALE, VOICING OR PHRASE)", index + 1);
 		switch (page) {
 			case kCyclePage: {
 				if (!module)
@@ -2987,6 +3800,15 @@ struct ContextDisplay : widget::OpaqueWidget {
 				// Say when Length restarts the track before all its steps have played.
 				int played = tr.playedSteps();
 				std::string cut = played < tr.steps() ? string::f(" (%d/%d PLAY)", played, tr.steps()) : "";
+				if (tr.seqMode && module) {
+					int notes = 0;
+					StepMask hits = hitsOf(tr, module->editCycle());
+					for (int s = 0; s < tr.steps(); s++)
+						notes += hasHit(hits, s);
+					return string::f("TRACK %d%s  SEQ  STEPS %d  %d WITH NOTES  %s  LEN %s%s", index + 1,
+					                 tr.cc ? string::f("  CC %d", tr.ccNumber).c_str() : "", tr.steps(), notes,
+					                 kDivisions[tr.getInt(TP_DIVISION)].name, kLengths[tr.getInt(TP_LENGTH)].name, cut.c_str());
+				}
 				return string::f("TRACK %d%s  STEPS %d  PULSES %s  ROT %s  %s  LEN %s%s", index + 1,
 				                 tr.cc ? string::f("  CC %d", tr.ccNumber).c_str() : "", tr.steps(),
 				                 withLive(TP_PULSES, std::to_string(tr.pulses())).c_str(),
@@ -3061,13 +3883,32 @@ struct ContextDisplay : widget::OpaqueWidget {
 		return true;
 	}
 
-	void drawPhraseGrid(NVGcontext* vg, const Track& tr, double beat) {
+	/** Where a diagram's x axis runs: musical time over `bars` bars, or with the page's sync on
+	the track's loop position over that many loops. `now` is the playhead on the same axis. */
+	struct ShapeAxis {
+		bool loops;
+		double span, now;
+		/** Time / loop position arguments for the shape at `x` (0..span) on the axis. */
+		double time(double x) const {
+			return loops ? 0.0 : x;
+		}
+		double loopPos(double x) const {
+			return loops ? x : kLoopsFromTime;
+		}
+		std::string label(int count) const {
+			return string::f("%d %s%s", count, loops ? "LOOP" : "BAR", count == 1 ? "" : "S");
+		}
+	};
+	static ShapeAxis shapeAxis(bool synced, int count, double beat, double loops) {
+		return synced ? ShapeAxis{true, double(count), loops} : ShapeAxis{false, 4.0 * count, beat};
+	}
+
+	void drawPhraseGrid(NVGcontext* vg, const Track& tr, const ShapeAxis& axis) {
 		math::Rect r = phraseGridRect();
 		float cw = r.size.x / kPhraseColumns, ch = r.size.y / kPhraseLevels;
 		int playCol = -1;
-		double span = 4.0 * kGrooveBars[tr.phraseLength];
-		if (span > 0.0) {
-			double phase = beat / span;
+		if (axis.span > 0.0) {
+			double phase = axis.now / axis.span;
 			playCol = clamp(int((phase - std::floor(phase)) * kPhraseColumns), 0, kPhraseColumns - 1);
 		}
 		for (int c = 0; c < kPhraseColumns; c++) {
@@ -3091,23 +3932,25 @@ struct ContextDisplay : widget::OpaqueWidget {
 		line(vg, r.pos.x, r.pos.y + r.size.y, r.pos.x + r.size.x, r.pos.y + r.size.y, dim);
 	}
 
-	void drawPhrase(NVGcontext* vg, const Track& tr, double beat, double cv, int transpose) {
-		double span = 4.0 * kGrooveBars[tr.phraseLength];
+	void drawPhrase(NVGcontext* vg, const Track& tr, double beat, double loops, double cv, int transpose) {
 		float x0 = mm2px(kDiagramX), x1 = box.size.x - mm2px(3.f), top = mm2px(15.f), bottom = mm2px(32.5f);
-		int bars = kGrooveBars[tr.phraseLength];
+		int count = kGrooveBars[tr.phraseLength];
+		ShapeAxis axis = shapeAxis(tr.phraseLoop, count, beat, loops);
 		if (tr.phrase == PHRASE_USER) {
-			drawPhraseGrid(vg, tr, beat);
+			drawPhraseGrid(vg, tr, axis);
 			// The note the shape is reaching for right now, since the grid shows levels.
-			int note = tr.noteFor(0, beat, cv, transpose);
-			cornerLabel(vg, string::f("%d BAR%s   %s%d", bars, bars == 1 ? "" : "S", kNoteNames[note % 12], note / 12 - 1));
+			int note = tr.noteFor(0, beat, cv, transpose, axis.loopPos(axis.now));
+			cornerLabel(vg, axis.label(count) + string::f("   %s%d", kNoteNames[note % 12], note / 12 - 1));
 			return;
 		}
 		std::vector<int> notes;
-		for (int i = 0; i < 64; i++)
-			notes.push_back(tr.noteFor(0, span * i / 64, cv, transpose));
+		for (int i = 0; i < 64; i++) {
+			double x = axis.span * i / 64;
+			notes.push_back(tr.noteFor(0, axis.time(x), cv, transpose, axis.loopPos(x)));
+		}
 		drawNotes(vg, notes, x0, x1, top, bottom, false);
-		playhead(vg, beat, span, x0, x1, top, bottom);
-		cornerLabel(vg, string::f("%d BAR%s", bars, bars == 1 ? "" : "S"));
+		playhead(vg, axis.now, axis.span, x0, x1, top, bottom);
+		cornerLabel(vg, axis.label(count));
 	}
 
 	/** STYLE: the next 16 notes of the Voicing/Style motion. */
@@ -3122,9 +3965,12 @@ struct ContextDisplay : widget::OpaqueWidget {
 
 	/** GROOVE: the accent curve over one groove span (dim = full shape, bright = scaled by
 	Accent) with the playhead. */
-	void drawGroove(NVGcontext* vg, const Track& tr, double beat) {
+	void drawGroove(NVGcontext* vg, const Track& tr, double beat, double loops) {
 		bool percussion = tr.groove < GROOVE_SAW;
-		double span = percussion ? 4.0 : 4.0 * kGrooveBars[tr.grooveLength];
+		// A percussion groove spans one bar, or synced, one loop (its bars restart with it).
+		int count = percussion ? 1 : kGrooveBars[tr.grooveLength];
+		ShapeAxis axis = shapeAxis(tr.grooveLoop, count, beat, loops);
+		double span = axis.span;
 		float x0 = mm2px(kDiagramX), x1 = box.size.x - mm2px(3.f);
 		float top = mm2px(15.f), bottom = mm2px(32.5f), mid = (top + bottom) / 2;
 		float amount = tr.get(TP_ACCENT) / 100.f;
@@ -3136,7 +3982,7 @@ struct ContextDisplay : widget::OpaqueWidget {
 			for (int i = 0; i <= samples; i++) {
 				double t = std::min(span * i / samples, span - 1e-9);
 				float x = x0 + (x1 - x0) * i / samples;
-				float y = mid - float(tr.grooveValue(t)) * scale * (mid - top);
+				float y = mid - float(tr.grooveValue(axis.time(t), axis.loopPos(t))) * scale * (mid - top);
 				if (i == 0)
 					nvgMoveTo(vg, x, y);
 				else
@@ -3146,9 +3992,17 @@ struct ContextDisplay : widget::OpaqueWidget {
 			nvgStrokeWidth(vg, pass == 0 ? 1.f : 1.5f);
 			nvgStroke(vg);
 		}
-		playhead(vg, beat, span, x0, x1, top, bottom);
-		int bars = percussion ? 1 : kGrooveBars[tr.grooveLength];
-		cornerLabel(vg, string::f("%d BAR%s", bars, bars == 1 ? "" : "S"));
+		playhead(vg, axis.now, span, x0, x1, top, bottom);
+		// A percussion groove is one bar, repeated: the length row doesn't apply to it.
+		cornerLabel(vg, percussion ? (tr.grooveLoop ? "1 BAR, FROM EACH LOOP START" : "1 BAR, REPEATED") : axis.label(count));
+		// Why that row dims: said in the free space under the rows.
+		nvgFontSize(vg, mm2px(2.4f));
+		nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_BASELINE);
+		nvgFillColor(vg, labelColor);
+		nvgText(vg, mm2px(3.f), box.size.y - mm2px(3.f),
+		        "NOTE: THE BARS / LOOPS LENGTH ONLY APPLIES TO WAVEFORM GROOVES (SAW, TRI, SINE, PULSE). "
+		        "PERCUSSION GROOVES ARE ONE-BAR PATTERNS.",
+		        nullptr);
 	}
 
 	/** REPEAT (full width): one pulse's burst, notes at their times, height = velocity,
@@ -3166,7 +4020,7 @@ struct ContextDisplay : widget::OpaqueWidget {
 
 		// Distance from the first hit to the next one (or to itself coming round again).
 		double nextPulse = 0.0;
-		StepMask hits = tr.hits();
+		StepMask hits = hitsOf(tr, module ? module->editCycle() : -1);
 		int n = tr.steps();
 		for (int s = 0; s < n && nextPulse == 0.0; s++) {
 			if (!hasHit(hits, s))
@@ -3524,7 +4378,7 @@ struct ContextDisplay : widget::OpaqueWidget {
 			drawCycleLanes(vg, tr, playStep);
 			return;
 		}
-		StepMask hits = tr.hits();
+		StepMask hits = hitsOf(tr, module ? module->editCycle() : -1);
 		int played = tr.playedSteps();
 		float cw = (box.size.x - mm2px(6.f)) / 16.f;
 		float ch = mm2px(4.2f);
@@ -3566,7 +4420,7 @@ struct ContextDisplay : widget::OpaqueWidget {
 			nvgText(vg, mm2px(3.f), y + h / 2 + 0.5f, s.c_str(), nullptr);
 		};
 		auto row = [&](const Track& t, float y, float h, int play, float alpha, int c) {
-			StepMask hits = t.hits();
+			StepMask hits = hitsOf(t, c < 0 ? m->editCycle() : c);
 			int played = t.playedSteps();
 			for (int i = 0; i < 16 && first + i < t.steps(); i++)
 				stepCell(vg, x0 + i * cw, y, cw, h, hasHit(hits, first + i), first + i < played, first + i == play, alpha,
@@ -3616,6 +4470,11 @@ struct ContextDisplay : widget::OpaqueWidget {
 		if (module->cycleEdit)
 			used |= module->cycleLocks().used;
 		std::vector<int> lanes;
+		// SEQ mode: the steps' own velocity and gate come first.
+		if (module->seqTarget()) {
+			lanes.push_back(Talea::kLaneSeqVelocity);
+			lanes.push_back(Talea::kLaneSeqGate);
+		}
 		for (int p = 0; p < kNumTrackParams; p++) {
 			if (used & (1u << p))
 				lanes.push_back(p);
@@ -3625,6 +4484,21 @@ struct ContextDisplay : widget::OpaqueWidget {
 
 	float laneX0() {
 		return mm2px(12.f);
+	}
+	/** A lane's value range: a parameter's, or a SEQ lane's (velocity 1-127, gate 1-16 steps). */
+	static void laneRange(int lane, float& lo, float& hi) {
+		if (lane == Talea::kLaneSeqVelocity) {
+			lo = 1.f;
+			hi = 127.f;
+		}
+		else if (lane == Talea::kLaneSeqGate) {
+			lo = 1.f;
+			hi = float(Talea::kLaneGateMax);
+		}
+		else {
+			lo = kTrackParams[lane].min;
+			hi = kTrackParams[lane].max;
+		}
 	}
 	float laneCellW() {
 		return (box.size.x - mm2px(3.f) - laneX0()) / 16.f;
@@ -3668,12 +4542,17 @@ struct ContextDisplay : widget::OpaqueWidget {
 		int n = std::min(int(lanes.size()), kMaxLanes);
 		for (int l = 0; l < n; l++) {
 			int p = lanes[l];
-			const ParamInfo& info = kTrackParams[p];
+			bool seqLane = p == Talea::kLaneSeqVelocity || p == Talea::kLaneSeqGate;
+			float lo, hi;
+			laneRange(p, lo, hi);
 			float ly, lh;
 			laneGeom(l, n, ly, lh);
 			bool more = l == n - 1 && int(lanes.size()) > n;
-			label(ly, lh, string::f("%s%s", p == TP_VELOCITY && tr.cc ? "VALUE" : kParamShort[p], more ? "+" : ""), lockBlue);
-			bool bipolar = info.min < 0.f;
+			// SEQ lanes (orange): the steps' own velocity (N.VEL) and gate in steps.
+			std::string name = p == Talea::kLaneSeqVelocity ? "N.VEL" : p == Talea::kLaneSeqGate ? "GATE"
+			                   : p == TP_VELOCITY && tr.cc ? "VALUE" : kParamShort[p];
+			label(ly, lh, name + (more ? "+" : ""), seqLane ? accent : lockBlue);
+			bool bipolar = lo < 0.f;
 			for (int i = 0; i < 16 && first + i < tr.steps(); i++) {
 				float x = x0 + i * cw;
 				nvgBeginPath(vg);
@@ -3681,14 +4560,22 @@ struct ContextDisplay : widget::OpaqueWidget {
 				nvgFillColor(vg, nvgRGB(0x16, 0x18, 0x1b));
 				nvgFill(vg);
 				float v;
-				if (m->lockValue(tr.unrotated(first + i), p, v)) {
-					float norm = (v - info.min) / (info.max - info.min);
+				int pos = tr.unrotated(first + i);
+				if (seqLane ? m->seqLaneValue(pos, p, v) : m->lockValue(pos, p, v)) {
+					float norm = clamp((v - lo) / (hi - lo), 0.f, 1.f);
 					float from = bipolar ? 0.5f : 0.f;
-					float lo = std::min(from, norm), hi = std::max(from, norm);
+					float bottom = std::min(from, norm), top = std::max(from, norm);
 					nvgBeginPath(vg);
-					nvgRect(vg, x + 1, ly + lh * (1.f - hi), cw - 2, std::max(lh * (hi - lo), 1.f));
-					nvgFillColor(vg, lockBlue);
+					nvgRect(vg, x + 1, ly + lh * (1.f - top), cw - 2, std::max(lh * (top - bottom), 1.f));
+					nvgFillColor(vg, seqLane ? accent : lockBlue);
 					nvgFill(vg);
+					// A gate in steps reads better as a number.
+					if (p == Talea::kLaneSeqGate) {
+						nvgFontSize(vg, std::min(mm2px(2.2f), lh));
+						nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+						nvgFillColor(vg, nvgRGB(0x11, 0x11, 0x11));
+						nvgText(vg, x + cw / 2, ly + lh / 2 + 0.5f, std::to_string(int(v)).c_str(), nullptr);
+					}
 				}
 				if (first + i == playStep) {
 					nvgBeginPath(vg);
@@ -3742,9 +4629,10 @@ struct ContextDisplay : widget::OpaqueWidget {
 		}
 		if (!laneAt(pos, lane, step, norm))
 			return false;
-		const ParamInfo& info = kTrackParams[lane];
+		float lo, hi;
+		laneRange(lane, lo, hi);
 		Track tr = module->viewTrack();
-		module->requestLaneEdit(tr.unrotated(step), lane, info.min + norm * (info.max - info.min), remove);
+		module->requestLaneEdit(tr.unrotated(step), lane, lo + norm * (hi - lo), remove);
 		if (onlyLane < 0)
 			laneDrag = lane;
 		return true;
@@ -3823,6 +4711,8 @@ struct ContextDisplay : widget::OpaqueWidget {
 		int trackIndex = module ? module->selectedTrack : 0;
 		// Diagrams run on pattern time (from the playing pattern's start).
 		double beat = module ? module->beat - module->seq.patternOrigin() : 0.0;
+		// The same in loops of the track, for Phrase / Groove synced to the loop.
+		double loops = module ? module->seq.loopsAt(trackIndex, module->beat) : 0.0;
 
 		nvgFontSize(vg, mm2px(3.2f));
 		nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_BASELINE);
@@ -3842,6 +4732,10 @@ struct ContextDisplay : widget::OpaqueWidget {
 		if (module && module->lockSel && !module->rndAssign) {
 			nvgFillColor(vg, lockBlue);
 			x = nvgText(vg, x, mm2px(10.5f), "LOCK  ", nullptr);
+		}
+		if (module && module->recording) {
+			nvgFillColor(vg, nvgRGB(0xff, 0x3b, 0x30));
+			x = nvgText(vg, x, mm2px(10.5f), module->playing ? "REC  " : "STEP REC  ", nullptr);
 		}
 		if (module && module->grouped() && !muteView()) {
 			nvgFillColor(vg, nvgRGB(0xff, 0x6a, 0x5a));
@@ -3864,7 +4758,7 @@ struct ContextDisplay : widget::OpaqueWidget {
 		}
 
 		std::vector<OptionRow> rows = rowsFor(module ? rowsTrack() : base);
-		nvgGlobalAlpha(vg, pitchUnused() ? 0.35f : 1.f);
+		nvgGlobalAlpha(vg, pitchUnused() || seqUnused() ? 0.35f : 1.f);
 		drawRows(vg, rows);
 		nvgGlobalAlpha(vg, 1.f);
 		if (muteView()) {
@@ -3873,7 +4767,7 @@ struct ContextDisplay : widget::OpaqueWidget {
 		}
 		switch (page) {
 			case kPhrasePage:
-				drawPhrase(vg, tr, beat, module ? module->seq.phraseCv[trackIndex] : 0.0, module ? module->seq.transpose[trackIndex] : 0);
+				drawPhrase(vg, tr, beat, loops, module ? module->seq.phraseCv[trackIndex] : 0.0, module ? module->seq.transpose[trackIndex] : 0);
 				break;
 			case kPatternPage:
 				if (module)
@@ -3897,7 +4791,7 @@ struct ContextDisplay : widget::OpaqueWidget {
 			case kSetupPage: break;
 			case kStylePage: drawStyle(vg, tr); break;
 			case kRepeatPage: drawRepeatBurst(vg, tr); break;
-			case kGroovePage: drawGroove(vg, tr, beat); break;
+			case kGroovePage: drawGroove(vg, tr, beat, loops); break;
 			case kStepPage: {
 				int playStep = module && (module->playing || module->beat > 0) ? module->seq.stepAt(trackIndex, module->beat) : -1;
 				if (module)
@@ -3932,8 +4826,9 @@ static void appendPatternMenu(Menu* menu, Talea* module) {
 		module->seq.chainLength() == 0));
 }
 
-/** Knob of the knob groups. Under Rnd assign the ones that can't be randomised (Steps,
-Division, Length) are locked and dimmed. */
+/** Knob of the knob groups. Locked and dimmed when it does nothing: in SEQ mode Pulses,
+Rotate, Voicing and Range; under Rnd assign the ones that can't be randomised (Steps,
+Division, Length); with steps selected those that can't be step-locked. */
 struct TrackKnob : RoundSmallBlackKnob {
 	bool locked() {
 		Talea* m = dynamic_cast<Talea*>(module);
@@ -4015,6 +4910,28 @@ struct TrackKnob : RoundSmallBlackKnob {
 pool note, CCW the highest). Its menu offers the pool the current run of detents started
 from. */
 struct HarmonyKnob : EndlessKnob {
+	/** SEQ mode: no pool, so it doesn't turn (dimmed). */
+	bool locked() {
+		Talea* m = dynamic_cast<Talea*>(module);
+		return m && m->knobLocked(paramId);
+	}
+	void onDragMove(const DragMoveEvent& e) override {
+		if (!locked())
+			EndlessKnob::onDragMove(e);
+	}
+	void onHoverScroll(const HoverScrollEvent& e) override {
+		if (!locked())
+			EndlessKnob::onHoverScroll(e);
+	}
+	void draw(const DrawArgs& args) override {
+		EndlessKnob::draw(args);
+		if (!locked())
+			return;
+		nvgBeginPath(args.vg);
+		nvgCircle(args.vg, box.size.x / 2, box.size.y / 2, box.size.x / 2 + 1.f);
+		nvgFillColor(args.vg, nvgRGBA(0x0d, 0x0f, 0x12, 0xb0));
+		nvgFill(args.vg);
+	}
 	void appendContextMenu(Menu* menu) override {
 		Talea* m = dynamic_cast<Talea*>(module);
 		if (!m)
@@ -4101,8 +5018,10 @@ struct TaleaWidget : ModuleWidget {
 
 	void step() override {
 		ModuleWidget::step();
-		if (Talea* m = getModule<Talea>())
+		if (Talea* m = getModule<Talea>()) {
 			m->undoStep();
+			m->recUndoStep();
+		}
 	}
 
 	TaleaWidget(Talea* module) {
@@ -4183,6 +5102,13 @@ struct TaleaWidget : ModuleWidget {
 			if (module) {
 				pad->ctrlFlag = &module->padCtrl[i];
 				pad->shiftFlag = &module->padShift[i];
+				// SEQ mode step pads: right-click = rest, instead of the param menu.
+				pad->rightClick = [module, i]() {
+					if (module->padMode != MODE_STEP || !module->seqTarget())
+						return false;
+					module->padRight[i] = true;
+					return true;
+				};
 			}
 			addParam(pad);
 		}
@@ -4202,6 +5128,11 @@ struct TaleaWidget : ModuleWidget {
 		addInput(createInputCentered<PJ301MPort>(mm(L::CLOCK_INPUT), module, M::CLOCK_INPUT));
 		addInput(createInputCentered<PJ301MPort>(mm(L::RESET_INPUT), module, M::RESET_INPUT));
 		addInput(createInputCentered<PJ301MPort>(mm(L::RUN_INPUT), module, M::RUN_INPUT));
+		addParam(createLightParamCentered<VCVLightBezel<RedLight>>(mm(L::REC_PARAM), module, M::REC_PARAM, M::REC_LIGHT));
+		addParam(createLightParamCentered<VCVLightBezel<RedLight>>(mm(L::OVERDUB_PARAM), module, M::OVERDUB_PARAM, M::OVERDUB_LIGHT));
+		addInput(createInputCentered<PJ301MPort>(mm(L::REC_PITCH_INPUT), module, M::REC_PITCH_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm(L::REC_GATE_INPUT), module, M::REC_GATE_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm(L::REC_VELOCITY_INPUT), module, M::REC_VELOCITY_INPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm(L::PITCH_OUTPUT), module, M::PITCH_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm(L::GATE_OUTPUT), module, M::GATE_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm(L::VELOCITY_OUTPUT), module, M::VELOCITY_OUTPUT));
@@ -4243,13 +5174,20 @@ struct TaleaWidget : ModuleWidget {
 			{"Choke (next pulse cuts repeats)", "Tail (repeats overlap)"},
 			[=]() { return module->track().repeatTail ? 1 : 0; },
 			[=](size_t i) { module->track().repeatTail = i == 1; }));
-		std::vector<std::string> grooves(kGrooveNames, kGrooveNames + kNumGrooves), bars, swing;
-		for (int b : kGrooveBars)
-			bars.push_back(string::f("%d bar%s", b, b == 1 ? "" : "s"));
+		std::vector<std::string> grooves(kGrooveNames, kGrooveNames + kNumGrooves), swing;
+		// Lengths count bars, or loops of the track when that page's sync is on.
+		auto lengths = [](bool loops) {
+			std::vector<std::string> v;
+			for (int b : kGrooveBars)
+				v.push_back(string::f("%d %s%s", b, loops ? "loop" : "bar", b == 1 ? "" : "s"));
+			return v;
+		};
 		for (int s : kSwingSubdivisions)
 			swing.push_back(string::f("x%d", s));
 		menu->addChild(createIndexPtrSubmenuItem("Groove (Accent shape)", grooves, &module->track().groove));
-		menu->addChild(createIndexPtrSubmenuItem("Groove length (waveforms)", bars, &module->track().grooveLength));
+		menu->addChild(createIndexPtrSubmenuItem("Groove length (waveforms)", lengths(module->track().grooveLoop),
+		                                         &module->track().grooveLength));
+		menu->addChild(createBoolPtrMenuItem("Groove follows the loop (restarts with step 1)", "", &module->track().grooveLoop));
 		menu->addChild(createIndexPtrSubmenuItem("Timing subdivision", swing, &module->track().swingSubdivision));
 		std::vector<std::string> scales, roots, phrases;
 		for (const ScaleInfo& sc : kScales)
@@ -4265,8 +5203,12 @@ struct TaleaWidget : ModuleWidget {
 		menu->addChild(createBoolPtrMenuItem("Mono (arpeggiate the pool)", "", &tr.mono));
 		menu->addChild(createBoolPtrMenuItem("Voicing moves down", "", &tr.voicingDown));
 		menu->addChild(createIndexPtrSubmenuItem("Phrase", phrases, &tr.phrase));
-		menu->addChild(createIndexPtrSubmenuItem("Phrase length", bars, &tr.phraseLength));
+		menu->addChild(createIndexPtrSubmenuItem("Phrase length", lengths(tr.phraseLoop), &tr.phraseLength));
+		menu->addChild(createBoolPtrMenuItem("Phrase follows the loop (restarts with step 1)", "", &tr.phraseLoop));
 		menu->addChild(new MenuSeparator);
+		menu->addChild(createCheckMenuItem("SEQ mode (manual sequence; in Cycle edit: the cycle's)", "",
+		                                   [=]() { return module->seqTarget(); },
+		                                   [=]() { module->seqModeRequest = module->seqTarget() ? 0 : 1; }));
 		menu->addChild(createMenuItem("Kill stuck notes", "", [=]() { module->killRequested = true; }));
 	}
 };

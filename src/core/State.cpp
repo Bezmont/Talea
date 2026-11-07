@@ -40,6 +40,47 @@ std::vector<int> phraseColumns(PhraseGrid g) {
 
 /** Reads one back; missing or malformed leaves `g` alone, so an older patch keeps the
 default shape. */
+/** A sequence as the steps that play: [{step, notes, velocity, gate}, ...]. */
+json sequenceJson(const StepSequence& sq) {
+	json out = json::array();
+	for (int s = 0; s < kMaxSteps; s++) {
+		if (!sq.has(s))
+			continue;
+		const SeqStep& st = sq.steps[s];
+		out.push_back({{"step", s}, {"notes", std::vector<int>(st.notes, st.notes + st.count)},
+		               {"velocity", st.velocity}, {"gate", st.gate}});
+	}
+	return out;
+}
+
+/** Reads sequenceJson() output from `parent[key]`, if present; invalid entries are skipped. */
+void readSequence(const json& parent, const char* key, StepSequence& sq) {
+	auto it = parent.find(key);
+	if (it == parent.end() || !it->is_array())
+		return;
+	sq.reset();
+	for (const json& e : *it) {
+		if (!e.is_object())
+			continue;
+		auto step = e.find("step");
+		auto notes = e.find("notes");
+		if (step == e.end() || !step->is_number_integer() || notes == e.end() || !notes->is_array())
+			continue;
+		int pos = step->get<int>();
+		int in[kMaxPool];
+		int n = 0;
+		for (const json& note : *notes) {
+			if (n < kMaxPool && note.is_number_integer())
+				in[n++] = note.get<int>();
+		}
+		auto num = [&](const char* k, int def) {
+			auto v = e.find(k);
+			return v != e.end() && v->is_number_integer() ? v->get<int>() : def;
+		};
+		sq.set(pos, in, n, num("velocity", kDefaultSeqVelocity), num("gate", 1));
+	}
+}
+
 void readPhraseColumns(const json& parent, const char* key, PhraseGrid& g) {
 	auto it = parent.find(key);
 	if (it == parent.end() || !it->is_array())
@@ -73,6 +114,7 @@ std::string patternToJson(const Pattern& pattern) {
 		jt["groove"] = t.groove;
 		jt["grooveLength"] = t.grooveLength;
 		jt["swingSubdivision"] = t.swingSubdivision;
+		jt["grooveLoop"] = t.grooveLoop;
 		jt["pool"] = std::vector<int>(t.pool, t.pool + t.poolSize);
 		jt["scale"] = t.scale;
 		jt["root"] = t.root;
@@ -82,8 +124,12 @@ std::string patternToJson(const Pattern& pattern) {
 		jt["voicingDown"] = t.voicingDown;
 		jt["phrase"] = t.phrase;
 		jt["phraseLength"] = t.phraseLength;
+		jt["phraseLoop"] = t.phraseLoop;
 		jt["userPhrase"] = phraseColumns(t.userPhrase);
 		jt["muted"] = t.muted;
+		jt["seqMode"] = t.seqMode;
+		if (!pattern.seqs[i].empty())
+			jt["seq"] = sequenceJson(pattern.seqs[i]);
 		// Cycles: the count, and only the slots that differ from the track.
 		const TrackCycles& cyc = pattern.cycles[i];
 		json slots = json::array();
@@ -113,9 +159,13 @@ std::string patternToJson(const Pattern& pattern) {
 				const Track& tn = o.tonal;
 				slot["tonal"] = {{"scale", tn.scale}, {"root", tn.root}, {"userScale", tn.userScale},
 				                 {"pool", std::vector<int>(tn.pool, tn.pool + tn.poolSize)},
-				                 {"phrase", tn.phrase}, {"phraseLength", tn.phraseLength},
+				                 {"phrase", tn.phrase}, {"phraseLength", tn.phraseLength}, {"phraseLoop", tn.phraseLoop},
 				                 {"userPhrase", phraseColumns(tn.userPhrase)}};
 			}
+			if (o.ownMode)
+				slot["seqMode"] = o.seqMode;
+			if (o.ownSeq)
+				slot["seq"] = sequenceJson(o.seq);
 			if (o.locks.count) {
 				json locks = json::array();
 				for (int i = 0; i < o.locks.count; i++)
@@ -253,6 +303,10 @@ bool patternFromJson(const std::string& text, Pattern& pattern) {
 		readBool("mono", t.mono);
 		readBool("voicingDown", t.voicingDown);
 		readBool("muted", t.muted);
+		readBool("grooveLoop", t.grooveLoop);
+		readBool("phraseLoop", t.phraseLoop);
+		readBool("seqMode", t.seqMode);
+		readSequence(jt, "seq", pattern.seqs[i]);
 		auto cycles = jt.find("cycles");
 		if (cycles != jt.end() && cycles->is_object()) {
 			TrackCycles& cyc = pattern.cycles[i];
@@ -271,6 +325,15 @@ bool patternFromJson(const std::string& text, Pattern& pattern) {
 					auto muted = slot.find("muted");
 					if (muted != slot.end() && muted->is_boolean())
 						cyc.cycles[index].muted = muted->get<bool>();
+					auto mode = slot.find("seqMode");
+					if (mode != slot.end() && mode->is_boolean()) {
+						cyc.cycles[index].ownMode = true;
+						cyc.cycles[index].seqMode = mode->get<bool>();
+					}
+					if (slot.find("seq") != slot.end()) {
+						cyc.cycles[index].ownSeq = true;
+						readSequence(slot, "seq", cyc.cycles[index].seq);
+					}
 					auto manual = slot.find("manualHits");
 					auto removed = slot.find("removedHits");
 					if (manual != slot.end() && manual->is_number_unsigned() && removed != slot.end()
@@ -292,6 +355,9 @@ bool patternFromJson(const std::string& text, Pattern& pattern) {
 						get("phrase", tn.phrase, kNumPhrases);
 						get("phraseLength", tn.phraseLength, countOf(kGrooveBars));
 						readPhraseColumns(*tonal, "userPhrase", tn.userPhrase);
+						auto loop = tonal->find("phraseLoop");
+						if (loop != tonal->end() && loop->is_boolean())
+							tn.phraseLoop = loop->get<bool>();
 						auto us = tonal->find("userScale");
 						if (us != tonal->end() && us->is_number_unsigned())
 							tn.userScale = ScaleMask(us->get<unsigned>() & 0xFFF);
