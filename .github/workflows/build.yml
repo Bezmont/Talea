@@ -1,0 +1,96 @@
+# Builds the plugin with the Rack SDK on every platform the VCV Library ships (Linux x64,
+# macOS arm64 / x64, Windows x64), runs the core tests, and keeps each .vcvplugin as an
+# artifact. Native runners stand in for VCV's cross toolchain: same SDK, the platform's
+# own compiler (gcc / Apple clang / MinGW gcc).
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+env:
+  RACK_SDK_VERSION: 2.6.6
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-latest
+            sdk: lin-x64
+          - name: macOS arm64
+            os: macos-latest
+            sdk: mac-arm64
+          - name: macOS x64
+            os: macos-15-intel
+            sdk: mac-x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get update -q && sudo apt-get install -y -q zstd jq
+          else
+            command -v zstd >/dev/null || brew install zstd
+            command -v jq >/dev/null || brew install jq
+          fi
+
+      - name: Rack SDK
+        run: |
+          curl -sSfL -o sdk.zip "https://vcvrack.com/downloads/Rack-SDK-${RACK_SDK_VERSION}-${{ matrix.sdk }}.zip"
+          unzip -q sdk.zip -d "$RUNNER_TEMP"
+          echo "RACK_DIR=$RUNNER_TEMP/Rack-SDK" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: make -j4 dist RACK_DIR="$RACK_DIR"
+
+      - name: Test
+        run: make test RACK_DIR="$RACK_DIR"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Talea-${{ matrix.sdk }}
+          path: dist/*.vcvplugin
+
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            make zip unzip zstd
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-jq
+
+      - name: Rack SDK
+        run: |
+          curl -sSfL -o sdk.zip "https://vcvrack.com/downloads/Rack-SDK-${RACK_SDK_VERSION}-win-x64.zip"
+          unzip -q sdk.zip -d sdk
+          echo "RACK_DIR=$(pwd)/sdk/Rack-SDK" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: make -j4 dist RACK_DIR="$RACK_DIR"
+
+      - name: Test
+        run: make test RACK_DIR="$RACK_DIR"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Talea-win-x64
+          path: dist/*.vcvplugin
