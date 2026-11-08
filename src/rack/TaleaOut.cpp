@@ -6,10 +6,10 @@
 
 using namespace talea;
 
-/** OUT expander (§3.12): per-track poly Pitch / Gate / Velocity, one channel per chord note.
-No params; everything comes from the Talea to its left. The channel count only changes on a
-new note, and pitch / velocity hold between gates. */
-struct TaleaOut : Module {
+/** OUT expander (§3.12): per-track poly Pitch / Gate / Velocity, a fixed number of channels
+(Polyphony, context menu) with a gate per voice. No params; everything comes from the Talea
+to its left. A voice's pitch / velocity hold after its gate falls, so envelopes release. */
+struct TaleaOut : TaleaOutBase {
 	enum ParamId { PARAMS_LEN };
 	enum InputId { INPUTS_LEN };
 	enum OutputId {
@@ -48,16 +48,15 @@ struct TaleaOut : Module {
 	void process(const ProcessArgs& args) override {
 		bool link = linked();
 		const OutMessage& m = *static_cast<const OutMessage*>(leftExpander.consumerMessage);
+		int n = clamp(polyphony, 1, kMaxPool);
 		for (int t = 0; t < kNumTracks; t++) {
-			int n = link ? clamp(m.channels[t], 1, kMaxPool) : 1;
-			bool gate = link && m.gate[t];
 			outputs[PITCH_OUTPUT + t].setChannels(n);
 			outputs[GATE_OUTPUT + t].setChannels(n);
 			outputs[VELOCITY_OUTPUT + t].setChannels(n);
 			for (int c = 0; c < n; c++) {
 				outputs[PITCH_OUTPUT + t].setVoltage(link ? m.pitch[t][c] : 0.f, c);
-				outputs[GATE_OUTPUT + t].setVoltage(gate ? 10.f : 0.f, c);
-				outputs[VELOCITY_OUTPUT + t].setVoltage(link ? m.velocity[t] : 0.f, c);
+				outputs[GATE_OUTPUT + t].setVoltage(link && m.voiceGate[t][c] ? 10.f : 0.f, c);
+				outputs[VELOCITY_OUTPUT + t].setVoltage(link ? m.velocity[t][c] : 0.f, c);
 			}
 		}
 		if (!lightDivider.process())
@@ -83,6 +82,21 @@ struct TaleaOut : Module {
 			lights[TRACK_LIGHT + 3 * t + 2].setBrightness(b);
 		}
 	}
+
+	void onReset() override {
+		polyphony = kMaxPool;
+	}
+
+	json_t* dataToJson() override {
+		json_t* root = json_object();
+		json_object_set_new(root, "polyphony", json_integer(polyphony));
+		return root;
+	}
+
+	void dataFromJson(json_t* root) override {
+		if (json_t* j = json_object_get(root, "polyphony"))
+			polyphony = clamp(int(json_integer_value(j)), 1, kMaxPool);
+	}
 };
 
 struct TaleaOutWidget : ModuleWidget {
@@ -104,6 +118,19 @@ struct TaleaOutWidget : ModuleWidget {
 			addOutput(createOutputCentered<PJ301MPort>(at(L::GATE_OUTPUT[t]), module, M::GATE_OUTPUT + t));
 			addOutput(createOutputCentered<PJ301MPort>(at(L::VELOCITY_OUTPUT[t]), module, M::VELOCITY_OUTPUT + t));
 		}
+	}
+
+	void appendContextMenu(Menu* menu) override {
+		TaleaOut* module = getModule<TaleaOut>();
+		if (!module)
+			return;
+		menu->addChild(new MenuSeparator);
+		std::vector<std::string> labels;
+		for (int n = 1; n <= kMaxPool; n++)
+			labels.push_back(string::f("%d", n));
+		menu->addChild(createIndexSubmenuItem("Polyphony (channels)", labels,
+			[=]() { return size_t(module->polyphony - 1); },
+			[=](size_t i) { module->polyphony = int(i) + 1; }));
 	}
 };
 

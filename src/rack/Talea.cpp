@@ -460,9 +460,21 @@ struct Talea : Module {
 	float velocityV[kNumTracks] = {};
 	float retrig[kNumTracks] = {}; // seconds of forced-low gate after a retrigger
 	MidiNoteOut midi;
-	/** The latest note-on's chord per track, for the OUT expander (held between gates). */
+	/** The latest note-on's chord per track (held between gates). */
 	float chordV[kNumTracks][kMaxPool] = {};
 	int chordN[kNumTracks];
+	/** OUT expander voices (its channels) per track. Each has its own gate and keeps its pitch
+	and velocity after the gate falls, so envelopes downstream release on the right note. */
+	struct Voice {
+		float pitch = 0.f;
+		float velocity = 0.f;
+		float retrig = 0.f; // seconds of forced-low gate after a retrigger
+		int note = -1;      // the NOTE IN key it sounds (monitoring), -1 = a sequence note
+		bool gate = false;
+		uint32_t age = 0;
+	};
+	Voice voices[kNumTracks][kMaxPool];
+	uint32_t voiceClock = 0;
 	/** CC track lanes: the value (0-127) glides from `from` to `to` over `glide` quarter notes
 	from `start`. The lane drives Pitch (0-10 V) and MIDI CC; Velocity is the target. */
 	struct CcLane {
@@ -986,8 +998,10 @@ struct Talea : Module {
 		chordOf.set(0, held, n, velocity, 1);
 		int chord[kMaxPool];
 		int count = view.seqChord(chordOf.steps[0], chord, seq.transpose[t]);
-		if (monitorTrack != t && gate[t])
+		bool fresh = monitorTrack != t;
+		if (fresh && gate[t])
 			retrig[t] = 1e-3f; // cutting a sequence note: a fresh gate
+		monitorVoices(t, chord, count, velocity, fresh);
 		monitorTrack = t;
 		gate[t] = true;
 		ccLane[t].on = false;
@@ -1006,8 +1020,86 @@ struct Talea : Module {
 		if (monitorTrack < 0)
 			return;
 		gate[monitorTrack] = false;
+		voicesOff(monitorTrack);
 		midi.off(monitorTrack);
 		monitorTrack = -1;
+	}
+
+	/** The OUT expander's channel count (voices are only placed on channels that exist). */
+	int outPolyphony() {
+		Module* out = rightExpander.module;
+		if (out && out->model == modelTaleaOut)
+			return clamp(static_cast<TaleaOutBase*>(out)->polyphony, 1, kMaxPool);
+		return kMaxPool;
+	}
+
+	/** A sequence note-on of chordV[t][0..count): note i on voice i, the rest released. Voices
+	still gated retrigger, as do all when the gate fell this same sample (`fresh`). */
+	void voicesOn(int t, int count, bool fresh) {
+		int poly = outPolyphony();
+		for (int c = 0; c < kMaxPool; c++) {
+			Voice& v = voices[t][c];
+			if (c >= count || c >= poly) {
+				v.gate = false;
+				continue;
+			}
+			if (v.gate || fresh)
+				v.retrig = 1e-3f;
+			v.pitch = chordV[t][c];
+			v.velocity = velocityV[t];
+			v.note = -1;
+			v.gate = true;
+			v.age = ++voiceClock;
+		}
+	}
+
+	void voicesOff(int t) {
+		for (Voice& v : voices[t])
+			v.gate = false;
+	}
+
+	/** Monitoring: keys still held keep their voices, released keys drop only their own gate,
+	and a new key takes a free voice (one that last played the same note, else the longest
+	free). `fresh` = the keys take over from the sequence: its voices are released first. */
+	void monitorVoices(int t, const int* chord, int count, int velocity, bool fresh) {
+		int poly = outPolyphony();
+		Voice* vs = voices[t];
+		bool wasOn[kMaxPool];
+		for (int c = 0; c < kMaxPool; c++) {
+			wasOn[c] = vs[c].gate;
+			bool keep = false;
+			for (int i = 0; i < count && !keep && !fresh && c < poly; i++)
+				keep = vs[c].note == chord[i];
+			if (!keep)
+				vs[c].gate = false;
+		}
+		for (int i = 0; i < count; i++) {
+			int pick = -1;
+			bool held = false;
+			for (int c = 0; c < poly && !held; c++) {
+				if (vs[c].gate) {
+					held = vs[c].note == chord[i];
+					continue;
+				}
+				if (pick < 0) {
+					pick = c;
+					continue;
+				}
+				bool same = vs[c].note == chord[i], pickSame = vs[pick].note == chord[i];
+				if (same != pickSame ? same : vs[c].age < vs[pick].age)
+					pick = c;
+			}
+			if (held || pick < 0)
+				continue; // already sounding, or more keys than voices
+			Voice& v = vs[pick];
+			if (wasOn[pick])
+				v.retrig = 1e-3f;
+			v.pitch = (chord[i] - kBaseNote) / 12.f;
+			v.velocity = velocity * 10.f / 127.f;
+			v.note = chord[i];
+			v.gate = true;
+			v.age = ++voiceClock;
+		}
 	}
 
 	void toggleRecording() {
@@ -1766,6 +1858,7 @@ struct Talea : Module {
 					lane.start = e.time;
 					lane.glide = e.glide;
 					chordN[t] = 1;
+					voicesOn(t, 1, turnedOff[t]);
 					midi.off(t); // a note from before the type change
 					continue;
 				}
@@ -1773,10 +1866,12 @@ struct Talea : Module {
 				chordN[t] = clamp(e.chordSize, 1, kMaxPool);
 				for (int i = 0; i < chordN[t]; i++)
 					chordV[t][i] = (e.chord[i] - kBaseNote) / 12.f;
+				voicesOn(t, chordN[t], turnedOff[t]);
 				midi.noteOn(t, e.chord, chordN[t], e.velocity);
 			}
 			else {
 				gate[t] = false;
+				voicesOff(t);
 				turnedOff[t] = true;
 				midi.off(t);
 			}
@@ -2004,12 +2099,15 @@ struct Talea : Module {
 			if (lane.on) {
 				float f = lane.glide > 0.0 ? clamp(float((beat - lane.start) / lane.glide), 0.f, 1.f) : 1.f;
 				lane.value = lane.from + (lane.to - lane.from) * f;
-				pitchV[t] = chordV[t][0] = lane.value * 10.f / 127.f;
+				pitchV[t] = chordV[t][0] = voices[t][0].pitch = lane.value * 10.f / 127.f;
 				if (sendCc)
 					midi.cc(t, lane.number, int(std::lround(lane.value)));
 			}
 			if (retrig[t] > 0.f)
 				retrig[t] -= args.sampleTime;
+			for (Voice& v : voices[t])
+				if (v.retrig > 0.f)
+					v.retrig -= args.sampleTime;
 			outputs[PITCH_OUTPUT].setVoltage(pitchV[t], t);
 			outputs[GATE_OUTPUT].setVoltage(gate[t] && retrig[t] <= 0.f ? 10.f : 0.f, t);
 			outputs[VELOCITY_OUTPUT].setVoltage(velocityV[t], t);
@@ -2042,10 +2140,13 @@ struct Talea : Module {
 		if (!m)
 			return;
 		for (int t = 0; t < kNumTracks; t++) {
-			m->channels[t] = chordN[t];
-			std::copy(chordV[t], chordV[t] + kMaxPool, m->pitch[t]);
+			for (int c = 0; c < kMaxPool; c++) {
+				const Voice& v = voices[t][c];
+				m->pitch[t][c] = v.pitch;
+				m->voiceGate[t][c] = v.gate && v.retrig <= 0.f;
+				m->velocity[t][c] = v.velocity;
+			}
 			m->gate[t] = gate[t] && retrig[t] <= 0.f;
-			m->velocity[t] = velocityV[t];
 			m->muted[t] = seq.pattern.tracks[t].muted;
 		}
 		out->leftExpander.requestMessageFlip();

@@ -232,14 +232,18 @@ Gate, Vel.
 
 | ID        | Name           | Type          | Enum                     | Behaviour                                                   |
 | --------- | -------------- | ------------- | ------------------------ | ----------------------------------------------------------- |
-| X-J01–16 | Track n Pitch  | output (poly) | `PITCH_OUTPUTS + n`    | Poly: one channel per chord note (≤ 8, after voicing, Range / Phrase, transpose and scale; notes the scale folds together count once). Mono (arp): one channel, the sounding note. |
-| X-J17–32 | Track n Gate   | output (poly) | `GATE_OUTPUTS + n`     | Same channels; the chord shares the track's gate.          |
+| X-J01–16 | Track n Pitch  | output (poly) | `PITCH_OUTPUTS + n`    | Poly, a fixed channel count (**Polyphony**, context menu, 1–8, default 8, saved): one voice per chord note (after voicing, Range / Phrase, transpose and scale; notes the scale folds together count once); notes past the channel count are dropped. Mono (arp): voice 1, the sounding note. CC track: voice 1. |
+| X-J17–32 | Track n Gate   | output (poly) | `GATE_OUTPUTS + n`     | One gate per voice; unused voices stay low.                 |
 | X-J33–48 | Track n Vel    | output (poly) | `VELOCITY_OUTPUTS + n` | Per voice.                                                  |
 | X-L01–16 | Track n status | RGB light     | `TRACK_LIGHTS + 3n`    | Dim orange, white on gate, blue-grey when muted; off when not attached. |
 | X-L17     | Link           | light         | `LINK_LIGHT`           | Green when attached.                                        |
 
-Rules: muted tracks/cycles gate 0 everywhere · no params on expander · pitch/vel held
-between gates · channel count changes only on a new note.
+Rules: muted tracks/cycles gate 0 everywhere · no params on expander · the channel count
+never changes while playing (so downstream poly envelopes / VCAs keep every voice and finish
+their releases) · each voice holds its pitch / vel after its gate falls · a sequence chord
+puts note i on voice i (all retrigger; voices past the chord go low) · SEQ monitoring
+(§3.15) keeps a held key on its voice, drops only a released key's gate, and gives a new key
+a free voice (the one that last played that note, else the longest free).
 
 ### 3.12b Talea IN expander (v0.2, separate module)
 

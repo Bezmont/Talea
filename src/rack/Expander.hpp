@@ -1,14 +1,22 @@
 #pragma once
+#include <rack.hpp>
 #include "core/Model.hpp"
 
 /** Talea -> Talea OUT, once per sample through Rack's expander messages (the OUT module
 owns the two buffers on its left side). */
 struct OutMessage {
-	int channels[talea::kNumTracks] = {}; // chord notes of the latest note-on, 1..kMaxPool
-	float pitch[talea::kNumTracks][talea::kMaxPool] = {}; // V/oct, 0 V = C4
-	bool gate[talea::kNumTracks] = {};
-	float velocity[talea::kNumTracks] = {}; // 0-10 V
+	// Per voice (OUT channel): pitch and velocity hold after the voice's gate falls.
+	float pitch[talea::kNumTracks][talea::kMaxPool] = {};    // V/oct, 0 V = C4
+	bool voiceGate[talea::kNumTracks][talea::kMaxPool] = {};
+	float velocity[talea::kNumTracks][talea::kMaxPool] = {}; // 0-10 V
+	bool gate[talea::kNumTracks] = {}; // the track's gate (status light)
 	bool muted[talea::kNumTracks] = {};
+};
+
+/** What Talea reads of the OUT expander: its channel count per output, so voices are
+allocated only on channels that exist. */
+struct TaleaOutBase : rack::engine::Module {
+	int polyphony = talea::kMaxPool;
 };
 
 /** Knob parameters the IN expander modulates, in its jack order (all but Steps, Division and

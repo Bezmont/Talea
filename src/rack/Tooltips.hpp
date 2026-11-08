@@ -151,10 +151,11 @@ constexpr const char* kInLink = "Green while attached: place IN directly left of
 
 // ---------------------------------------------------------------- OUT expander
 constexpr const char* kOutPitch =
-	"Poly: one channel per chord note (up to 8). Mono style: the sounding note. "
-	"CC track: the value, 0-10 V.";
-constexpr const char* kOutGate = "Same channels as the pitch; the chord shares the gate.";
-constexpr const char* kOutVelocity = "Per voice, 0-10 V.";
+	"Poly, a fixed channel count (Polyphony in the context menu, 8 by default): one voice per "
+	"chord note; a voice holds its pitch after its gate falls. Mono style: the sounding note. "
+	"CC track: the value, 0-10 V, on channel 1.";
+constexpr const char* kOutGate = "One gate per voice, on the same channels as the pitch; unused voices stay low.";
+constexpr const char* kOutVelocity = "Per voice, 0-10 V, held after its gate.";
 constexpr const char* kOutTrackLight = "Dim orange = idle, white = gate, blue-grey = muted; off when not attached.";
 constexpr const char* kOutLink = "Green while attached: place OUT directly right of Talea.";
 
