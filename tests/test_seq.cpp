@@ -109,11 +109,10 @@ TEST_CASE(seq_hits_are_the_steps_with_notes) {
 	}
 }
 
-TEST_CASE(seq_notes_play_as_entered_without_scale_voicing_or_phrase) {
+TEST_CASE(seq_notes_play_as_entered_without_voicing_or_phrase) {
 	Engine e;
 	Track& t = e.pattern.tracks[0];
 	t.seqMode = true;
-	t.scale = 1; // a named scale, which would snap C# away
 	t.set(TP_VOICING, 5);
 	t.set(TP_RANGE, 12);
 	t.phrase = PHRASE_PULSE;
@@ -125,6 +124,22 @@ TEST_CASE(seq_notes_play_as_entered_without_scale_voicing_or_phrase) {
 		CHECK_EQ(int(on[0].chord[0]), 61);
 		CHECK_EQ(int(on[0].chord[1]), 66);
 		CHECK_EQ(int(on[0].chord[2]), 70);
+	}
+}
+
+TEST_CASE(seq_notes_off_the_scale_play_snapped_up) {
+	Engine e;
+	Track& t = e.pattern.tracks[0];
+	t.seqMode = true;
+	t.scale = 1; // C major: C#, F#, A# are ties, so they go up
+	note(e.pattern.seqs[0], 0, {61, 66, 70});
+	std::vector<NoteEvent> on = onsOf(trackEvents(e, 0, 1.0));
+	CHECK_EQ(int(on.size()), 1);
+	if (!on.empty()) {
+		CHECK_EQ(on[0].chordSize, 3);
+		CHECK_EQ(int(on[0].chord[0]), 62);
+		CHECK_EQ(int(on[0].chord[1]), 67);
+		CHECK_EQ(int(on[0].chord[2]), 71);
 	}
 }
 
@@ -367,6 +382,56 @@ TEST_CASE(record_step_writes_at_the_cursor_and_moves_on) {
 	r.stepOff(40, 4);
 	CHECK_EQ(int(sq.steps[0].count), 1);
 	CHECK_EQ(int(sq.steps[0].notes[0]), 40);
+}
+
+TEST_CASE(snap_up_takes_the_nearest_scale_note_ties_going_up) {
+	ScaleMask major = kScales[1].mask;
+	CHECK_EQ(snapUp(61, major, 0), 62); // C# between C and D: up
+	CHECK_EQ(snapUp(64, major, 0), 64); // in the scale
+	ScaleMask penta = 0;
+	for (int pc : {0, 2, 4, 7, 9})
+		penta |= ScaleMask(1u << pc);
+	CHECK_EQ(snapUp(65, penta, 0), 64); // F: E is nearer than G
+	CHECK_EQ(snapUp(66, penta, 0), 67); // F#: G is nearer
+	CHECK_EQ(snapUp(70, penta, 0), 69); // A#: A (1) over C (2)
+	CHECK_EQ(snapUp(71, penta, 0), 72); // B: C above (1) over A (2)
+	CHECK_EQ(snapUp(127, major, 0), 127); // G9 is in C major
+	CHECK_EQ(snapUp(61, 0xFFF, 0), 61);   // chromatic
+}
+
+TEST_CASE(seq_conform_moves_notes_onto_the_scale) {
+	StepSequence sq;
+	int a[] = {61, 62, 64};
+	sq.set(0, a, 3, 90, 2);
+	int b[] = {60};
+	sq.set(3, b, 1, 70, 1);
+	ScaleMask major = kScales[1].mask;
+	CHECK(sq.conform(major, 0));
+	CHECK_EQ(int(sq.steps[0].count), 2); // C# joined D
+	CHECK_EQ(int(sq.steps[0].notes[0]), 62);
+	CHECK_EQ(int(sq.steps[0].notes[1]), 64);
+	CHECK_EQ(int(sq.steps[0].velocity), 90);
+	CHECK_EQ(int(sq.steps[0].gate), 2);
+	CHECK_EQ(int(sq.steps[3].notes[0]), 60);
+	CHECK(!sq.conform(major, 0)); // already in the scale
+	CHECK(!sq.conform(0xFFF, 0));
+}
+
+TEST_CASE(seq_chord_snaps_pitch_and_transpose_to_the_scale) {
+	Track t;
+	t.seqMode = true;
+	t.scale = 1; // major on C
+	SeqStep s;
+	s.notes[0] = 60;
+	s.notes[1] = 64;
+	s.count = 2;
+	int out[kMaxPool];
+	CHECK_EQ(t.seqChord(s, out, 1), 2); // C# -> D, F stays
+	CHECK_EQ(out[0], 62);
+	CHECK_EQ(out[1], 65);
+	t.scale = 0; // chromatic: plain semitones
+	t.seqChord(s, out, 1);
+	CHECK_EQ(out[0], 61);
 }
 
 TEST_CASE(record_overdub_adds_to_the_notes_on_a_step) {

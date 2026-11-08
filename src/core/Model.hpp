@@ -68,6 +68,9 @@ struct StepSequence {
 	void setVelocity(int pos, int velocity);
 	void setGate(int pos, int gate);
 	void clear(int pos);
+	/** Moves every note off the scale to the nearest scale note (ties up, see snapUp()), on
+	every stored step; notes that land together merge. Returns whether anything changed. */
+	bool conform(ScaleMask mask, int root);
 	void reset() {
 		*this = StepSequence();
 	}
@@ -137,8 +140,8 @@ struct Track {
 	/** Sequencer mode (SETUP page): false = EUCLID (Steps / Pulses / Rotate and the step edits
 	make the hits, the pitch settings make the notes); true = SEQ, a manual sequence
 	(Pattern::seqs / a cycle's own): steps with notes are the hits, Pulses and Rotate don't
-	apply, and the notes play as entered (+ Pitch and transpose) without Scale, Voicing or
-	Phrase. Gate length counts steps. */
+	apply, and the notes play as entered (+ Pitch and transpose, snapped to the Scale) without
+	Voicing or Phrase. Gate length counts steps. */
 	bool seqMode = false;
 
 	Track() {
@@ -236,9 +239,9 @@ struct Track {
 	the scale folds together) removed, so out[0] == noteFor(). Returns the count (>= 1). */
 	int chordFor(long ordinal, double time, int* out, double phraseCv = 0.0, int transpose = 0,
 	             double loops = kLoopsFromTime) const;
-	/** SEQ mode: the notes step `s` sounds: its chord + Pitch and `transpose` semitones, sorted,
-	duplicates removed, clamped to 0-127. No Scale, Voicing or Phrase. Returns the count (0 for
-	a rest). */
+	/** SEQ mode: the notes step `s` sounds: its chord + Pitch and `transpose` semitones, snapped
+	to the scale (snapUp()), sorted, duplicates removed, clamped to 0-127. No Voicing or
+	Phrase. Returns the count (0 for a rest). */
 	int seqChord(const SeqStep& s, int* out, int transpose = 0) const;
 	/** SEQ mode: gate length in quarter notes of a note held `steps` steps: the steps before
 	the last whole, the last shaped by Sustain like any note (50 % = the whole step). */

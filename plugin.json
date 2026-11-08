@@ -5,10 +5,10 @@
   "license": "GPL-3.0-or-later",
   "brand": "Jezric",
   "author": "Jezric Software",
-  "authorEmail": "",
+  "authorEmail": "jezric@gmail.com",
   "authorUrl": "https://github.com/Bezmont",
   "pluginUrl": "",
-  "manualUrl": "",
+  "manualUrl": "https://www.jezric.com/software/talea",
   "sourceUrl": "https://github.com/Bezmont/Talea",
   "donateUrl": "",
   "changelogUrl": "",
@@ -16,8 +16,8 @@
     {
       "slug": "Talea",
       "name": "Talea",
-      "description": "16-Track Multi-mode sequencer",
-      "tags": ["Sequencer", "Polyphonic"]
+      "description": "16-track multi-mode sequencer: Euclidean, algorithmic and step sequencing",
+      "tags": ["Sequencer", "Polyphonic", "Arpeggiator", "MIDI", "Random", "Clock generator"]
     },
     {
       "slug": "TaleaOut",

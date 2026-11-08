@@ -162,7 +162,7 @@ constexpr const char* kOutLink = "Green while attached: place OUT directly right
 // ---------------------------------------------------------------- context display: page tabs
 // In tab order: TRACK STEP CYCLE KEYS SCALE PHRASE STYLE REPEAT GROOVE RANDOM PATTERN SONG SETUP.
 constexpr const char* kPage[] = {
-	"Overview of the selected track: its pattern, settings and the 16 tracks.",
+	"The selected track's shape, the clock and tempo, and its steps (a lane per cycle with several).",
 	"The track's steps. With locks (or in SEQ mode) a lane per locked parameter: click / drag to edit.",
 	"The track's cycles: how many, which one is edited, mute, and clearing a cycle's changes.",
 	"Keyboard: the track's note pool, selected steps' own pool, or in SEQ mode the selected step's notes.",
@@ -230,8 +230,11 @@ constexpr RowTip kRows[] = {
 	{"PHRASE", "LOOPS", "Phrase length, in loops of the track."},
 	{"PHRASE", "SYNC", "BARS: the phrase runs on pattern time. LOOP: it restarts with the track's step loop."},
 
-	{"SCALE", "SCALE", "The scale the pool, Pitch and Range snap to. Editing NOTES turns it into the User scale."},
-	{"SCALE", "ROOT", "The scale's root note."},
+	{"SCALE", "SCALE",
+	 "The scale the pool, Pitch and Range snap to. Editing NOTES turns it into the User scale. SEQ mode: "
+	 "the keys, NOTE IN and the output snap to it, and changing it moves the sequence's notes onto it "
+	 "(nearest note, ties up)."},
+	{"SCALE", "ROOT", "The scale's root note. SEQ mode: the sequence's notes move onto the new scale."},
 
 	{"STYLE", "STYLE", "The path through the Voicing positions over successive notes."},
 	{"STYLE", "PLAY", "POLY: chords. MONO: arpeggiates the voiced pool, one note per event."},
@@ -258,7 +261,8 @@ inline const char* rowTip(const char* page, const std::string& label) {
 // ---------------------------------------------------------------- context display: other areas
 constexpr const char* kKeyPool = "Click: add / remove this note in the track's pool (in the scale).";
 constexpr const char* kKeyStepPool = "Click: add / remove this note in the selected steps' own pool.";
-constexpr const char* kKeySeqStep = "Click: add / remove this note in the selected step's chord.";
+constexpr const char* kKeySeqStep =
+	"Click: add / remove this note in the selected step's chord. Keys off the scale are dimmed.";
 constexpr const char* kKeySeqNone = "SEQ mode has no pool: click a step pad first, then add its notes here.";
 constexpr const char* kKeyCc = "CC track: no notes.";
 constexpr const char* kKeysOctave = "Shifts the keyboard an octave.";

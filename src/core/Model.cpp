@@ -281,7 +281,7 @@ int Track::seqChord(const SeqStep& s, int* out, int transpose) const {
 	int n = std::clamp(int(s.count), 0, kMaxPool);
 	int shift = getInt(TP_PITCH) + transpose;
 	for (int i = 0; i < n; i++)
-		out[i] = std::clamp(int(s.notes[i]) + shift, 0, 127);
+		out[i] = snapUp(std::clamp(int(s.notes[i]) + shift, 0, 127), scaleMask(), root);
 	std::sort(out, out + n);
 	return int(std::unique(out, out + n) - out);
 }
@@ -289,6 +289,26 @@ int Track::seqChord(const SeqStep& s, int* out, int transpose) const {
 double Track::seqGateQuarters(int steps) const {
 	double step = stepQuarters();
 	return (std::clamp(steps, 1, kMaxGateSteps) - 1) * step + gateQuarters(step);
+}
+
+bool StepSequence::conform(ScaleMask mask, int root) {
+	bool changed = false;
+	for (int pos = 0; pos < kMaxSteps; pos++) {
+		if (!has(pos))
+			continue;
+		SeqStep& s = steps[pos];
+		int notes[kMaxPool];
+		bool off = false;
+		for (int i = 0; i < s.count; i++) {
+			notes[i] = snapUp(s.notes[i], mask, root);
+			off |= notes[i] != s.notes[i];
+		}
+		if (off) {
+			set(pos, notes, s.count, s.velocity, s.gate);
+			changed = true;
+		}
+	}
+	return changed;
 }
 
 bool SeqStep::operator==(const SeqStep& o) const {

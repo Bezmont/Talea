@@ -339,11 +339,28 @@ the context menu). Stored per track, per cycle and per pattern like everything e
   and a gate length in **steps** (1–64; more than one = tied over the next steps until they
   end, or until the next step with notes cuts them). Steps, Division and Length still set the
   loop, so cycles, loop sync, random per cycle and the pattern length work unchanged.
-- **Not used in SEQ mode**: Pulses, Rotate, the Euclidean step edits; Scale, Root, Voicing /
-  Style, Mono, Range / Phrase and Harmony (the PHRASE / SCALE / STYLE pages show dimmed; the
-  Pulses, Rotate, Harmony, Voicing and Range knobs are dimmed and don't turn). The Velocity
-  knob gives new notes (KEYS, recording without a VEL input) their velocity.
-  Notes play as entered, **+ Pitch and Transpose** (no quantizing).
+- **Not used in SEQ mode**: Pulses, Rotate, the Euclidean step edits; Voicing / Style, Mono,
+  Range / Phrase and Harmony (the PHRASE / STYLE pages show dimmed; the Pulses, Rotate,
+  Harmony, Voicing and Range knobs are dimmed and don't turn). The Velocity knob gives new
+  notes (KEYS, recording without a VEL input) their velocity.
+  Notes play as entered, **+ Pitch and Transpose**, snapped to the scale.
+- **Scale in SEQ mode** (SCALE page, Scale / Root / User notes; Chromatic = no effect). The rule
+  everywhere: an off-scale note takes the **nearest scale note, ties going up** (in a 7-note
+  scale every off-scale note is a tie, so it goes up; with wider gaps, e.g. F in C major
+  pentatonic, the nearer one wins: E).
+  - KEYS: keys off the scale are dimmed and can't be added (a note already in the chord can
+    still be taken out).
+  - NOTE IN (keyboard / V/Oct): off-scale notes are snapped before they're monitored and
+    recorded, so what's recorded is what was heard; two keys snapping to one note play once.
+  - Output: after Pitch and Transpose the notes are snapped again, so the track stays in the
+    scale (a cycle with its own scale snaps the track's sequence to that one as it plays).
+  - Changing the scale, root or a User note (or CYCLE CLEAR **SCALE**) **moves the stored
+    notes** of the track's sequence and of each cycle's own sequence onto the scale it plays
+    with, on every stored step. Notes that land together merge; velocity and gate are kept.
+    Destructive (switching back doesn't restore them) but one undo step. A root change snaps,
+    it doesn't transpose. Switching to SEQ snaps the notes taken from the Euclid pool.
+    Patches saved before this keep their notes until the scale is next changed (the output
+    snaps them meanwhile).
 - **Still applies**: Velocity locks (over the step's velocity), random, IN-expander CV, Accent,
   Ramp, Probability, Repeats (with repeats the gate follows their spacing), Timing, Delay,
   Sustain (shapes the last step of the gate: 50 % = the whole step).
@@ -356,7 +373,7 @@ the context menu). Stored per track, per cycle and per pattern like everything e
   info line, with no locks; a rest stays a rest until KEYS gives it notes (a step's first note
   brings the Velocity knob, 1 step). Right-click = the step becomes a rest. Ctrl+click starts / changes the step **lock**
   selection as in EUCLID mode (blue; knobs turned lock those steps), a plain-clicked step
-  joining it. The KEYS page edits the selected steps' chord (any key — the scale doesn't apply; **REST** clears them) and the STEP page shows
+  joining it. The KEYS page edits the selected steps' chord (keys in the scale; **REST** clears them) and the STEP page shows
   **N.VEL** (velocity) and **GATE** (1–16 steps) lanes first, click / drag to set, right-click
   = default. SEQ mode has no pool: without a selection the KEYS page is empty. The KEYS
   page marks every note of the chord sounding now. COPY /

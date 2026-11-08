@@ -59,6 +59,9 @@ inline constexpr const char* kNoteNames[12] = {"C", "C#", "D", "D#", "E", "F", "
 bool inScale(int note, ScaleMask mask, int root);
 /** Nearest scale note; ties go down. An empty mask leaves the note alone. */
 int quantize(int note, ScaleMask mask, int root);
+/** SEQ mode: the nearest scale note in 0-127, ties going up. An empty mask leaves the note
+alone. */
+int snapUp(int note, ScaleMask mask, int root);
 /** The next scale note strictly above (dir > 0) or below (dir < 0) `note`. */
 int scaleNeighbour(int note, ScaleMask mask, int root, int dir);
 

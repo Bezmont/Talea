@@ -22,6 +22,18 @@ int quantize(int note, ScaleMask mask, int root) {
 	return note;
 }
 
+int snapUp(int note, ScaleMask mask, int root) {
+	if ((mask & 0xFFF) == 0)
+		return note;
+	for (int d = 0; d <= 12; d++) {
+		if (note + d <= 127 && inScale(note + d, mask, root))
+			return note + d;
+		if (note - d >= 0 && inScale(note - d, mask, root))
+			return note - d;
+	}
+	return note;
+}
+
 int scaleNeighbour(int note, ScaleMask mask, int root, int dir) {
 	int step = dir > 0 ? 1 : -1;
 	if ((mask & 0xFFF) == 0)

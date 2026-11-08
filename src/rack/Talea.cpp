@@ -318,6 +318,7 @@ struct Talea : Module {
 	bool displayFollows = true;
 	std::atomic<int> focusPage{-1}; // page asked for by a knob touch, taken by the display
 	std::atomic<int> keyRequest{-1}; // KEYS page key click (UI thread): the MIDI note, or kKeyTrackPool
+	std::atomic<bool> conformRequest{false}; // SCALE page edit (UI thread): snap the SEQ notes
 	static constexpr int kKeyTrackPool = -2; // TRACK POOL: drop the selected steps' pool locks
 	/** STEP page lane edits from the display, applied on the audio thread so knobs never
 	write a stale value back: per step, valid << 63 | remove << 62 | param << 32 | value
@@ -875,6 +876,7 @@ struct Talea : Module {
 				if (hasHit(hits, s))
 					sq.set(s, view.pool, view.poolSize, defaultSeqVelocity(), 1);
 			}
+			sq.conform(view.scaleMask(), view.root);
 		}
 		if (!on)
 			recording = false;
@@ -883,9 +885,24 @@ struct Talea : Module {
 		loadKnobs();
 	}
 
+	/** SEQ mode: every sequence of track `t` (its own and its cycles') moves its notes onto the
+	scale it plays with (StepSequence::conform()). Run after a scale, root or User scale edit. */
+	void conformSeqs(int t) {
+		Pattern& p = seq.pattern;
+		const Track& base = p.tracks[t];
+		p.seqs[t].conform(base.scaleMask(), base.root);
+		for (int c = 0; c < kMaxCycles; c++) {
+			CycleOverrides& o = p.cycles[t].cycles[c];
+			if (!o.ownSeq)
+				continue;
+			Track r = p.cycles[t].resolve(base, c);
+			o.seq.conform(r.scaleMask(), r.root);
+		}
+	}
+
 	/** KEYS page with steps selected in SEQ mode: toggles `note` in the first selected step's
-	chord and gives every selected step that chord (each keeping its velocity and gate). Any
-	key: the scale doesn't apply. */
+	chord and gives every selected step that chord (each keeping its velocity and gate). Keys
+	off the scale only take a note out (pressKey()). */
 	void toggleSeqNote(int note) {
 		StepSequence& sq = seqEdit();
 		StepMask sel = keysSel();
@@ -945,7 +962,11 @@ struct Talea : Module {
 			recHigh[c] = high;
 			changed = true;
 			if (high) {
-				recNote[c] = clamp(int(std::lround(inputs[REC_PITCH_INPUT].getPolyVoltage(c) * 12.f)) + kBaseNote, 0, 127);
+				// Off-scale notes take the nearest scale note (ties up), so what is recorded is
+				// what is heard.
+				Track view = viewTrack();
+				recNote[c] = snapUp(clamp(int(std::lround(inputs[REC_PITCH_INPUT].getPolyVoltage(c) * 12.f)) + kBaseNote, 0, 127),
+				                    view.scaleMask(), view.root);
 				recVelocity[c] = inputs[REC_VELOCITY_INPUT].isConnected()
 				                     ? clamp(int(std::lround(inputs[REC_VELOCITY_INPUT].getPolyVoltage(c) / 10.f * 127.f)), 1, 127)
 				                     : defaultSeqVelocity();
@@ -1248,7 +1269,7 @@ struct Talea : Module {
 		if (seqMode && tp == TP_VELOCITY)
 			notes.push_back("SEQ mode: each step plays its own velocity; this sets new notes' velocity.");
 		if (seqMode && tp == TP_PITCH)
-			notes.push_back("SEQ mode: transposes the sequence in semitones (no scale).");
+			notes.push_back("SEQ mode: transposes the sequence in semitones, snapped to the scale.");
 		if (seqMode && tp == TP_SUSTAIN)
 			notes.push_back("SEQ mode: shapes the last step of each note's gate.");
 		if (cycleEdit)
@@ -1772,7 +1793,10 @@ struct Talea : Module {
 			case CYCLE_CLEAR_PARAM: cycles().clear(selectedCycle, TrackParam(argument)); break;
 			case CYCLE_CLEAR_RANDOM: cycles().clearRandom(selectedCycle, TrackParam(argument)); break;
 			case CYCLE_CLEAR_LOCKS: cycles().cycles[selectedCycle].locks.reset(); break;
-			case CYCLE_CLEAR_TONAL: cycles().cycles[selectedCycle].ownTonal = false; break;
+			case CYCLE_CLEAR_TONAL:
+				cycles().cycles[selectedCycle].ownTonal = false;
+				conformSeqs(selectedTrack);
+				break;
 			case CYCLE_CLEAR_SEQ: cycles().cycles[selectedCycle].clearSequence(); break;
 			case CYCLE_CLEAR_MODE: cycles().cycles[selectedCycle].ownMode = false; break;
 			default: return;
@@ -1794,9 +1818,16 @@ struct Talea : Module {
 	but a pool note left outside by a scale change can still be removed. */
 	void pressKey(int note) {
 		if (seqTarget()) {
-			// SEQ mode: the selected steps take the note (no scale); no pool, so with no
-			// step selected a key does nothing.
-			if (keysSel())
+			// SEQ mode: the selected steps take the note (in the scale, or one already in the
+			// chord to take out); no pool, so with no step selected a key does nothing.
+			if (!keysSel())
+				return;
+			Track view = viewTrack();
+			const StepSequence& sq = seqView();
+			int first = firstStepOf(keysSel());
+			const SeqStep& s = sq.steps[first];
+			bool inChord = sq.has(first) && std::find(s.notes, s.notes + s.count, uint8_t(note)) != s.notes + s.count;
+			if (inChord || inScale(note, view.scaleMask(), view.root))
 				toggleSeqNote(note);
 			return;
 		}
@@ -2259,6 +2290,8 @@ struct Talea : Module {
 		}
 		// MUTE mode is a view like the others: a page tab leaves it (dropping staged mutes),
 		// back to the pad mode before it.
+		if (conformRequest.exchange(false))
+			conformSeqs(selectedTrack);
 		int key = keyRequest.exchange(-1);
 		if (key >= 0)
 			pressKey(key);
@@ -2902,10 +2935,10 @@ struct ContextDisplay : widget::OpaqueWidget {
 	}
 
 	/** A pitch page (KEYS, PHRASE, SCALE, STYLE) while the selected track is a CC track. */
-	/** PHRASE, SCALE or STYLE while the selected track (or edited cycle) is in SEQ mode: its notes
-	play as entered. */
+	/** PHRASE or STYLE while the selected track (or edited cycle) is in SEQ mode: its notes
+	play as entered (the scale still applies). */
 	bool seqUnused() {
-		return module && module->seqTarget() && (page == kPhrasePage || page == kScalePage || page == kStylePage)
+		return module && module->seqTarget() && (page == kPhrasePage || page == kStylePage)
 		       && !muteView();
 	}
 
@@ -3040,8 +3073,8 @@ struct ContextDisplay : widget::OpaqueWidget {
 		}
 	}
 
-	/** KEYS page in SEQ mode: any key (no scale). With steps selected, the first one's chord
-	(blue); otherwise the pool, the chord a pad click enters (orange). */
+	/** KEYS page in SEQ mode: keys in the scale (and notes already in the chord). With steps
+	selected, the first one's chord (green, blue for a lock selection). */
 	void drawSeqKeys(NVGcontext* vg, const Track& view) {
 		StepMask sel = module->keysSel();
 		bool steps = sel;
@@ -3076,9 +3109,10 @@ struct ContextDisplay : widget::OpaqueWidget {
 			nvgFillColor(vg, text);
 			nvgText(vg, r.pos.x + r.size.x / 2, r.pos.y + r.size.y / 2 + 0.5f, "REST", nullptr);
 		}
+		ScaleMask mask = view.scaleMask();
 		keysKeyboard().draw(vg, [&](int n) {
 			KeyLook l;
-			l.enabled = true;
+			l.enabled = inChord(n) || inScale(n, mask, view.root);
 			if (inChord(n))
 				l.fill = locking ? lockBlue : steps ? nvgRGB(0x40, 0xf0, 0x66) : accent;
 			l.dot = soundingNote(view, n);
@@ -3632,6 +3666,7 @@ struct ContextDisplay : widget::OpaqueWidget {
 				toggleScaleNote(tr, n % 12);
 				if (scratch)
 					module->cycles().setTonal(module->selectedCycle, tonalScratch);
+				module->conformRequest = true;
 				e.consume(this);
 				return;
 			}
@@ -3643,6 +3678,8 @@ struct ContextDisplay : widget::OpaqueWidget {
 					rows[row].select(i);
 					if (scratch)
 						module->cycles().setTonal(module->selectedCycle, tonalScratch);
+					if (page == kScalePage)
+						module->conformRequest = true; // the SEQ notes follow the new scale
 					e.consume(this);
 					return;
 				}
@@ -3813,7 +3850,7 @@ struct ContextDisplay : widget::OpaqueWidget {
 		if (pitchUnused())
 			return string::f("TRACK %d  CC TRACK: PITCH SETTINGS UNUSED (VALUE = VELOCITY, GLIDE = SUSTAIN)", index + 1);
 		if (seqUnused())
-			return string::f("TRACK %d  SEQ MODE: NOTES PLAY AS ENTERED (NO SCALE, VOICING OR PHRASE)", index + 1);
+			return string::f("TRACK %d  SEQ MODE: NOTES PLAY AS ENTERED (NO VOICING OR PHRASE)", index + 1);
 		switch (page) {
 			case kCyclePage: {
 				if (!module)
