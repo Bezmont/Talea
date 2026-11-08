@@ -1,10 +1,10 @@
 # Talea
 
-A 16-track Euclidean / algorithmic sequencer and composition tool for VCV Rack 2.
+A 16-track multi-mode sequencer (step, record, Euclidean / algorithmic) and composition tool for VCV Rack 2.
 Design and behaviour: [docs/SPEC.md](docs/SPEC.md).
 
-Inspired in part by hardware algorithmic sequencers, including the Torso T-1. Not
-affiliated with or endorsed by Torso Electronics.
+Inspired in part by hardware algorithmic and manual sequencers, including the Torso T-1 and Arturia Keystep. Not
+affiliated with or endorsed by Torso Electronics or Arturia.
 
 ## Layout
 
