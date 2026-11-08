@@ -76,7 +76,7 @@ jobs:
           install: >-
             make zip unzip zstd
             mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-jq
+            jq
 
       - name: Rack SDK
         run: |
