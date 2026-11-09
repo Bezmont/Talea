@@ -57,7 +57,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Talea-${{ matrix.sdk }}
+          name: Jezric-${{ matrix.sdk }}
           path: dist/*.vcvplugin
 
   windows:
@@ -92,5 +92,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Talea-win-x64
+          name: Jezric-win-x64
           path: dist/*.vcvplugin
