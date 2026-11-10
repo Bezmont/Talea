@@ -446,7 +446,7 @@ struct Talea : Module {
 	// External clock
 	long extPulses = -1; // pulses since reset; -1 = waiting for the first
 	double extPulseBeat = 0.0;
-	int64_t samplesSincePulse = 0;
+	int64_t samplesSincePulse = INT64_MAX / 2; // no pulse seen yet
 	double periodSamples = 0.0;
 	float displayBpm = 120.f;
 
@@ -1921,6 +1921,15 @@ struct Talea : Module {
 			return;
 		playing = p;
 		songEndHold = false;
+		// Waiting for the first external pulse, one that came just before Run went high is that
+		// first pulse: a DAW's Start and first clock arrive together, but Run often comes a few
+		// samples later through a latch (each cable adds a sample).
+		if (playing && inputs[CLOCK_INPUT].isConnected() && extPulses < 0 &&
+		    samplesSincePulse <= int64_t(APP->engine->getSampleRate() * 0.01f)) {
+			extPulses = 0;
+			extPulseBeat = 0.0;
+			beat = std::max(beat, 0.0);
+		}
 		// Song on but not started (just loaded, or turned on): it starts with Play.
 		if (playing && seq.songOn() && seq.songEntry() < 0 && !seq.songPending() && !seq.songOverridden()) {
 			seq.startSong(lastBeat, events);
@@ -1974,6 +1983,7 @@ struct Talea : Module {
 	// ------------------------------------------------------------ process
 
 	void process(const ProcessArgs& args) override {
+		midi.frame = args.frame;
 		applyCycleAction();
 		applyPatternAction();
 		applySongAction();
@@ -2076,7 +2086,10 @@ struct Talea : Module {
 			applyEvents();
 		}
 
-		if (playing) {
+		// External clock after a reset: step 1 waits for the first pulse, so a Reset while
+		// playing (e.g. a DAW's Stop just before Run falls) doesn't sound it at once.
+		bool waitingForPulse = inputs[CLOCK_INPUT].isConnected() && extPulses < 0;
+		if (playing && !waitingForPulse) {
 			seq.process(lastBeat, beat, events);
 			lastBeat = beat;
 			applyEvents();

@@ -40,6 +40,9 @@ struct MidiNoteOut {
 	/** MIDI channel per track (0-15), -1 = off. Default: track n on channel n. */
 	int channel[talea::kNumTracks];
 	bool clock = false;
+	/** Engine frame stamped on each message; the audio thread sets it every sample. The DAW
+	(plugin) driver places messages in the host block by this frame, so they need one. */
+	int64_t frame = -1;
 
 	MidiNoteOut() {
 		for (int t = 0; t < talea::kNumTracks; t++)
@@ -189,6 +192,7 @@ private:
 	void send(int status, int d1, int d2) {
 		midi::Message m;
 		m.bytes = {uint8_t(status), uint8_t(d1 & 0x7f), uint8_t(d2 & 0x7f)};
+		m.setFrame(frame);
 		port.sendMessage(m);
 	}
 
@@ -196,6 +200,7 @@ private:
 		midi::Message m;
 		m.setSize(1);
 		m.bytes[0] = uint8_t(status);
+		m.setFrame(frame);
 		port.sendMessage(m);
 	}
 };
