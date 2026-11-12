@@ -296,6 +296,15 @@ public:
 	/** Emits note-offs at `time` for every sounding note and drops pending repeats. */
 	void allNotesOff(double time, EventList& out);
 
+	/** What the engine carries from one window to the next: the sounding notes, the
+	repeats still to come and where the last window ended. A host that computes ahead of
+	playback saves it after each window; after an edit it loads the state saved where
+	playback really is and computes the rest again with the new settings. Pattern
+	switches, mutes and the song aren't part of it. */
+	struct Playback;
+	void savePlayback(Playback& p) const;
+	void loadPlayback(const Playback& p);
+
 	/** Per-track cycle that plays alone while it is being edited (the host's Cycle edit);
 	-1 = all cycles play in turn. */
 	int soloCycle[kNumTracks];
@@ -387,6 +396,15 @@ private:
 	static constexpr int kMaxBursts = 16; // per track, for Tail mode
 	Burst bursts_[kNumTracks][kMaxBursts];
 	double lastTo_ = std::numeric_limits<double>::quiet_NaN(); // end of the previous window
+
+public:
+	struct Playback {
+		Voice voices[kNumTracks];
+		Burst bursts[kNumTracks][kMaxBursts];
+		double lastTo = std::numeric_limits<double>::quiet_NaN();
+	};
+
+private:
 
 	uint16_t staged_ = 0, scheduled_ = 0;
 	bool tempActive_ = false;

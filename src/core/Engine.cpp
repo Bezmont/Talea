@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 
 namespace talea {
 
@@ -744,6 +745,20 @@ void Engine::allNotesOff(double time, EventList& out) {
 		}
 	}
 	clearBursts();
+}
+
+void Engine::savePlayback(Playback& p) const {
+	std::copy(std::begin(voices_), std::end(voices_), std::begin(p.voices));
+	for (int i = 0; i < kNumTracks; i++)
+		std::copy(std::begin(bursts_[i]), std::end(bursts_[i]), std::begin(p.bursts[i]));
+	p.lastTo = lastTo_;
+}
+
+void Engine::loadPlayback(const Playback& p) {
+	std::copy(std::begin(p.voices), std::end(p.voices), std::begin(voices_));
+	for (int i = 0; i < kNumTracks; i++)
+		std::copy(std::begin(p.bursts[i]), std::end(p.bursts[i]), std::begin(bursts_[i]));
+	lastTo_ = p.lastTo;
 }
 
 void Engine::clearBursts() {

@@ -386,3 +386,68 @@ TEST_CASE(repeats_window_size_and_reset) {
 	int againOns = int(onTimes(again).size()), firstOns = int(onTimes(first).size());
 	CHECK_EQ(againOns, firstOns);
 }
+
+// A host that computes ahead (Max for Live) rewinds the engine after an edit: loading the
+// state saved after a window, then computing from there, must give what the engine would
+// have played had it never run ahead, with or without an edit at that point.
+TEST_CASE(engine_playback_save_and_load) {
+	auto build = [](Engine& e) {
+		e.pattern.tracks[0].set(TP_PULSES, 5);
+		e.pattern.tracks[0].set(TP_SUSTAIN, 90);
+		e.pattern.tracks[1].set(TP_PULSES, 3);
+		e.pattern.tracks[1].set(TP_REPEATS, 5);
+		e.pattern.tracks[1].set(TP_REPEAT_TIME, indexOf(kRepeatTimes, "1/8t"));
+		e.pattern.tracks[1].set(TP_PACE, 40);
+		e.pattern.tracks[1].repeatTail = true;
+		e.pattern.tracks[2].set(TP_PULSES, 7);
+		e.pattern.tracks[2].set(TP_TIMING, 50);
+	};
+	auto same = [](const std::vector<NoteEvent>& a, const std::vector<NoteEvent>& b) {
+		if (a.size() != b.size())
+			return false;
+		for (size_t i = 0; i < a.size(); i++) {
+			if (!near(a[i].time, b[i].time) || a[i].track != b[i].track || a[i].on != b[i].on ||
+			    a[i].note != b[i].note || a[i].velocity != b[i].velocity)
+				return false;
+		}
+		return true;
+	};
+	auto edit = [](Engine& e) {
+		e.pattern.tracks[1].set(TP_PACE, -60);
+		e.pattern.tracks[0].set(TP_PULSES, 9);
+	};
+	const double step = 0.25, eps = 1e-9, at = 37 * step; // mid-burst on track 1
+	auto upTo = [&](Engine& e) { run(e, -eps, at - eps, step); };
+	auto rest = [&](Engine& e) { return run(e, at - eps, at + 16 - eps, step); };
+	auto runAhead = [&](Engine& e) { run(e, at - eps, at + 8 * step - eps, step); };
+
+	Engine plain, ahead, stale;
+	build(plain);
+	build(ahead);
+	build(stale);
+	upTo(plain);
+	upTo(ahead);
+	upTo(stale);
+	Engine::Playback saved;
+	ahead.savePlayback(saved);
+	runAhead(ahead);
+	ahead.loadPlayback(saved);
+	stale.savePlayback(saved);
+	runAhead(stale); // not rewound: what loadPlayback prevents
+	std::vector<NoteEvent> want = rest(plain);
+	CHECK(!want.empty());
+	CHECK(same(rest(ahead), want));
+	CHECK(!same(rest(stale), want));
+
+	Engine edited, ahead2;
+	build(edited);
+	build(ahead2);
+	upTo(edited);
+	upTo(ahead2);
+	ahead2.savePlayback(saved);
+	runAhead(ahead2);
+	ahead2.loadPlayback(saved);
+	edit(ahead2);
+	edit(edited);
+	CHECK(same(rest(ahead2), rest(edited)));
+}
