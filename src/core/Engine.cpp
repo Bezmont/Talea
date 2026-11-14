@@ -442,6 +442,17 @@ void Engine::rewind() {
 	clearBursts();
 }
 
+void Engine::jump(double t) {
+	if (t < origin_ - 1e-3)
+		origin_ = 0.0;
+	// Just before `t`, so a boundary at `t` is still to come.
+	if (queued_ >= 0)
+		switchTime_ = nextBoundary(queuedTiming_, t - kMuteLead);
+	if (scheduled_)
+		scheduledTime_ = nextBoundary(muteTiming, t - kMuteLead);
+	clearBursts();
+}
+
 void Engine::endTemp(bool keep) {
 	if (!tempActive_)
 		return;
@@ -752,6 +763,32 @@ void Engine::savePlayback(Playback& p) const {
 	for (int i = 0; i < kNumTracks; i++)
 		std::copy(std::begin(bursts_[i]), std::end(bursts_[i]), std::begin(p.bursts[i]));
 	p.lastTo = lastTo_;
+	p.pattern = pattern;
+	p.staged = staged_;
+	p.scheduled = scheduled_;
+	p.scheduledTime = scheduledTime_;
+	p.tempActive = tempActive_;
+	p.used = used_;
+	p.current = current_;
+	p.queued = queued_;
+	p.queuedTiming = queuedTiming_;
+	p.queuedChainPos = queuedChainPos_;
+	p.switchTime = switchTime_;
+	p.origin = origin_;
+	p.switches = switches_;
+	p.chainPos = chainPos_;
+	p.songOn = songOn_;
+	p.songPos = songPos_;
+	p.entryStart = entryStart_;
+	p.overridden = overridden_;
+	p.resumeEntry = resumeEntry_;
+	p.resumeBar = resumeBar_;
+	p.jumpPending = jumpPending_;
+	p.jumpTime = jumpTime_;
+	p.jumpEntry = jumpEntry_;
+	p.jumpBar = jumpBar_;
+	p.songEnded = songEnded_;
+	p.restarts = restarts_;
 }
 
 void Engine::loadPlayback(const Playback& p) {
@@ -759,6 +796,36 @@ void Engine::loadPlayback(const Playback& p) {
 	for (int i = 0; i < kNumTracks; i++)
 		std::copy(std::begin(p.bursts[i]), std::end(p.bursts[i]), std::begin(bursts_[i]));
 	lastTo_ = p.lastTo;
+	// A switch since the save: the pattern switched to goes back in its slot (as it was:
+	// nothing edits it between the save and the load).
+	if (p.current != current_)
+		slots_[current_] = pattern;
+	pattern = p.pattern;
+	staged_ = p.staged;
+	scheduled_ = p.scheduled;
+	scheduledTime_ = p.scheduledTime;
+	tempActive_ = p.tempActive;
+	used_ = p.used;
+	current_ = p.current;
+	queued_ = p.queued;
+	queuedTiming_ = p.queuedTiming;
+	queuedChainPos_ = p.queuedChainPos;
+	switchTime_ = p.switchTime;
+	origin_ = p.origin;
+	switches_ = p.switches;
+	chainPos_ = p.chainPos;
+	songOn_ = p.songOn;
+	songPos_ = p.songPos;
+	entryStart_ = p.entryStart;
+	overridden_ = p.overridden;
+	resumeEntry_ = p.resumeEntry;
+	resumeBar_ = p.resumeBar;
+	jumpPending_ = p.jumpPending;
+	jumpTime_ = p.jumpTime;
+	jumpEntry_ = p.jumpEntry;
+	jumpBar_ = p.jumpBar;
+	songEnded_ = p.songEnded;
+	restarts_ = p.restarts;
 }
 
 void Engine::clearBursts() {

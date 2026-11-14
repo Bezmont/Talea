@@ -89,6 +89,7 @@ World.prototype.device = function (role, trackNo, saved, restoreAfterInit, noTes
 				if (a[0] === "pad") (d.pads = d.pads || [])[a[1]] = a.slice(2, 5).join(" ");
 				else if (a[0] === "page") d.page = a[1];
 				else if (a[0] === "follow") d.follow = a[1];
+				else if (a[0] === "mode") d.mode = a[1];
 			}
 		},
 		Math: Math, Date: FakeDate
@@ -539,7 +540,7 @@ function turn(brain, track, key, v) {
 	s.w.wait(600);
 	var saved = s.brain.pattr;
 	check("edits during play close together are stored once (" + s.brain.saves + " stores in all, " + (saved ? saved.length - 1 : 0) + " pieces)",
-		!!saved && saved[0] === 1 && s.brain.saves === 2);
+		!!saved && saved[0] === 2 && s.brain.saves === 2);
 	check("its own value coming back from [pattr] isn't taken as a restore",
 		!s.w.logs.some(function (l) { return /pattern restored/.test(l); }));
 	done(s);
@@ -720,6 +721,203 @@ function turn(brain, track, key, v) {
 	check("undo of a pad toggle brings the step back (" + before + " -> " + toggled + " -> " + b.stepper.hits(0)[5] + ")",
 		toggled === !before && b.stepper.hits(0)[5] === before);
 	done(s);
+})();
+
+// ---- Mute and Pattern pad modes ----
+
+// A pad press as the patch sends it: the modifier keys first, then the press.
+function press(b, i, shift, ctrl) {
+	b.ctx.padMods(shift ? 1 : 0, ctrl ? 1 : 0);
+	b.ctx.pad(i, "bang");
+}
+
+// What the engine plays over `steps`, with actions[i](stepper) done after step i (as the
+// script does on the tick of step i). `bank`: a bank to load first.
+function refRun(steps, actions, bank) {
+	var st = new core.Stepper(M, preset), want = emptyWant();
+	if (bank) st.loadBank(bank);
+	steps.forEach(function (p, i) {
+		addStep(want, st.step(p), i);
+		if (actions[i]) actions[i](st, p);
+	});
+	st.destroy();
+	return want;
+}
+
+// A bank with a second pattern: the test pattern with track 1 at 13 pulses and track 3
+// silent.
+function twoPatternBank() {
+	var st = new core.Stepper(M, preset);
+	var one = JSON.parse(st.savePattern());
+	st.setParamByKey(0, "pulses", 13);
+	st.setParamByKey(2, "pulses", 0);
+	var two = st.savePattern();
+	st.destroy();
+	return JSON.stringify({ currentPattern: 0, patterns: [{ slot: 0, core: JSON.stringify(one) }, { slot: 1, core: two }] });
+}
+
+function loadBankStopped(s, bank) {
+	s.brain.ctx.stepper.loadBank(bank);
+	s.brain.ctx.sendCue();
+}
+
+// Mute mode while playing: clicks stage, Apply commits (heard from the next step, the
+// timing being Immediately); Ctrl+click mutes at once. The pads show it.
+(function () {
+	var s = setup(), b = s.brain.ctx, steps = range(0, 96), t0 = s.w.now, shown = {};
+	s.w.play(steps, function (i) {
+		if (i === 10) { b.padModeSelect(1); press(s.brain, 2); press(s.brain, 0); }
+		if (i === 14) shown.staged = s.brain.pads[2];
+		if (i === 16) b.applyMutes();
+		if (i === 30) press(s.brain, 4, false, true);
+		if (i === 40) shown.muted = [s.brain.pads[0], s.brain.pads[2], s.brain.pads[4], s.brain.pads[1]];
+		if (i === 50) { press(s.brain, 0); b.padModeSelect(1); } // Mute again: applies too
+	});
+	var want = refRun(steps, {
+		16: function (st) { st.commitMutes(5, 16 / 4 + 0.125); },
+		30: function (st) { st.setMuted(4, true, 31 / 4 - 1e-9); },
+		50: function (st) { st.commitMutes(1, 50 / 4 + 0.125); },
+	});
+	compare("mutes while playing: staged, applied, Ctrl+click and Mute again, each from the next step", s.rx, t0, 120, want, 0);
+	var after = function (t, from) { return playedQuarters(s.rx[t], t0, 120).filter(function (q) { return q > from; }).length; };
+	check("muted tracks go quiet, repeats under way finishing (track 3 " + after(2, 6) + ", track 5 " + after(4, 8) + " notes after; track 1 " + after(0, 13) + " after unmuting)",
+		after(2, 6) === 0 && after(4, 8) === 0 && after(0, 13) > 0);
+	var blue = "0.12 0.17 0.28";
+	check("the pads show the mutes (" + JSON.stringify(shown) + ")",
+		shown.muted[0] === blue && shown.muted[1] === blue && shown.muted[2] === blue && shown.muted[3] !== blue);
+	check("mutes: no misses (" + misses(s.rx) + "), no hanging notes (" + hanging(s.rx) + ")", misses(s.rx) === 0 && hanging(s.rx) === 0);
+	done(s);
+})();
+
+// Leaving Mute mode drops what's staged; mutes while stopped apply at once.
+(function () {
+	var s = setup(), b = s.brain.ctx;
+	b.padModeSelect(1);
+	press(s.brain, 1);
+	b.padModeSelect(0);
+	b.padModeSelect(1);
+	b.applyMutes();
+	check("leaving Mute mode drops the staged change", b.stepper.perf().muted === 0);
+	press(s.brain, 3);
+	b.applyMutes();
+	press(s.brain, 5, false, true);
+	check("stopped: Apply and Ctrl+click mute at once (" + b.stepper.perf().muted + ")", b.stepper.perf().muted === (8 | 32));
+	var t0 = s.w.now;
+	s.w.play(range(0, 64));
+	var st = new core.Stepper(M, preset);
+	st.setMuted(3, true, 0);
+	st.setMuted(5, true, 0);
+	var want = emptyWant();
+	range(0, 64).forEach(function (p, i) { addStep(want, st.step(p), i); });
+	st.destroy();
+	compare("stopped mutes: Play plays without them", s.rx, t0, 120, want, 0);
+	s.w.stop();
+	s.w.wait(SAVE_PAUSE_MS + 10);
+	var saved = s.brain.pattr;
+	var r = setup({ saved: saved });
+	check("mutes are saved with the set (" + r.brain.ctx.stepper.perf().muted + ")", r.brain.ctx.stepper.perf().muted === (8 | 32));
+	done(r);
+	done(s);
+})();
+
+// Pattern mode while playing: a click queues a pattern for the end of the pattern, Ctrl+
+// click switches at once (what's sounding ends); the pads show the queue, and the dials
+// follow the switch.
+(function () {
+	var bank = twoPatternBank(), s = setup(), b = s.brain.ctx;
+	loadBankStopped(s, bank);
+	var steps = range(0, 200), t0 = s.w.now, seen = {};
+	s.w.play(steps, function (i) {
+		if (i === 6) { b.padModeSelect(2); press(s.brain, 1); }
+		if (i === 8) seen.queued = b.stepper.perf().queued;
+		if (i === 150) seen.before = b.stepper.getParam(0, "pulses");
+		if (i === 150) press(s.brain, 0, false, true);
+		if (i === 160) seen.after = [b.stepper.perf().current, b.stepper.getParam(0, "pulses"), s.brain.pads[0], s.brain.pads[1]];
+	});
+	var want = refRun(steps, {
+		6: function (st) { st.selectPattern(1, false, false, 6 / 4 + 0.125); },
+		150: function (st) { st.selectPattern(0, false, true, 151 / 4 - 1e-9); },
+	}, bank);
+	compare("patterns while playing: queued, then at once, every note as the engine plays it", s.rx, t0, 120, want, 0);
+	var t3 = playedQuarters(s.rx[2], t0, 120);
+	check("the queued switch lands (track 3, silent in pattern 2: notes before the switch, none from quarter 16.5 to the switch back: " +
+		t3.filter(function (q) { return q < 16; }).length + ", " + t3.filter(function (q) { return q >= 16 && q < 37.5; }).length + ")",
+		t3.filter(function (q) { return q < 16; }).length > 0 && t3.filter(function (q) { return q >= 16.5 && q < 37.5; }).length === 0);
+	check("queued shown (" + seen.queued + "), dials follow the switch (" + seen.before + " then " + JSON.stringify(seen.after) + ")",
+		seen.queued === 1 && seen.before === 13 && seen.after[0] === 0 && seen.after[1] === 9 && seen.after[2] === "0.94 0.54 0.14" && seen.after[3] === "0.24 0.14 0.04");
+	check("patterns: no misses (" + misses(s.rx) + "), no hanging notes (" + hanging(s.rx) + ")", misses(s.rx) === 0 && hanging(s.rx) === 0);
+	s.w.stop();
+	s.w.wait(SAVE_PAUSE_MS + 10);
+	var saved = s.brain.pattr;
+	done(s);
+	var r = setup({ saved: saved }), rb = r.brain.ctx.stepper;
+	check("the bank is saved with the set: both patterns (" + rb.perf().used + "), and the one playing",
+		rb.perf().used === 3 && rb.perf().current === 0);
+	done(r);
+})();
+
+// Patterns while stopped: a click switches at once, the pattern starting with the song;
+// Shift+click chains: the chain plays each pattern through, in turn.
+(function () {
+	var bank = twoPatternBank(), s = setup(), b = s.brain.ctx;
+	loadBankStopped(s, bank);
+	b.padModeSelect(2);
+	press(s.brain, 1);
+	check("stopped: pattern 2 at once (" + b.stepper.perf().current + ")", b.stepper.perf().current === 1);
+	press(s.brain, 0, true);
+	press(s.brain, 1, true);
+	var steps = range(0, 400), t0 = s.w.now;
+	s.w.play(steps);
+	var st = new core.Stepper(M, preset), want = emptyWant();
+	st.loadBank(bank);
+	st.selectPattern(1, false, true, 0);
+	st.selectPattern(0, true, true, 0);
+	st.selectPattern(1, true, true, 0);
+	st.cut = false;
+	var switched = 0, last = st.perf().current;
+	steps.forEach(function (p, i) {
+		addStep(want, st.step(p), i);
+		if (st.perf().current !== last) { switched++; last = st.perf().current; }
+	});
+	st.destroy();
+	compare("a chain made while stopped: Play plays it", s.rx, t0, 120, want, 0);
+	check("the chain switches (" + switched + " times in 400 steps)", switched >= 2);
+	done(s);
+})();
+
+// A loop wrapping back past a switch: the switched pattern plays on, from the loop's start.
+(function () {
+	var bank = twoPatternBank(), s = setup(), b = s.brain.ctx;
+	loadBankStopped(s, bank);
+	s.w.setSong("loop", 1);
+	s.w.setSong("loop_start", 0);
+	s.w.setSong("loop_length", 8);
+	var steps = [];
+	for (var k = 0; k < 3; k++) steps = steps.concat(range(0, 32));
+	var t0 = s.w.now;
+	s.w.play(steps, function (i) {
+		if (i === 10) { b.padModeSelect(2); press(s.brain, 1, false, true); }
+	});
+	var want = refRun(steps, { 10: function (st) { st.selectPattern(1, false, true, 11 / 4 - 1e-9); } }, bank);
+	compare("a loop back past a switch: every note as the engine plays it", s.rx, t0, 120, want, 0);
+	var t1 = playedQuarters(s.rx[0], t0, 120).filter(function (q) { return q >= 8 && q < 16; }).length;
+	check("the switched pattern plays round the loop (track 1, 13 pulses a bar: " + t1 + " notes in the second time round)", t1 === 26);
+	check("loop: no misses (" + misses(s.rx) + "), no hanging notes (" + hanging(s.rx) + ")", misses(s.rx) === 0 && hanging(s.rx) === 0);
+	done(s);
+})();
+
+// A set saved before the bank (format 1: one pattern) still loads, as pattern 1.
+(function () {
+	var st = new core.Stepper(M, preset);
+	st.setParamByKey(0, "pulses", 3);
+	var text = st.savePattern();
+	st.destroy();
+	var s = setup(), b64 = s.brain.ctx.toBase64(text);
+	done(s);
+	var r = setup({ saved: [1, "p" + b64] });
+	check("a format 1 set loads into pattern 1 (pulses " + r.brain.ctx.stepper.getParam(0, "pulses") + ")",
+		r.brain.ctx.stepper.getParam(0, "pulses") === 3 && r.brain.ctx.stepper.perf().current === 0);
+	done(r);
 })();
 
 // As in Live: no test pattern, so the engine's own default pattern, which is silent (no

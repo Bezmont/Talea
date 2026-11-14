@@ -451,3 +451,109 @@ TEST_CASE(engine_playback_save_and_load) {
 	edit(edited);
 	CHECK(same(rest(ahead2), rest(edited)));
 }
+
+// The same with mutes and a pattern switch landing in the stretch computed ahead: loading
+// the state brings back the playing pattern, its mutes and the queue, and an edit after
+// the load goes to the pattern still playing.
+TEST_CASE(engine_playback_mutes_and_switches) {
+	auto build = [](Engine& e) {
+		e.pattern.tracks[0].set(TP_PULSES, 5);
+		e.pattern.tracks[1].set(TP_PULSES, 3);
+		Pattern other = e.pattern;
+		other.tracks[0].set(TP_PULSES, 11);
+		other.tracks[2].set(TP_PULSES, 7);
+		e.storePattern(1, other);
+		e.muteTiming = MUTE_BAR;
+		e.patternQuantize = MUTE_BAR;
+	};
+	auto same = [](const std::vector<NoteEvent>& a, const std::vector<NoteEvent>& b) {
+		if (a.size() != b.size())
+			return false;
+		for (size_t i = 0; i < a.size(); i++) {
+			if (!near(a[i].time, b[i].time) || a[i].track != b[i].track || a[i].on != b[i].on || a[i].note != b[i].note)
+				return false;
+		}
+		return true;
+	};
+	const double step = 0.25, eps = 1e-9, at = 14 * step; // two steps before bar 2
+	EventList none;
+	// Before `at`: track 1 muted at once, track 0's mute committed for bar 2, pattern 2
+	// queued for bar 2.
+	auto upTo = [&](Engine& e) {
+		run(e, -eps, 2.0 - eps, step);
+		e.setMuted(1, true, 2.0 - eps, none);
+		e.stageMute(0);
+		e.commitMutes(2.0 - eps);
+		e.queuePattern(1, 2.0 - eps, none);
+		run(e, 2.0 - eps, at - eps, step);
+	};
+	auto rest = [&](Engine& e) { return run(e, at - eps, at + 16 - eps, step); };
+
+	Engine plain, ahead;
+	build(plain);
+	build(ahead);
+	upTo(plain);
+	upTo(ahead);
+	Engine::Playback saved;
+	ahead.savePlayback(saved);
+	run(ahead, at - eps, at + 8 * step - eps, step); // past the bar: switched, mutes applied
+	CHECK_EQ(ahead.currentPattern(), 1);
+	ahead.loadPlayback(saved);
+	CHECK_EQ(ahead.currentPattern(), 0);
+	CHECK_EQ(ahead.queuedPattern(), 1);
+	CHECK(ahead.pattern.tracks[1].muted);
+	CHECK(!ahead.pattern.tracks[0].muted);
+	CHECK_EQ(int(ahead.scheduledMutes()), 1);
+	std::vector<NoteEvent> want = rest(plain);
+	CHECK(same(rest(ahead), want));
+	CHECK(ahead.patternSlot(0).tracks[0].get(TP_PULSES) == 5.f);
+
+	// An edit after the load: to pattern 1, still playing; pattern 2 comes in as it was.
+	Engine edited, ahead2;
+	build(edited);
+	build(ahead2);
+	upTo(edited);
+	upTo(ahead2);
+	ahead2.savePlayback(saved);
+	run(ahead2, at - eps, at + 8 * step - eps, step);
+	ahead2.loadPlayback(saved);
+	ahead2.pattern.tracks[1].set(TP_PULSES, 6);
+	edited.pattern.tracks[1].set(TP_PULSES, 6);
+	CHECK(same(rest(ahead2), rest(edited)));
+	CHECK(ahead2.patternSlot(0).tracks[1].get(TP_PULSES) == 6.f);
+	CHECK(ahead2.patternSlot(1).tracks[1].get(TP_PULSES) == 3.f);
+}
+
+// A host's time jumping (a loop in Live): back past a switch, the switched pattern carries
+// on from time 0 rather than going quiet; a queued switch waits for its boundary counted
+// from the new time.
+TEST_CASE(engine_jump) {
+	Engine e;
+	e.pattern.tracks[0].set(TP_PULSES, 4);
+	Pattern other = e.pattern;
+	other.tracks[0].set(TP_PULSES, 8);
+	e.storePattern(1, other);
+	e.patternQuantize = MUTE_BAR;
+	EventList none;
+	const double eps = 1e-9;
+	run(e, -eps, 6.0 - eps, 0.25);
+	e.queuePattern(1, 6.0 - eps, none);
+	CHECK(near(e.patternSwitchTime(), 8.0));
+	run(e, 6.0 - eps, 10.0 - eps, 0.25);
+	CHECK_EQ(e.currentPattern(), 1);
+	CHECK(near(e.patternOrigin(), 8.0));
+	// Back to the start: pattern 2 plays from time 0, as a fresh engine with it would.
+	e.jump(-eps);
+	CHECK(near(e.patternOrigin(), 0.0));
+	Engine fresh;
+	fresh.pattern = other;
+	CHECK_EQ(int(onTimes(run(e, -eps, 4.0 - eps, 0.25)).size()), int(onTimes(run(fresh, -eps, 4.0 - eps, 0.25)).size()));
+	CHECK(!onTimes(run(e, 4.0 - eps, 8.0 - eps, 0.25)).empty());
+	// A jump forward keeps the start; a queued switch re-times from the new position.
+	e.queuePattern(0, 9.0 - eps, none);
+	e.jump(20.0 - eps);
+	CHECK(near(e.patternOrigin(), 0.0));
+	CHECK(near(e.patternSwitchTime(), 20.0));
+	e.jump(21.0 - eps);
+	CHECK(near(e.patternSwitchTime(), 24.0));
+}

@@ -8,9 +8,11 @@
 #include "core/Engine.hpp"
 #include "core/Params.hpp"
 #include "core/State.hpp"
+#include "core/third_party/nlohmann/json.hpp"
 
 #include <emscripten/emscripten.h>
 
+#include <memory>
 #include <string>
 
 using namespace talea;
@@ -228,6 +230,110 @@ EMSCRIPTEN_KEEPALIVE int talea_event_cc(Host* h, int i) {
 EMSCRIPTEN_KEEPALIVE double talea_event_glide(Host* h, int i) {
 	const NoteEvent* e = event(h, i);
 	return e ? e->glide : 0.0;
+}
+
+// ---- mutes and pattern switches --------------------------------------------------------
+//
+// `now` is the host time the change is made at: the end of the step playing (strictly
+// after it, the boundary a queued change waits for). Changes that cut sounding notes (a
+// switch at once) leave the note-offs in the events buffer; the script ends its notes
+// itself.
+
+/** The host's time jumped: the next window starts at `t` (Engine::jump). */
+EMSCRIPTEN_KEEPALIVE void talea_jump(Host* h, double t) {
+	h->engine.jump(t);
+}
+
+/** Commits mute changes (a bit per track to toggle) for the next mute boundary after `now`. */
+EMSCRIPTEN_KEEPALIVE void talea_commit_mutes(Host* h, int toggle, double now) {
+	for (int i = 0; i < kNumTracks; i++) {
+		if (toggle & (1 << i))
+			h->engine.stageMute(i);
+	}
+	h->engine.commitMutes(now);
+}
+
+/** Queues pattern `slot` (click), adds it to the chain (`chain`), or switches at once
+(`immediate`; at time 0 if now < 0, as when stopped). */
+EMSCRIPTEN_KEEPALIVE void talea_select_pattern(Host* h, int slot, int chain, int immediate, double now) {
+	if (slot < 0 || slot >= kNumPatterns)
+		return;
+	h->events.clear();
+	if (chain)
+		h->engine.chainPattern(slot, now, h->events, immediate != 0);
+	else
+		h->engine.queuePattern(slot, now, h->events, immediate != 0);
+}
+
+/** What the pads show: 0 muted tracks (bits), 1 committed mute changes waiting (bits),
+2 the playing pattern, 3 the queued one (-1: none), 4 slots holding a pattern (bits),
+5 chain length, 6 + i chain entry i. */
+EMSCRIPTEN_KEEPALIVE int talea_perf(Host* h, int what) {
+	const Engine& e = h->engine;
+	switch (what) {
+		case 0: {
+			int m = 0;
+			for (int i = 0; i < kNumTracks; i++)
+				m |= e.pattern.tracks[i].muted ? 1 << i : 0;
+			return m;
+		}
+		case 1: return e.scheduledMutes();
+		case 2: return e.currentPattern();
+		case 3: return e.queuedPattern();
+		case 4: {
+			int m = 0;
+			for (int i = 0; i < kNumPatterns; i++)
+				m |= e.patternUsed(i) ? 1 << i : 0;
+			return m;
+		}
+		case 5: return e.chainLength();
+		default: return what - 6 < e.chainLength() ? e.chainEntry(what - 6) : -1;
+	}
+}
+
+/** The whole bank as JSON, as Rack's Talea saves it: {"patterns": [{"slot", "core"}...]
+(the slots holding something), "currentPattern"}. */
+EMSCRIPTEN_KEEPALIVE const char* talea_save_bank(Host* h) {
+	nlohmann::json root, patterns = nlohmann::json::array();
+	for (int i = 0; i < kNumPatterns; i++) {
+		if (h->engine.patternUsed(i))
+			patterns.push_back({{"slot", i}, {"core", patternToJson(h->engine.patternSlot(i))}});
+	}
+	root["patterns"] = patterns;
+	root["currentPattern"] = h->engine.currentPattern();
+	h->text = root.dump();
+	return h->text.c_str();
+}
+
+/** Replaces the bank with one from talea_save_bank(); the queue, chain and mute changes
+waiting are dropped. Returns 0 (changing nothing) if the text isn't usable. */
+EMSCRIPTEN_KEEPALIVE int talea_load_bank(Host* h, const char* text) {
+	nlohmann::json root = nlohmann::json::parse(text ? text : "", nullptr, false);
+	if (root.is_discarded() || !root.is_object() || !root.contains("patterns") || !root["patterns"].is_array())
+		return 0;
+	// A Pattern is ~0.4 MB: on the heap, not the WebAssembly stack.
+	std::vector<std::unique_ptr<Pattern>> slots(kNumPatterns);
+	for (const auto& slot : root["patterns"]) {
+		if (!slot.is_object() || !slot.contains("slot") || !slot["slot"].is_number_integer() ||
+		    !slot.contains("core") || !slot["core"].is_string())
+			return 0;
+		int n = slot["slot"].get<int>();
+		if (n < 0 || n >= kNumPatterns)
+			return 0;
+		slots[n].reset(new Pattern);
+		if (!patternFromJson(slot["core"].get<std::string>(), *slots[n]))
+			return 0;
+	}
+	int current = 0;
+	if (root.contains("currentPattern") && root["currentPattern"].is_number_integer())
+		current = std::max(0, std::min(kNumPatterns - 1, root["currentPattern"].get<int>()));
+	h->engine.resetBank();
+	for (int i = 0; i < kNumPatterns; i++) {
+		if (slots[i])
+			h->engine.storePattern(i, *slots[i]);
+	}
+	h->engine.setCurrentPattern(current);
+	return 1;
 }
 
 } // extern "C"

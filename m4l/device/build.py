@@ -59,6 +59,7 @@ TRACKS_H = 18
 PADS_Y = 142       # the step pads, under the sections, the size of the track buttons
 PAGE_Y = 104       # the step page tabs and Follow, in the left column
 FOLLOW_Y = 122
+APPLY_Y = 84       # Mute mode's Apply, above them; the pad mode menu is beside the pads
 LABEL_SCRIPT = "jezric_talea_label.js"
 CELL = 29          # a track select button's width
 DISPLAY_X = 560    # the display's place
@@ -468,8 +469,20 @@ def brain():
 
     # The step pads: plain buttons (not parameters), one per step of the page; the script
     # colours them ("pad i r g b a" from outlet 5) as Rack lights its pads, and a press
-    # sends "pad i 1".
-    panel_out = p.obj("route pad page follow", [1500, 400, 140, 22], 1, 4)
+    # sends "pad i bang", after "padMods shift ctrl" from [modifiers] (polled by the press:
+    # [t l b] fires right to left, and [modifiers] its outlets too, so [pack]'s hot inlet,
+    # Shift, comes last).
+    panel_out = p.obj("route pad page follow mode", [1500, 400, 170, 22], 1, 5)
+    press_t = p.obj("t l b", [1500, 600, 40, 22], 1, 2)
+    mods = p.obj("modifiers", [1560, 630, 70, 22], 1, 5, ["int", "int", "int", "int", "int"])
+    modpack = p.obj("pack 0 0", [1560, 660, 60, 22], 2, 1)
+    modmsg = p.obj("prepend padMods", [1560, 690, 100, 22])
+    p.connect(press_t, mods, 1)
+    p.connect(mods, modpack, 0, 0)
+    p.connect(mods, modpack, 4, 1)  # Ctrl on Windows, Cmd on the Mac
+    p.connect(modpack, modmsg)
+    p.connect(modmsg, script)
+    p.connect(press_t, script, 0)
     p.connect(script, panel_out, 5)
     which = p.obj("route " + " ".join(str(i) for i in range(16)), [1500, 440, 300, 22], 1, 17)
     p.connect(panel_out, which, 0)
@@ -484,7 +497,30 @@ def brain():
         p.connect(colour, pad)
         press = p.obj(f"prepend pad {i}", [x, 560, 56, 22])
         p.connect(pad, press)
-        p.connect(press, script)
+        p.connect(press, press_t)
+
+    # The pad mode menu, beside the pads: Step, Mute, Pattern. Not stored: the script sets
+    # it ("mode i" from outlet 5). Choosing Mute again applies the staged mutes, as Apply
+    # does.
+    mode = p.param("live.menu", [1500, 760, 60, 15], [6, PADS_Y + 1, 48, 16], "Pad mode", 2,
+                   enum=["Step", "Mute", "Pattern"], outlets=3, outlettype=["", "", "float"], hidden=True)
+    setmode = p.obj("prepend set", [1500, 730, 70, 22])
+    p.connect(panel_out, setmode, 3)
+    p.connect(setmode, mode)
+    tomode = p.obj("prepend padModeSelect", [1500, 790, 130, 22])
+    p.connect(mode, tomode)
+    p.connect(tomode, script)
+    apply = p.box("live.text", [1640, 760, 48, 16], None, 1, 2, ["", ""], [6, APPLY_Y, 48, 16],
+                  parameter_enable=0, mode=0, texton="Apply")
+    p.boxes[-1]["box"]["text"] = "Apply"
+    toapply = p.obj("prepend applyMutes", [1640, 790, 110, 22])
+    p.connect(apply, toapply)
+    p.connect(toapply, script)
+    # Blinking: staged mutes, committed ones and a queued pattern.
+    blinker = p.obj("metro 125 @active 1", [1760, 760, 120, 22], 2, 1, ["bang"])
+    blinkmsg = p.msg("blink", [1760, 790, 50, 22])
+    p.connect(blinker, blinkmsg)
+    p.connect(blinkmsg, script)
 
     # The step page tabs (steps 1-16 ... 49-64) and Follow, in the left column. Not stored:
     # the script sets them ("page i", "follow 0/1" from outlet 5).

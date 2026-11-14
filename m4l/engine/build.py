@@ -29,6 +29,7 @@ EXPORTS = [
     "event_time", "event_track", "event_on", "event_note", "event_velocity",
     "event_chord_size", "event_chord_note", "event_cc", "event_glide",
     "toggle_step", "steps", "played_steps", "hits_low", "hits_high", "step_at",
+    "jump", "commit_mutes", "select_pattern", "perf", "save_bank", "load_bank",
 ]
 
 

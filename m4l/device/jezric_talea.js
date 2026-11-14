@@ -25,7 +25,7 @@ outlets = 6; // 0: MIDI now, "pitch velocity"   1: status text
              //           3: to [pipe]
              // brain: 2: "savelater" to a [delay] -> [deferlow] -> "savepattern" back
              //        3: the dials   4: to [pattr] (the pattern)
-             //        5: the pads: "pad i r g b a", "page i", "follow 0/1"
+             //        5: the pads: "pad i r g b a", "page i", "follow 0/1", "mode i"
 
 var ROLE = (typeof jsarguments !== "undefined" && jsarguments.length > 1) ? String(jsarguments[1]) : "receiver";
 var BRAIN = ROLE === "brain";
@@ -53,7 +53,9 @@ var stepper = null;
 var next = -1; // the next step to send
 var cueReady = false; // the cue's steps went out and Play hasn't moved since
 var sent = {}; // step -> the "ev" message, to resend to a receiver that joins mid-play
-var ahead = []; // steps sent and not yet played, in order: { step, id } (id: stepper's)
+// Steps sent and not yet played, in order: { step, id (stepper's), perf (mutes and
+// patterns as the engine stood after it), gates (bits: tracks starting a note in it) }.
+var ahead = [];
 var playing = null; // the step playing now, as in `ahead`, or null if unknown
 var edits = {}; // "track key" -> value: dial edits waiting for the next tick
 // Other edits waiting for the next tick, in order: { desc, fn (changes the engine), store
@@ -63,6 +65,14 @@ var ops = [];
 var stepPage = 0;
 var follow = true; // the page follows the playing step
 var padKeys = []; // the colour each pad shows, to send only changes
+// Pad modes, as on the Rack module: Step (the edit track's steps), Mute (a pad per track),
+// Pattern (a pad per pattern slot).
+var MODE_STEP = 0, MODE_MUTE = 1, MODE_PATTERN = 2, MODE_NAMES = ["Step", "Mute", "Pattern"];
+var padMode = MODE_STEP;
+var staged = 0; // Mute mode: tracks clicked, to change when Apply commits them (bits)
+var mods = { shift: false, ctrl: false }; // modifier keys at the latest pad press
+var blinks = 0; // [metro] ticks, for the staged and queued pads' blinking
+var shownPattern = -1; // the pattern slot playing, as last shown (a switch: dials follow)
 var newLoop = null; // a loop change waiting for the next tick
 var editTrack = 0; // the track the brain's dials edit
 // The track parameters the dials edit: all of them (Params.hpp), from the engine at init.
@@ -193,6 +203,7 @@ function init() {
 		readOn();
 		showEdits();
 		padKeys = [];
+		outlet(5, "mode", padMode);
 		outlet(5, "follow", follow ? 1 : 0);
 		outlet(5, "page", stepPage);
 		showPads();
@@ -306,7 +317,10 @@ function sendStep(p) {
 	send.apply(null, a);
 	sent[p] = a;
 	delete sent[p - 64];
-	ahead.push({ step: p, id: silent ? -1 : stepper.id });
+	var gates = 0;
+	for (t = 0; t < out.length; t++)
+		for (i = 0; i < out[t].length; i++) if (out[t][i][1] !== -1 && out[t][i][4] > 0) gates |= 1 << t;
+	ahead.push({ step: p, id: silent ? -1 : stepper.id, perf: silent ? stepper.perf() : stepper.perfNow, gates: gates });
 }
 
 // Starts a new run of the engine at step s: a new epoch.
@@ -483,12 +497,125 @@ function pad(i, v) {
 	// 0", does nothing.
 	if (!BRAIN || !stepper) return;
 	if (v !== undefined && String(v) !== "bang" && Number(v) === 0) return;
-	var t = editTrack, step = stepPage * 16 + Math.round(i);
+	var shift = mods.shift, ctrl = mods.ctrl;
+	mods = { shift: false, ctrl: false };
+	i = Math.round(i);
+	if (i < 0 || i >= 16) return;
+	if (padMode === MODE_MUTE) return mutePad(i, ctrl);
+	if (padMode === MODE_PATTERN) return patternPad(i, shift, ctrl);
+	var t = editTrack, step = stepPage * 16 + i;
 	log("pad " + (Math.round(i) + 1) + " pressed (" + v + "): track " + (t + 1) + " step " + (step + 1) + " of " + stepper.steps(t));
 	if (step < 0 || step >= stepper.steps(t)) return;
 	ops.push({ desc: "track " + (t + 1) + " step " + (step + 1) + " toggled", store: true,
 		fn: function () { stepper.toggleStep(t, step); } });
 	if (lastStep < 0) takeEdits(-1);
+}
+
+// The modifier keys, from [modifiers] just before each pad press: "padMods shift ctrl"
+// (Ctrl on Windows, Cmd on the Mac).
+function padMods(shift, ctrl) {
+	mods = { shift: Number(shift) !== 0, ctrl: Number(ctrl) !== 0 };
+}
+
+// The time a change is made at, for the engine (quarter notes): while playing, the middle
+// of the step playing (the boundary after it is the next step's start, if on one) or, for
+// a change at once, the end of that step, so it's heard from the next; stopped, -1.
+function changeTime(atOnce) {
+	if (lastStep < 0) return -1;
+	return atOnce ? (lastStep + 1) / 4 - 1e-9 : lastStep / 4 + 0.125;
+}
+
+// The pad mode menu: "padModeSelect i" (0 Step, 1 Mute, 2 Pattern). Leaving Mute mode drops
+// the staged changes; choosing Mute again applies them.
+function padModeSelect(i) {
+	if (!BRAIN) return;
+	i = Math.max(0, Math.min(2, Math.round(i)));
+	if (i === MODE_MUTE && padMode === MODE_MUTE) return applyMutes();
+	if (padMode === MODE_MUTE && staged) {
+		log("left Mute mode: staged changes dropped");
+		staged = 0;
+	}
+	padMode = i;
+	log("pad mode " + MODE_NAMES[i]);
+	showPads();
+}
+
+// Mute mode: a click stages a change to the track (Apply commits them); Ctrl+click mutes or
+// unmutes it at once.
+function mutePad(t, ctrl) {
+	if (!ctrl) {
+		staged ^= 1 << t;
+		log("track " + (t + 1) + (staged & (1 << t) ? " staged" : " unstaged"));
+		showPads();
+		return;
+	}
+	staged &= ~(1 << t);
+	ops.push({ desc: "track " + (t + 1) + " muted or unmuted at once", store: true, fn: function () {
+		var muted = (stepper.perf().muted & (1 << t)) !== 0;
+		stepper.setMuted(t, !muted, Math.max(0, changeTime(true)));
+	} });
+	if (lastStep < 0) takeEdits(-1);
+}
+
+// Apply (or Mute chosen again): the staged changes are committed, landing on the next mute
+// boundary while playing, at once while stopped.
+function applyMutes() {
+	if (!BRAIN || !stepper || !staged) return;
+	var toggle = staged;
+	staged = 0;
+	ops.push({ desc: "mute changes committed (tracks " + bitList(toggle) + ")", store: true, fn: function () {
+		if (lastStep < 0) {
+			var m = stepper.perf().muted;
+			for (var t = 0; t < TRACKS; t++) if (toggle & (1 << t)) stepper.setMuted(t, !(m & (1 << t)), 0);
+		} else stepper.commitMutes(toggle, changeTime(false));
+	} });
+	if (lastStep < 0) takeEdits(-1);
+	else showPads();
+}
+
+function bitList(bits) {
+	var out = [];
+	for (var t = 0; t < TRACKS; t++) if (bits & (1 << t)) out.push(t + 1);
+	return out.join(", ");
+}
+
+// Pattern mode: a click queues the slot for the next pattern boundary, Shift+click adds it
+// to the chain, Ctrl+click switches at once. Stopped, everything switches at once, the
+// pattern starting with the song.
+function patternPad(slot, shift, ctrl) {
+	ops.push({ desc: "pattern " + (slot + 1) + (shift ? " chained" : ctrl ? " at once" : " queued"), store: false,
+		fn: function () {
+			// Stopped: at time 0, so a chain's next pattern waits a whole pattern from there.
+			var now = lastStep < 0 || ctrl;
+			stepper.selectPattern(slot, shift, now, Math.max(0, changeTime(now)));
+			if (lastStep < 0) stepper.cut = false; // nothing is sounding
+		} });
+	if (lastStep < 0) takeEdits(-1);
+}
+
+// The mutes and patterns the pads show: as playing now (the engine is ahead of it).
+function perfShown() {
+	if (lastStep >= 0 && playing && playing.perf) return playing.perf;
+	return stepper.perf();
+}
+
+// A pattern switch heard now: the dials and step pads follow the new pattern, and it's
+// stored with the set (as any edit).
+function checkPattern(perf) {
+	if (perf.current === shownPattern) return;
+	var first = shownPattern < 0;
+	shownPattern = perf.current;
+	if (first) return;
+	log("pattern " + (perf.current + 1) + " playing");
+	showEdits();
+	queueSave();
+}
+
+// The [metro] for blinking: the staged and queued pads.
+function blink() {
+	if (!BRAIN) return;
+	blinks++;
+	if (padMode !== MODE_STEP) showPads();
 }
 
 function pageCount() {
@@ -535,6 +662,10 @@ function playingStep() {
 // playing step.
 function showPads() {
 	if (!BRAIN || !stepper) return;
+	var perf = perfShown();
+	checkPattern(perf);
+	if (padMode === MODE_MUTE) return showMutePads(perf);
+	if (padMode === MODE_PATTERN) return showPatternPads(perf);
 	var t = editTrack, n = stepper.steps(t), played = stepper.playedSteps(t);
 	var hits = stepper.hits(t), now = playingStep();
 	var pages = pageCount();
@@ -552,10 +683,43 @@ function showPads() {
 		else if (step >= played) key = hit ? "cutHit" : "cut";
 		else if (step === now) key = hit ? "playHit" : "play";
 		else key = hit ? "hit" : "off";
-		if (padKeys[i] === key) continue;
-		padKeys[i] = key;
-		var c = PAD_COLOURS[key];
-		outlet(5, "pad", i, c[0], c[1], c[2], 1);
+		setPad(i, PAD_COLOURS[key]);
+	}
+}
+
+function setPad(i, c) {
+	var key = c.join(" ");
+	if (padKeys[i] === key) return;
+	padKeys[i] = key;
+	outlet(5, "pad", i, c[0], c[1], c[2], 1);
+}
+
+// Mute mode, as Rack's: orange plays (white on a note), blue-grey is muted. A staged change
+// blinks slowly to the state it will become, a committed one quickly.
+var MUTE_COLOURS = { on: [0.94, 0.54, 0.14], note: [1, 1, 1], muted: [0.12, 0.17, 0.28] };
+function showMutePads(perf) {
+	var fast = blinks % 2 === 1, slow = Math.floor(blinks / 4) % 2 === 1;
+	var gates = lastStep >= 0 && playing ? playing.gates : 0;
+	for (var t = 0; t < 16; t++) {
+		var bit = 1 << t, muted = (perf.muted & bit) !== 0;
+		if (perf.scheduled & bit) muted = muted !== fast;
+		else if (staged & bit) muted = muted !== slow;
+		setPad(t, muted ? MUTE_COLOURS.muted : gates & bit ? MUTE_COLOURS.note : MUTE_COLOURS.on);
+	}
+}
+
+// Pattern mode, as Rack's: orange plays, blinking is queued, dim red is in the chain, dim
+// orange holds a pattern, dark is the default pattern.
+var PATTERN_COLOURS = { playing: [0.94, 0.54, 0.14], chain: [0.5, 0.06, 0.04], used: [0.24, 0.14, 0.04], empty: [0.06, 0.06, 0.07] };
+function showPatternPads(perf) {
+	var fast = blinks % 2 === 1;
+	for (var i = 0; i < 16; i++) {
+		var c;
+		if (i === perf.current || (i === perf.queued && fast)) c = PATTERN_COLOURS.playing;
+		else if (perf.chain.indexOf(i) >= 0) c = PATTERN_COLOURS.chain;
+		else if (perf.used & (1 << i)) c = PATTERN_COLOURS.used;
+		else c = PATTERN_COLOURS.empty;
+		setPad(i, c);
 	}
 }
 
@@ -571,6 +735,9 @@ function showEdits() {
 function takeEdits(s) {
 	var keys = Object.keys(edits);
 	if ((!keys.length && !ops.length) || !stepper) return;
+	// Playing: back to the engine as it stood after the step playing now, before the
+	// edits (its saved state holds the playing pattern, mutes and switches).
+	var fresh = s >= 0 && rewindTo(0);
 	var done = [], store = keys.length > 0;
 	for (var i = 0; i < keys.length; i++) {
 		var tk = keys[i].split(" "), v = edits[keys[i]];
@@ -585,6 +752,8 @@ function takeEdits(s) {
 		done.push(op.desc);
 		if (op.store) store = true;
 	});
+	// The engine now stands after the step playing plus these edits: what the pads show.
+	if (s >= 0 && playing) playing.perf = stepper.perf();
 	showEdits();
 	showPads();
 	if (store) queueSave();
@@ -595,7 +764,8 @@ function takeEdits(s) {
 		log("edit at step " + lastStep + " (after a jump): " + done.join(", "));
 	} else {
 		log("edit at step " + s + ": " + done.join(", "));
-		resendFrom(0);
+		if (!fresh) restartAt(future(lastStep, 1));
+		sendAhead(lastStep);
 	}
 }
 
@@ -620,12 +790,18 @@ function takeLoop() {
 // as it stood after the step before them. Without that state (the step playing unknown,
 // or too long ago), a fresh run from the next step.
 function resendFrom(k) {
-	var before = k === 0 ? playing : ahead[k - 1];
-	if (before && stepper && stepper.rewind(before.id)) {
-		ahead.length = k;
-		next = future(lastStep, k + 1);
-	} else restartAt(future(lastStep, 1));
+	if (!rewindTo(k)) restartAt(future(lastStep, 1));
 	sendAhead(lastStep);
+}
+
+// Puts the engine back as it stood after the k-th step sent ahead (0: the step playing),
+// dropping the steps after it; false if that state isn't known.
+function rewindTo(k) {
+	var before = k === 0 ? playing : ahead[k - 1];
+	if (!before || !stepper || !stepper.rewind(before.id)) return false;
+	ahead.length = k;
+	next = future(lastStep, k + 1);
+	return true;
 }
 
 // ---- the pattern, saved with the Live set (brain) ------------------------------------
@@ -638,7 +814,7 @@ function resendFrom(k) {
 // read as a number). [pattr] sends back whatever it's given: "restore" ignores that.
 
 var CHUNK = 2000;
-var PATTERN_FORMAT = 1;
+var PATTERN_FORMAT = 2; // 2: the bank (every pattern slot), as JSON; 1: one pattern
 var B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 function toBase64(s) {
@@ -677,7 +853,7 @@ function savepattern() {
 	if (!BRAIN || !stepper) return;
 	// Edits waiting for a tick (an undo during play, say) store when they're taken.
 	if (Object.keys(edits).length || ops.length) return;
-	var text = stepper.savePattern();
+	var text = stepper.saveBank();
 	if (text === savedText) return;
 	savedText = text;
 	var b = toBase64(text), a = [PATTERN_FORMAT];
@@ -690,7 +866,7 @@ function savepattern() {
 function restore() {
 	if (!BRAIN) return;
 	var args = Array.prototype.slice.call(arguments);
-	if (args[0] !== PATTERN_FORMAT) {
+	if (args[0] !== PATTERN_FORMAT && args[0] !== 1) {
 		log("[pattr] gave " + args.length + " values starting " + String(args[0]).slice(0, 20) + ": not a pattern, ignored");
 		return;
 	}
@@ -698,26 +874,42 @@ function restore() {
 	var text = pieces.every(function (x) { return x[0] === "p"; })
 		? fromBase64(pieces.map(function (x) { return x.slice(1); }).join("")) : null;
 	if (text === null) { warn("the pattern saved with the set isn't readable: keeping the current pattern"); return; }
+	// Format 1 (sets saved before the bank): one pattern, which becomes slot 1's.
+	if (args[0] === 1) text = JSON.stringify({ currentPattern: 0, patterns: [{ slot: 0, core: text }] });
 	if (text === savedText) { log("[pattr] holds the stored pattern"); return; }
 	if (!stepper) { pendingRestore = text; return; } // init takes it
 	// After init this is Live's undo or redo: the whole pattern from Live, taken on the
 	// next tick like an edit (so it's heard from the next step), and not stored back, so
 	// redo still works. Edits not yet taken give way to it.
-	var now = stepper.savePattern();
-	if (!stepper.loadPattern(text)) {
+	if (!readable(text)) {
 		warn("[pattr] gave a pattern that isn't readable: ignored");
 		return;
 	}
-	stepper.loadPattern(now);
 	savedText = text; // what [pattr] holds now: the pattern will equal it
 	edits = {};
-	ops = [{ desc: "undo or redo (the pattern from Live)", store: false, fn: function () { stepper.loadPattern(text); } }];
+	ops = [{ desc: "undo or redo (the pattern from Live)", store: false, fn: function () {
+		if (!stepper.loadBank(text)) warn("[pattr] gave a pattern that isn't readable: ignored");
+		shownPattern = stepper.perf().current; // not a switch to store
+	} }];
 	log("undo or redo: the pattern from Live, taken " + (lastStep < 0 ? "now" : "on the next step"));
 	if (lastStep < 0) takeEdits(-1);
 }
 
+// Whether the text is a bank the engine can load (tried, then the bank as it was goes back).
+function readable(text) {
+	try {
+		var j = JSON.parse(text);
+		if (!j || !Array.isArray(j.patterns)) return false;
+	} catch (e) {
+		return false;
+	}
+	var now = stepper.saveBank(), ok = stepper.loadBank(text);
+	stepper.loadBank(now);
+	return ok;
+}
+
 function applyPattern(text) {
-	if (!stepper.loadPattern(text)) {
+	if (!stepper.loadBank(text)) {
 		warn("the pattern saved with the set isn't readable: keeping the current pattern");
 		return false;
 	}
@@ -890,7 +1082,8 @@ function guarded(name, fn) {
 	var g = this;
 	["init", "instanceSelect", "trackSelect", "lookahead", "tick", "hello", "ev", "cue",
 		"loopinfo", "look", "announce", "anything", "status", "reset", "param",
-		"editTrackSelect", "debug", "savepattern", "restore", "enable", "pad", "stepPageSelect", "followSelect"].forEach(function (n) {
+		"editTrackSelect", "debug", "savepattern", "restore", "enable", "pad", "stepPageSelect", "followSelect", "padMods", "padModeSelect",
+		"applyMutes", "blink"].forEach(function (n) {
 		if (typeof g[n] !== "function") return;
 		var f = guarded(n, g[n]);
 		if (g[n].immediate) f.immediate = g[n].immediate; // keep scheduler-thread handlers there

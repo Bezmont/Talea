@@ -69,12 +69,21 @@ function Stepper(M, preset) {
 Stepper.prototype.step = function (p) {
 	var out = [], t, i, j;
 	for (t = 0; t < this.tracks; t++) out.push([]);
-	if (this.last === null || p !== this.last + 1) {
+	var jump = this.last === null || p !== this.last + 1;
+	if (jump || this.cut) {
+		// What's sounding ends at the step's start: after a jump, or a change that cut the
+		// engine's notes (a pattern switch at once).
 		for (t = 0; t < this.tracks; t++) {
 			for (i = 0; i < this.sounding[t].length; i++) out[t].push([0, this.sounding[t][i], 0, 0, 0]);
 			this.sounding[t] = [];
 		}
+		this.cut = false;
+	}
+	if (jump) {
 		this.allOff(this.h, p / 4 - EPS); // the engine forgets its notes; its events are dropped
+		// A switched pattern carries on from the new time; a queued switch and mutes wait
+		// for their boundaries counted from it.
+		this.c("jump", null, ["number", "number"])(this.h, p / 4 - EPS);
 	}
 	this.last = p;
 	var start = p / 4, n = this.process(this.h, start - EPS, start + 0.25 - EPS);
@@ -103,6 +112,7 @@ Stepper.prototype.step = function (p) {
 			this.sounding[t] = [];
 		}
 	}
+	this.perfNow = this.perf();
 	this.id = this.count++;
 	var k = this.id % this.slots;
 	this.savePlayback(this.h, k);
@@ -164,6 +174,47 @@ Stepper.prototype.hits = function (track) {
 
 Stepper.prototype.stepAt = function (track, t) {
 	return this.c("step_at", "number", ["number", "number", "number"])(this.h, track, t);
+};
+
+// ---- mutes and pattern switches ----
+//
+// Times are quarter notes since the song's start: `now` is when the change is made.
+
+// What the pads show in Mute and Pattern mode: { muted, scheduled (bits per track: muted,
+// and committed changes waiting), current, queued (-1: none), used (bits per slot holding
+// a pattern), chain (slots) }.
+Stepper.prototype.perf = function () {
+	var f = this.c("perf", "number", ["number", "number"]), h = this.h;
+	var chain = [];
+	for (var i = 0, n = f(h, 5); i < n; i++) chain.push(f(h, 6 + i));
+	return { muted: f(h, 0), scheduled: f(h, 1), current: f(h, 2), queued: f(h, 3), used: f(h, 4), chain: chain };
+};
+
+// Commits mute changes (bits: tracks to toggle) for the next mute boundary after `now`.
+Stepper.prototype.commitMutes = function (toggle, now) {
+	this.c("commit_mutes", null, ["number", "number", "number"])(this.h, toggle, now);
+};
+
+// Mutes or unmutes a track at once.
+Stepper.prototype.setMuted = function (track, muted, now) {
+	this.c("set_muted", null, ["number", "number", "number", "number"])(this.h, track, muted ? 1 : 0, now);
+};
+
+// Queues a pattern slot, adds it to the chain, or switches at once (immediate). A switch at
+// once ends what's sounding, at the next step's start.
+Stepper.prototype.selectPattern = function (slot, chain, immediate, now) {
+	this.c("select_pattern", null, ["number", "number", "number", "number", "number"])(this.h, slot, chain ? 1 : 0, immediate ? 1 : 0, now);
+	if (immediate) this.cut = true; // (switching to the playing pattern restarts it)
+};
+
+// The whole bank (every pattern slot and which one plays) as JSON, and back: false if the
+// text isn't a usable bank. Loading drops the queue, the chain and mutes waiting.
+Stepper.prototype.saveBank = function () {
+	return this.c("save_bank", "string", ["number"])(this.h);
+};
+
+Stepper.prototype.loadBank = function (text) {
+	return this.c("load_bank", "number", ["number", "string"])(this.h, text) === 1;
 };
 
 // The pattern as JSON (Rack's "core" pattern format), and back: false if the text isn't

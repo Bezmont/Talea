@@ -75,12 +75,27 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
   is built. Rack's Harmony knob, and the Random knobs (for the display's RANDOM page),
   aren't here yet.
 - **Track select** (1-16) along the top, like tabs over the sections: the track the dials edit.
-- **Step pads** under the sections (Step mode, for now the only pad mode): a pad turns a
-  step of the edit track off or on, taken on the next 16th like a dial. They light as on
-  the Rack module: orange for a hit, white for the playing step, dark past Length. The
-  **step page** tabs 1-4 in the left column show steps 1-16 ... 49-64 (a page past the
-  track's Steps doesn't take); **Follow** moves the page with the playing step, and choosing
-  a page turns it off, as on Rack. The pads are plain buttons, not Live parameters.
+- **Pads** under the sections, in the mode chosen in the **Pad mode** menu beside them.
+  They are plain buttons, not Live parameters, and light as on the Rack module. Shift and
+  Ctrl (Cmd on the Mac) are read with `[modifiers]`, polled by each press.
+  - **Step**: a pad turns a step of the edit track off or on, taken on the next 16th like
+    a dial. Orange is a hit, white the playing step, dark past Length. The **step page**
+    tabs 1-4 in the left column show steps 1-16 ... 49-64 (a page past the track's Steps
+    doesn't take); **Follow** moves the page with the playing step, and choosing a page
+    turns it off, as on Rack.
+  - **Mute**: a pad per track. A click stages a change (the pad blinks slowly);
+    **Apply** in the left column, or choosing Mute again in the menu, commits the staged
+    changes for the next mute boundary (blinking fast until then). Ctrl+click mutes or
+    unmutes at once. Leaving Mute mode drops what's staged. Orange plays (white on a note),
+    blue-grey is muted. Stopped, Apply and Ctrl+click both mute at once.
+  - **Pattern**: a pad per pattern slot. A click queues the pattern for the next pattern
+    boundary (blinking), Shift+click adds it to the chain, Ctrl+click switches at once.
+    Stopped, a click switches at once, the pattern starting with the song. Orange plays,
+    dim red is in the chain, dim orange holds a pattern, dark is the default (silent)
+    pattern. The dials and step pads follow the switch.
+  - The mute timing and the pattern quantization are the engine's defaults for now
+    (mutes Immediately, so on the next step; patterns at the end of the pattern). Their
+    settings come with the display.
 - The right half is where the display goes; for now it has Instance, Look-ahead and the
   status line.
 
@@ -91,21 +106,37 @@ now (it keeps the engine's state after each of the last steps), works out the st
 had already sent again with the new value, and sends them over the old ones. So an edit
 is heard from the next step, not look-ahead steps later.
 
+The engine's saved state after each step holds everything playing changes: the sounding
+notes and repeats, but also the playing pattern with its mutes, the mutes and pattern
+switch waiting for their boundaries, the chain's position and the song's. So an edit made
+while a mute or switch the sequencer has already worked out ahead is still to be heard
+doesn't undo it: the engine goes back to the state at the step playing, then takes the
+edit. Mutes, Apply and pattern pads are taken on the next 16th the same way. The pads show
+the mutes and patterns of the step playing, not of the steps worked out ahead.
+
+Engine time is Live's song time. A switch starts the new pattern at its song time; when
+Live jumps back before it (a loop wrapping, Play from earlier), the engine runs the
+pattern from the song's start again, and a queued switch or mutes wait for their
+boundaries counted from the new position (`Engine::jump`).
+
 The engine starts with its default pattern, which is silent (no pulses), as a new Talea
 in Rack.
 
 ## The pattern, saved with the set
 
-The sequencer keeps the whole pattern (the Rack module's pattern JSON, about 13 KB) in a
-`[pattr]` that is a Live parameter of type Blob named Pattern, visibility **Stored
-Only**: Live saves it with the set and gives it back when the set loads, before the
-device starts. Things that matter:
+The sequencer keeps the whole bank (the 16 pattern slots that hold something, each the
+Rack module's pattern JSON of about 13 KB, and which one plays, as Rack's patch saves
+them) in a `[pattr]` that is a Live parameter of type Blob named Pattern, visibility
+**Stored Only**: Live saves it with the set and gives it back when the set loads, before
+the device starts. Mutes are in it (a pattern's tracks carry their mute), and it's stored
+after a mute change and after a pattern switch, as after an edit. Things that matter:
 
 - **Stored Only**, not Hidden: Hidden parameters aren't saved.
 - For a plain object like `[pattr]`, Parameter Mode Enable goes in the box's
   `saved_object_attributes`, as in Ableton's own devices. On the box itself (where UI
   objects have it) it's silently ignored and nothing is saved.
-- The value is a list: the format number 1, then base64 pieces each after a "p". JSON's
+- The value is a list: the format number (2: the bank; 1, from sets saved before it: one
+  pattern, which loads as pattern 1), then base64 pieces each after a "p". JSON's
   quotes, commas and braces are Max syntax; a list must start with a number, or Max
   takes its first word as a message name; the "p" keeps a piece from being read as a
   number.

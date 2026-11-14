@@ -217,6 +217,11 @@ public:
 	/** Back to the start (host reset): the playing pattern restarts at time 0. A queued
 	switch stays queued, timed from the new start. */
 	void rewind();
+	/** The host's time jumped (a loop wrapped, Play from elsewhere): the next window starts
+	at `t`. Before the playing pattern's start (back past a switch), the pattern runs from
+	time 0 again, as before any switch. A queued switch and scheduled mutes wait for their
+	boundaries counted from `t` (a boundary at `t` counts). Bursts in flight are dropped. */
+	void jump(double t);
 
 	/** Song mode. While it plays, each entry plays its pattern for its bars (the pattern
 	restarting from step 1 each time it ends), then the next entry starts on the bar line;
@@ -296,11 +301,12 @@ public:
 	/** Emits note-offs at `time` for every sounding note and drops pending repeats. */
 	void allNotesOff(double time, EventList& out);
 
-	/** What the engine carries from one window to the next: the sounding notes, the
-	repeats still to come and where the last window ended. A host that computes ahead of
-	playback saves it after each window; after an edit it loads the state saved where
-	playback really is and computes the rest again with the new settings. Pattern
-	switches, mutes and the song aren't part of it. */
+	/** Everything process() changes as it plays: the sounding notes, the repeats still to
+	come, where the last window ended, the mutes it applied and the ones waiting, pattern
+	switches (the playing pattern, the queued one, the chain position) and the song's
+	position. A host that computes ahead of playback saves it after each window; for an edit
+	it loads the state saved where playback really is, makes the edit, and computes the rest
+	again. The edit has to come after the load: the playing pattern is part of the state. */
 	struct Playback;
 	void savePlayback(Playback& p) const;
 	void loadPlayback(const Playback& p);
@@ -402,6 +408,28 @@ public:
 		Voice voices[kNumTracks];
 		Burst bursts[kNumTracks][kMaxBursts];
 		double lastTo = std::numeric_limits<double>::quiet_NaN();
+		// Mutes: the playing pattern (with its tracks' mute flags) and the queue.
+		Pattern pattern;
+		uint16_t staged = 0, scheduled = 0;
+		double scheduledTime = 0.0;
+		bool tempActive = false;
+		// Pattern switches.
+		uint16_t used = 0;
+		int current = 0, queued = -1, queuedTiming = MUTE_PATTERN, queuedChainPos = -1;
+		double switchTime = 0.0, origin = 0.0;
+		uint32_t switches = 0;
+		int chainPos = -1;
+		// The song.
+		bool songOn = false;
+		int songPos = -1;
+		double entryStart = 0.0;
+		bool overridden = false;
+		int resumeEntry = 0, resumeBar = 0;
+		bool jumpPending = false;
+		double jumpTime = 0.0;
+		int jumpEntry = 0, jumpBar = 0;
+		bool songEnded = false;
+		uint32_t restarts = 0;
 	};
 
 private:
