@@ -451,7 +451,9 @@ def brain():
     # stored parameters, the script setting them at load would mark the set changed, and
     # each turn would be an undo step of its own besides the pattern's.
     keys = [k for row in DIAL_ROWS for _, section in row for k, _ in section]
-    route = p.obj("route " + " ".join(keys), [600, 700, 900, 22], 1, len(keys) + 1)
+    # "key value" sets a dial; "a_key 0/1" dims it (a step selection dims the dials that
+    # can't be locked).
+    route = p.obj("route " + " ".join(keys + ["a_" + k for k in keys]), [600, 700, 900, 22], 1, 2 * len(keys) + 1)
     p.connect(script, route, 3)
     # The section names take Live's theme colour, at load and when the theme changes.
     colors = p.obj("live.colors", [1300, 300, 80, 22], 1, 2)
@@ -497,6 +499,9 @@ def brain():
                 setter = p.obj("prepend set", [x, 730, 66, 22])
                 p.connect(route, setter, n)
                 p.connect(setter, dial)
+                act = p.obj("prepend active", [x, 850, 66, 22])
+                p.connect(route, act, len(keys) + n)
+                p.connect(act, dial)
                 prep = p.obj(f"prepend param {key}", [x, 820, 66, 22])
                 p.connect(dial, prep)
                 p.connect(prep, script)
@@ -505,17 +510,40 @@ def brain():
 
     # The step pads: plain buttons (not parameters), one per step of the page; the script
     # colours them ("pad i r g b a" from outlet 5) as Rack lights its pads, and a press
-    # sends "pad i bang", after "padMods shift ctrl" from [modifiers] (polled by the press:
+    # sends "pad i bang", after "padMods shift ctrl alt" from [modifiers] (polled by the press:
     # [t l b] fires right to left, and [modifiers] its outlets too, so [pack]'s hot inlet,
     # Shift, comes last).
     panel_out = p.obj("route pad page follow mode apply", [1500, 400, 200, 22], 1, 6)
     press_t = p.obj("t l b", [1500, 600, 40, 22], 1, 2)
     mods = p.obj("modifiers", [1560, 630, 70, 22], 1, 5, ["int", "int", "int", "int", "int"])
-    modpack = p.obj("pack 0 0", [1560, 660, 60, 22], 2, 1)
+    modpack = p.obj("pack 0 0 0", [1560, 660, 70, 22], 3, 1)
     modmsg = p.obj("prepend padMods", [1560, 690, 100, 22])
     p.connect(press_t, mods, 1)
     p.connect(mods, modpack, 0, 0)
     p.connect(mods, modpack, 4, 1)  # Ctrl on Windows, Cmd on the Mac
+    p.connect(mods, modpack, 2, 2)  # Alt (Option on the Mac)
+    # Right-click on a pad (SEQ mode: the step becomes a rest, as on Rack). A live.text doesn't
+    # report one, so [mousestate] (patcher-relative, polling) does: its position is kept in
+    # [zl reg], and a right-button press sends it as "rightClick x y".
+    ms = p.obj("mousestate", [1700, 630, 80, 22], 1, 10)
+    msinit = p.msg("mode 1, poll", [1700, 600, 80, 22])
+    p.connect(trig, msinit, 2)
+    p.connect(msinit, ms)
+    mspos = p.obj("pack 0 0", [1700, 660, 60, 22], 2, 1)
+    p.connect(ms, mspos, 1, 0)
+    p.connect(ms, mspos, 2, 1)
+    msreg = p.obj("zl reg", [1700, 690, 50, 22], 2, 2)
+    p.connect(mspos, msreg, 0, 1)
+    rdown = p.obj("sel 1", [1790, 660, 40, 22], 1, 2)
+    p.connect(ms, rdown, 6)
+    p.connect(rdown, msreg, 0, 0)
+    torc = p.obj("prepend rightClick", [1700, 720, 110, 22])
+    p.connect(msreg, torc)
+    p.connect(torc, script)
+    # The pads' place on the panel, for the script to find the pad under a right-click.
+    geom = p.msg(f"padGeometry {LEFT_X} {PADS_Y} {CELL} {TRACKS_H}", [1830, 600, 170, 22])
+    p.connect(trig, geom, 2)
+    p.connect(geom, script)
     p.connect(modpack, modmsg)
     p.connect(modmsg, script)
     p.connect(press_t, script, 0)
@@ -534,6 +562,14 @@ def brain():
         press = p.obj(f"prepend pad {i}", [x, 560, 56, 22])
         p.connect(pad, press)
         p.connect(press, press_t)
+    # A light-blue bar along the bottom of a pad whose step has locks (a live.text can't draw
+    # one): over the pads, clicks going through; the script shows them ("script show
+    # d_padlock<i>" through the display's [thispatcher]).
+    for i in range(16):
+        p.box("panel", [1500 + i * 60, 590, 20, 3], None, 1, 0, None,
+              [LEFT_X + i * CELL + 3, PADS_Y + TRACKS_H - 4, CELL - 6, 3],
+              varname=f"d_padlock{i}", hidden=1, ignoreclick=1, background=0, border=0,
+              bgcolor=[0.45, 0.8, 0.95, 1.0])
 
     # The pad mode menu, beside the pads: Step, Mute, Pattern. Not stored: the script sets
     # it ("mode i" from outlet 5). Choosing Mute again applies the staged mutes, as the "A"
@@ -682,6 +718,11 @@ def display(p, trig, script):
           varname="d_rndmark", hidden=1, ignoreclick=1, background=0, border=1, rounded=0,
           bgcolor=[0.0, 0.0, 0.0, 0.0], bordercolor=[0.3, 0.6, 1.0, 1.0],
           saved_attribute_attributes={"bordercolor": lcd("live_value_arc")})
+    # A blue frame over the LOCKS tab while steps are selected for locks (the pads' blue).
+    p.box("panel", [2300, 120, 40, 18], None, 1, 0, None,
+          [DISPLAY_X + spec["pages"].index("LOCKS") * tab_w, TRACKS_Y, tab_w, TRACKS_H],
+          varname="d_stepmark", hidden=1, ignoreclick=1, background=0, border=1, rounded=0,
+          bgcolor=[0.0, 0.0, 0.0, 0.0], bordercolor=[0.3, 0.6, 1.0, 1.0])
     # A red frame over the CYCLE tab while Cycle edit is on (the dials and step pads edit a
     # cycle), as Rack lights CYC EDIT red.
     p.box("panel", [2250, 120, 40, 18], None, 1, 0, None,
@@ -714,6 +755,16 @@ def display(p, trig, script):
             kind = row["kind"]
             pname = f"{view.title()} {row['label'].title()}" if row.get("label") else f"{view.title()} {name}"
             common = dict(hidden=True, varname="d_" + name, appearance=1)
+            if kind == "button":  # one button: a click sends "disp <name> bang"
+                ctl = p.box("live.text", [x, 260, 50, 16], None, 1, 2, ["", ""], rect, varname="d_" + name,
+                            parameter_enable=0, mode=0, texton=row["text"], appearance=1)
+                p.boxes[-1]["box"]["text"] = row["text"]
+                p.boxes[-1]["box"]["hidden"] = 1
+                toscript = p.obj(f"prepend disp {name}", [x, 320, 90, 22])
+                p.connect(ctl, toscript)
+                p.connect(toscript, script)
+                n += 1
+                continue
             if kind == "text":  # a line the script writes ("d_<name> text")
                 ctl = p.box("live.comment", [x, 260, 200, 18], "", 1, 0, None, rect, varname="d_" + name,
                             fontsize=9.0, textcolor=[0.85, 0.85, 0.85, 1.0],
@@ -777,11 +828,12 @@ def display(p, trig, script):
                   filename=DIAGRAM_SCRIPT, border=0, parameter_enable=0, varname="d_board", hidden=1)
     names.append("d_board")
     targets.append(board)
-    # Their clicks: "grid col level", "key note", "scale pc".
-    clicks = p.obj("route grid key scale", [2000, 530, 130, 22], 1, 4)
+    # Their clicks: "grid col level", "key note", "scale pc", "lane l step value",
+    # "laneclear l step", "stepsel step add".
+    clicks = p.obj("route grid key scale lane laneclear stepsel", [2000, 530, 230, 22], 1, 7)
     p.connect(diagram, clicks)
     p.connect(board, clicks)
-    for i, sel in enumerate(["phraseGrid", "poolKey", "scaleKey"]):
+    for i, sel in enumerate(["phraseGrid", "poolKey", "scaleKey", "lane", "laneClear", "lockStepClick"]):
         to = p.obj(f"prepend {sel}", [2000 + i * 110, 560, 100, 22])
         p.connect(clicks, to, i)
         p.connect(to, script)
@@ -795,7 +847,7 @@ def display(p, trig, script):
 
     # SETUP's other rows: the device's own controls, after the page's (the script shows
     # them with SETUP: spec "extras").
-    base = DISPLAY_ROW_Y + len(spec["views"]["SETUP"]) * DISPLAY_ROW_H + 8
+    base = DISPLAY_ROW_Y + len(spec["views"]["SETUP"]) * DISPLAY_ROW_H + 2
     label("instance", "INSTANCE", [DISPLAY_X + 8, base, DISPLAY_LABEL_W - 4, 16], 1300)
     inst = p.param("live.menu", [600, 440, 60, 15], [cx, base, 50, 16], "Instance", 2,
                    enum=["A", "B", "C", "D"], outlets=3, outlettype=["", "", "float"],

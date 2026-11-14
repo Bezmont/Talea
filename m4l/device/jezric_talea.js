@@ -74,9 +74,18 @@ var MODE_STEP = 0, MODE_MUTE = 1, MODE_PATTERN = 2, MODE_NAMES = ["Step", "Mute"
 // it, and it plays alone).
 var selCycle = 0;
 var cycleEdit = false;
+// Step locks: the steps Ctrl+clicked on the pads (unrotated positions -> true). While any
+// are, the dials that can lock show the first one's lock and set it on all of them.
+var lockSel = {};
+// SEQ mode: the step a plain click on a pad selected (an unrotated position, -1 none); KEYS
+// edits its chord (or the lock selection's).
+var seqSel = -1;
+var laneKeys = []; // the LOCKS page's lanes, top to bottom
+var lanePage = 0; // which 6 lanes LOCKS shows, when more parameters are locked
+var laneFocus = null; // a parameter just locked by a dial: its lanes are shown
 var padMode = MODE_STEP;
 var staged = 0; // Mute mode: tracks clicked, to change when Apply commits them (bits)
-var mods = { shift: false, ctrl: false }; // modifier keys at the latest pad press
+var mods = { shift: false, ctrl: false, alt: false }; // modifier keys at the latest pad press
 var blinks = 0; // [metro] ticks, for the staged and queued pads' blinking
 var shownPattern = -1; // the pattern slot playing, as last shown (a switch: dials follow)
 var preMuteMode = MODE_STEP; // the pad mode before Mute (a display page tab goes back to it)
@@ -501,6 +510,17 @@ function takeOn(s, jump) {
 function param(key, value) {
 	if (!BRAIN || EDIT_KEYS.indexOf(String(key)) < 0 || !stepper) return;
 	value = Number(value);
+	if (isSeq() && SEQ_IGNORES.indexOf(String(key)) >= 0) return showEdits(); // dimmed: unused in SEQ
+	if (selCount()) {
+		// Steps selected: a lockable dial locks the value on them ("L track key cycle"); the
+		// others are dimmed (put back if one moves anyway).
+		if (!stepper.lockable(String(key))) return showEdits();
+		edits["L " + editTrack + " " + key + " " + (cycleEdit ? selCycle : -1)] = value;
+		laneFocus = String(key);
+		followDial(String(key));
+		if (lastStep < 0) takeEdits(-1);
+		return;
+	}
 	// In Cycle edit the dial overrides the value in the selected cycle: "track key cycle".
 	var k = editTrack + " " + key + (cycleEdit ? " " + selCycle : "");
 	if (dialValue(editTrack, String(key)) === value && edits[k] === undefined) return;
@@ -513,10 +533,164 @@ function param(key, value) {
 function editTrackSelect(i) {
 	if (!BRAIN) return;
 	editTrack = Math.max(0, Math.min(TRACKS - 1, Math.round(i)));
+	lockSel = {};
+	seqSel = -1;
 	selCycle = Math.min(selCycle, stepper ? stepper.cycleCount(editTrack) - 1 : 0);
 	if (cycleEdit) soloChanged();
 	showEdits();
 	showPads();
+}
+
+// ---- SEQ mode (brain) ------------------------------------------------------------------
+
+// The dials SEQ mode doesn't use: dimmed (Rack's seqIgnores).
+var SEQ_IGNORES = ["pulses", "rotate", "voicing", "range"];
+
+// The edit track (the edited cycle in Cycle edit) plays a manual sequence.
+function isSeq() {
+	return !!stepper && stepper.seqMode(editTrack, cycleEdit ? selCycle : -1);
+}
+
+// A plain click on a step pad in SEQ mode: selects just that step for KEYS (green); a lock
+// selection ends.
+function selectSeqStep(step) {
+	var t = editTrack, c = cycleEdit ? selCycle : -1;
+	if (step >= stepsOf(t)) return;
+	seqSel = stepper.unrotated(t, c, step);
+	lockSel = {};
+	showEdits();
+	showPads();
+}
+
+// The steps KEYS edits: the lock selection, else the SEQ step selected.
+function keysSel() {
+	var sel = selList();
+	return sel.length ? sel : seqSel >= 0 ? [seqSel] : [];
+}
+
+// New notes' velocity in SEQ mode: the Velocity dial (the edited cycle's in Cycle edit).
+function defaultSeqVelocity() {
+	return Math.max(1, Math.min(127, Math.round(dialValue(editTrack, "velocity"))));
+}
+
+// KEYS in SEQ mode: the key in or out of the first selected step's chord, every selected
+// step taking that chord (keeping its velocity and gate); off the scale only out.
+function seqKey(note) {
+	var sel = keysSel(), t = editTrack, c = cycleEdit ? selCycle : -1;
+	if (!sel.length) return;
+	var first = sel[0], st = stepper.seqStep(t, c, first), inChord = st && st.notes.indexOf(note) >= 0;
+	if (!inChord && !((stepper.scaleNotes(t) >> (note % 12)) & 1)) return;
+	var vel = defaultSeqVelocity();
+	ops.push({ desc: "track " + (t + 1) + " SEQ note " + note + " on " + sel.length + " steps", store: true, fn: function () {
+		stepper.seqToggleNote(t, c, first, note, vel);
+		sel.slice(1).forEach(function (pos) { stepper.seqCopyChord(t, c, pos, first, vel); });
+	} });
+	if (lastStep < 0) takeEdits(-1);
+}
+
+// REST: the selected steps lose their notes.
+function seqRest() {
+	var sel = keysSel(), t = editTrack, c = cycleEdit ? selCycle : -1;
+	if (!sel.length) return;
+	ops.push({ desc: "track " + (t + 1) + " " + sel.length + " SEQ steps made rests", store: true,
+		fn: function () { sel.forEach(function (pos) { stepper.seqClear(t, c, pos); }); } });
+	if (lastStep < 0) takeEdits(-1);
+}
+
+// ---- step locks (brain) ----------------------------------------------------------------
+
+// The slow blink of the LOCKS and CYCLE tab frames: on or off now.
+function slowBlinkOn() {
+	return Math.floor(blinks / 4) % 2 === 0;
+}
+
+function selCount() {
+	return Object.keys(lockSel).length;
+}
+
+function selList() {
+	return Object.keys(lockSel).map(Number).sort(function (a, b) { return a - b; });
+}
+
+// Ends the selection: the dials show the track's (or cycle's) values again.
+function clearLockSel() {
+	if (!selCount()) return;
+	lockSel = {};
+	showEdits();
+	showDisplay();
+}
+
+// Ctrl+click on a step pad: the step joins the selection, or leaves it.
+function selectStep(step) {
+	var t = editTrack, c = cycleEdit ? selCycle : -1;
+	if (step >= stepsOf(t)) return;
+	var pos = stepper.unrotated(t, c, step);
+	if (lockSel[pos]) delete lockSel[pos];
+	else lockSel[pos] = true;
+	log("step " + (step + 1) + (lockSel[pos] ? " selected" : " deselected") + " for locks (" + selCount() + ")");
+	showEdits();
+	showPads();
+}
+
+// LOCKS page STEPS row: "lockStepClick step add". A click selects just that step (the only
+// one selected: deselects it); Ctrl+click (add 1) adds it or takes it out, as on the pads.
+function lockStepClick(i, add) {
+	if (!BRAIN || !stepper) return;
+	var step = stepPage * 16 + Math.round(i);
+	if (Number(add)) return selectStep(step);
+	var t = editTrack, c = cycleEdit ? selCycle : -1;
+	if (step >= stepsOf(t)) return;
+	var pos = stepper.unrotated(t, c, step), only = selCount() === 1 && lockSel[pos];
+	lockSel = {};
+	if (!only) lockSel[pos] = true;
+	showEdits();
+	showPads();
+}
+
+// LOCKS page SELECT: NONE, PAGE (the page's steps), CLEAR LOCKS (on the selected steps).
+function lockSelect(v) {
+	var t = editTrack, c = cycleEdit ? selCycle : -1;
+	if (v === 0) clearLockSel();
+	else if (v === 1) {
+		for (var i = 0; i < 16 && stepPage * 16 + i < stepsOf(t); i++) lockSel[stepper.unrotated(t, c, stepPage * 16 + i)] = true;
+		showEdits();
+	} else {
+		var sel = selList();
+		if (!sel.length) return;
+		ops.push({ desc: "track " + (t + 1) + " locks cleared on " + sel.length + " steps", store: true,
+			fn: function () { sel.forEach(function (pos) { stepper.lockClear(t, c, pos, null); }); } });
+		if (lastStep < 0) takeEdits(-1);
+	}
+	showPads();
+}
+
+// LOCKS page lanes: "lane l step value" (0..1 up the lane), "laneClear l step" (Ctrl+click).
+function lane(l, step, value) {
+	var key = laneKeys[Math.round(l)];
+	if (!BRAIN || !stepper || !key) return;
+	var t = editTrack, c = cycleEdit ? selCycle : -1, r = laneRange(key);
+	var pos = stepper.unrotated(t, c, stepPage * 16 + Math.round(step)), v = r[0] + Number(value) * (r[1] - r[0]);
+	if (key === "nvel" || key === "gate") {
+		var what = key === "nvel" ? 1 : 2, iv = Math.round(v);
+		ops.push({ desc: "track " + (t + 1) + " step " + (pos + 1) + " SEQ " + key + " " + iv, store: true,
+			fn: function () { stepper.seqSet(t, c, pos, what, iv); } });
+	} else ops.push({ desc: "track " + (t + 1) + " step " + (pos + 1) + " " + key + " locked", store: true,
+		fn: function () { stepper.lockSet(t, c, pos, key, v); } });
+	if (lastStep < 0) takeEdits(-1);
+}
+
+function laneClear(l, step) {
+	var key = laneKeys[Math.round(l)];
+	if (!BRAIN || !stepper || !key) return;
+	var t = editTrack, c = cycleEdit ? selCycle : -1, pos = stepper.unrotated(t, c, stepPage * 16 + Math.round(step));
+	if (key === "nvel" || key === "gate") {
+		// The SEQ lanes: back to the default (the Velocity dial, one step).
+		var what = key === "nvel" ? 1 : 2, dv = key === "nvel" ? defaultSeqVelocity() : 1;
+		ops.push({ desc: "track " + (t + 1) + " step " + (pos + 1) + " SEQ " + key + " default", store: true,
+			fn: function () { stepper.seqSet(t, c, pos, what, dv); } });
+	} else ops.push({ desc: "track " + (t + 1) + " step " + (pos + 1) + " " + key + " lock removed", store: true,
+		fn: function () { stepper.lockClear(t, c, pos, key); } });
+	if (lastStep < 0) takeEdits(-1);
 }
 
 // ---- cycles (brain) --------------------------------------------------------------------
@@ -543,6 +717,8 @@ function hitsOf(t) {
 function cycleEditSelect(v) {
 	if (!BRAIN || !stepper) return;
 	cycleEdit = Number(v) !== 0;
+	lockSel = {};
+	seqSel = -1;
 	log("cycle edit " + (cycleEdit ? "on, cycle " + (selCycle + 1) : "off"));
 	soloChanged();
 	showEdits();
@@ -587,6 +763,7 @@ function viewItems(view) {
 	var rows = DISPLAY.views[view], out = [];
 	if (!rows) return ["d_soon"];
 	rows.forEach(function (r) {
+		if (r.showWhen) return; // shown by showDisplay when it applies
 		if (r.label) out.push("dl_" + r.name);
 		out.push("d_" + r.name);
 	});
@@ -601,10 +778,13 @@ function showView() {
 	if (!BRAIN || !DISPLAY) return;
 	var view = currentView();
 	if (view !== shownView) {
-		if (shownView !== null) viewItems(shownView).forEach(function (n) { outlet(6, "script", "hide", n); });
+		if (shownView !== null) {
+			viewItems(shownView).forEach(function (n) { outlet(6, "script", "hide", n); });
+			(DISPLAY.views[shownView] || []).forEach(function (r) { if (r.showWhen && dispShown["vis_" + r.name]) outlet(6, "script", "hide", "d_" + r.name); });
+		}
 		viewItems(view).forEach(function (n) { outlet(6, "script", "show", n); });
 		shownView = view;
-		dispShown = { rndmark: dispShown.rndmark, cycmark: dispShown.cycmark, playbar: dispShown.playbar };
+		dispShown = { rndmark: dispShown.rndmark, cycmark: dispShown.cycmark, stepmark: dispShown.stepmark, playbar: dispShown.playbar };
 	}
 	showDisplay();
 }
@@ -625,7 +805,7 @@ function displayPage(i) {
 // the Mute view stays; the page is there once Mute mode is left.
 function followDial(key) {
 	if (!DISPLAY || !DISPLAY.dialPages) return;
-	var i = DISPLAY.pages.indexOf(DISPLAY.dialPages[key]);
+	var i = DISPLAY.pages.indexOf(selCount() && stepper.lockable(key) ? "LOCKS" : DISPLAY.dialPages[key]);
 	if (i < 0 || i === dispPage) return;
 	dispPage = i;
 	outlet(6, "d_pages", i);
@@ -650,6 +830,9 @@ function rowValue(row) {
 	else if (row.action === "cycleSelect") v = selCycle;
 	else if (row.action === "cycleMute") v = stepper.cycleState(editTrack, selCycle).muted ? 1 : 0;
 	else if (row.action === "cycleEdit") v = cycleEdit ? 1 : 0;
+	else if (row.action === "lanePage") v = lanePage;
+	else if (row.action === "seqMode") v = isSeq() ? 1 : 0;
+	else if (row.action === "stepPage") v = stepPage;
 	else return null;
 	if (row.values) v = Math.max(0, row.values.indexOf(v));
 	return v;
@@ -659,7 +842,16 @@ function rowValue(row) {
 function showDisplay() {
 	if (!BRAIN || !DISPLAY || !stepper) return;
 	var rows = DISPLAY.views[currentView()] || [], used = null;
+	if (currentView() === "LOCKS") resolveLanePage(); // before LANES shows which
 	rows.forEach(function (row) {
+		if (row.showWhen) {
+			var vis = showsNow(row);
+			if (dispShown["vis_" + row.name] !== vis) {
+				dispShown["vis_" + row.name] = vis;
+				outlet(6, "script", vis ? "show" : "hide", "d_" + row.name);
+			}
+			if (!vis) return;
+		}
 		if (row.kind === "text") {
 			var line = textOf(row);
 			if (dispShown["d_" + row.name] !== line) {
@@ -681,7 +873,9 @@ function showDisplay() {
 					var st = stepper.cycleState(editTrack, k), m = st.modified ? n + "*" : n;
 					return st.muted ? "(" + m + ")" : m;
 				});
-			} else names = cycleClearEntries().map(function (e) { return e.name; });
+			} else if (row.marks === "lanePages") names = lanePageNames();
+			else if (row.marks === "stepPages") names = row.items.slice(0, pageCount());
+			else names = cycleClearEntries().map(function (e) { return e.name; });
 			if (dispShown["dr_" + row.name] !== names.join(" ")) {
 				dispShown["dr_" + row.name] = names.join(" ");
 				delete dispShown["d_" + row.name];
@@ -695,14 +889,16 @@ function showDisplay() {
 			outlet(6, key, v);
 		}
 		if (row.alt) {
-			var text = stepper.getField(editTrack, row.altWhen) ? row.alt : row.label;
+			var altOn = row.altWhen === "@cycleEdit" ? cycleEdit : stepper.getField(editTrack, row.altWhen);
+			var text = altOn ? row.alt : row.label;
 			if (dispShown["dl_" + row.name] !== text) {
 				dispShown["dl_" + row.name] = text;
 				outlet(6, "dl_" + row.name, text);
 			}
 		}
-		if (row.activeWhen) {
-			var on = row.activeWhen["in"].indexOf(stepper.getField(editTrack, row.activeWhen.field)) >= 0 ? 1 : 0;
+		if (row.activeWhen || row.seqUnused) {
+			var on = row.seqUnused && isSeq() ? 0
+				: !row.activeWhen || row.activeWhen["in"].indexOf(stepper.getField(editTrack, row.activeWhen.field)) >= 0 ? 1 : 0;
 			if (dispShown["da_" + row.name] !== on) {
 				dispShown["da_" + row.name] = on;
 				outlet(6, "da_" + row.name, on);
@@ -770,9 +966,15 @@ function showRandomMark() {
 		outlet(6, "script", on ? "show" : "hide", "d_rndmark");
 	}
 	showPlayBars();
-	if (dispShown.cycmark !== cycleEdit) {
-		dispShown.cycmark = cycleEdit;
-		outlet(6, "script", cycleEdit ? "show" : "hide", "d_cycmark");
+	// LOCKS' frame blinks while steps are selected, CYCLE's while Cycle edit is on.
+	var stepOn = selCount() > 0 && slowBlinkOn(), cycOn = cycleEdit && slowBlinkOn();
+	if (dispShown.stepmark !== stepOn) {
+		dispShown.stepmark = stepOn;
+		outlet(6, "script", stepOn ? "show" : "hide", "d_stepmark");
+	}
+	if (dispShown.cycmark !== cycOn) {
+		dispShown.cycmark = cycOn;
+		outlet(6, "script", cycOn ? "show" : "hide", "d_cycmark");
 	}
 }
 
@@ -791,7 +993,13 @@ function cycleClearEntries() {
 // A text row's line.
 function textOf(row) {
 	if (row.text === "trackInfo") return cycleEdit ? stepper.cycleInfo(editTrack, selCycle) : stepper.trackInfo(editTrack);
-	if (row.text === "keysHelp") return "CLICK = ADD / REMOVE A POOL NOTE";
+	if (row.text === "keysHelp") {
+		if (!isSeq()) return "CLICK = ADD / REMOVE A POOL NOTE";
+		var ks = keysSel();
+		if (!ks.length) return "SEQ: CLICK A STEP PAD TO SEE / EDIT ITS NOTES";
+		return stepper.seqStep(editTrack, cycleEdit ? selCycle : -1, ks[0]) ? "SEQ: THE STEP'S CHORD. CLICK = ADD / REMOVE A NOTE"
+			: "SEQ: A REST. CLICK = GIVE IT A NOTE";
+	}
 	if (row.text === "cyclePlaying") {
 		var n = stepper.cycleCount(editTrack);
 		if (cycleEdit) return "EDIT: CYCLE " + (selCycle + 1) + " PLAYS ALONE; THE DIALS AND STEP PADS EDIT IT";
@@ -801,16 +1009,97 @@ function textOf(row) {
 	return "";
 }
 
+// LOCKS' board: the step page's 16 steps as an edit row, then a lane per locked parameter
+// (up to 6), each step's lock as a bar.
+var MAX_LANES = 6;
+function lanesMessage(t) {
+	var c = cycleEdit ? selCycle : -1, n = stepsOf(t), played = playedOf(t), hits = hitsOf(t), first = stepPage * 16;
+	var now = playingStep(), cells = [], pos = [];
+	for (var i = 0; i < 16; i++) {
+		var step = first + i;
+		pos.push(step < n ? stepper.unrotated(t, c, step) : -1);
+		cells.push(step >= n ? 0 : 1 + (hits[step] ? 2 : 0) + (lockSel[pos[i]] ? 4 : 0) + (stepper.locksAt(t, c, pos[i]) ? 8 : 0) + (step >= played ? 16 : 0));
+	}
+	var used = resolveLanePage();
+	laneKeys = used.slice(lanePage * MAX_LANES, (lanePage + 1) * MAX_LANES);
+	var msg = ["d_board", "lanes", cycleEdit ? "CYCLE " + (selCycle + 1) : "STEPS", now >= first && now < first + 16 ? now - first : -1].concat(cells, [laneKeys.length]);
+	laneKeys.forEach(function (key) {
+		var r = laneRange(key);
+		msg.push(key === "nvel" ? "N.VEL" : key === "gate" ? "GATE" : key === "velocity" && stepper.getField(t, "cc") ? "VALUE" : PARAM_SHORT[key] || key, r[0], r[1]);
+		for (var k = 0; k < 16; k++) {
+			var v = pos[k] >= 0 ? laneValue(t, c, pos[k], key) : null;
+			msg.push(v === null ? "x" : Math.round(v * 100) / 100);
+		}
+	});
+	msg.push(used.length > (lanePage + 1) * MAX_LANES ? 1 : 0);
+	return msg;
+}
+
+// Which 6 lanes LOCKS shows: those of the parameter a dial just locked, else the group
+// chosen (kept in range). Returns the lanes: in SEQ mode the steps' own velocity and gate
+// ("nvel", "gate") first, then the locked parameters.
+function resolveLanePage() {
+	var used = stepper.locksUsed(editTrack, cycleEdit ? selCycle : -1);
+	if (isSeq()) used = ["nvel", "gate"].concat(used);
+	if (laneFocus !== null && used.indexOf(laneFocus) >= 0) {
+		lanePage = Math.floor(used.indexOf(laneFocus) / MAX_LANES);
+		laneFocus = null;
+	}
+	lanePage = Math.max(0, Math.min(lanePage, Math.ceil(used.length / MAX_LANES) - 1));
+	return used;
+}
+
+// A lane's range and a step's value in it: the SEQ lanes (velocity 1-127, gate 1-16 steps:
+// steps with notes only), else a parameter's lock.
+function laneRange(key) {
+	return key === "nvel" ? [1, 127] : key === "gate" ? [1, 16] : stepper.paramRange(key);
+}
+
+function laneValue(t, c, pos, key) {
+	if (key === "nvel" || key === "gate") {
+		var st = stepper.seqStep(t, c, pos);
+		return st ? (key === "nvel" ? st.velocity : st.gate) : null;
+	}
+	return stepper.lockGet(t, c, pos, key);
+}
+
+// The LANES choices when more than 6 parameters are locked: "1-6", "7-12", "13".
+function lanePageNames() {
+	var n = resolveLanePage().length, out = [];
+	for (var i = 0; i * MAX_LANES < n; i++) {
+		var a = i * MAX_LANES + 1, b = Math.min(n, (i + 1) * MAX_LANES);
+		out.push(a === b ? String(a) : a + "-" + b);
+	}
+	return out;
+}
+
+function showsNow(row) {
+	if (row.showWhen === "lanePages") return resolveLanePage().length > MAX_LANES;
+	if (row.showWhen === "stepPages") return pageCount() > 1;
+	if (row.showWhen === "seqStep") return isSeq() && keysSel().length > 0;
+	return true;
+}
+
 // The board under TRACK's and KEYS' first row: the steps, or the keyboard.
 function showBoard() {
 	var which = DISPLAY.boards ? DISPLAY.boards[currentView()] : null;
 	if (!which) return;
 	var t = editTrack, msg;
-	if (which === "steps") {
-		var n = stepsOf(t), hits = hitsOf(t).slice(0, n).map(function (h) { return h ? 1 : 0; });
+	if (which === "lanes") msg = lanesMessage(t);
+	else if (which === "steps") {
+		var n = stepsOf(t), sc = cycleEdit ? selCycle : -1;
+		var hits = hitsOf(t).slice(0, n).map(function (h, i) {
+			var pos = stepper.unrotated(t, sc, i);
+			return (h ? 1 : 0) + (stepper.locksAt(t, sc, pos) ? 2 : 0) + (lockSel[pos] ? 4 : 0);
+		});
 		msg = ["d_board", "steps", n, playedOf(t), playingStep()].concat(hits);
 	} else {
 		var first = 12 + 12 * keysOctave, pool = stepper.pool(t);
+		if (isSeq()) {
+			// No pool in SEQ mode: the first selected step's chord.
+			var ks = keysSel(), st = ks.length ? stepper.seqStep(t, cycleEdit ? selCycle : -1, ks[0]) : null;
+			pool = st ? st.notes : [];
+		}
 		var lit = lastStep >= 0 && playing && playing.notes ? playing.notes[t] : [];
 		msg = ["d_board", "keys", NOTE_NAMES[0] + (first / 12 - 1) + " - B" + (first / 12 + 2), first, 4,
 			stepper.scaleNotes(t), stepper.getField(t, "root"), pool.length].concat(pool, [lit.length], lit);
@@ -829,6 +1118,7 @@ function poolKey(note) {
 	if (!BRAIN || !stepper) return;
 	var t = editTrack;
 	note = Math.round(note);
+	if (isSeq()) return seqKey(note);
 	ops.push({ desc: "track " + (t + 1) + " pool note " + note, store: true, fn: function () { stepper.poolKey(t, note); } });
 	if (lastStep < 0) takeEdits(-1);
 }
@@ -866,6 +1156,7 @@ function phraseGrid(col, level) {
 function disp(name, value) {
 	if (!BRAIN || !stepper) return;
 	var row = rowOf(String(name)), v = Math.round(Number(value));
+	if (row && row.kind === "button") v = 0; // a live.text button: "bang"
 	if (!row || isNaN(v)) return;
 	// Just renamed (marks): what comes back now is the control's echo, not a click.
 	if (relabelled[row.name] !== undefined && Date.now() - relabelled[row.name] < 100) return;
@@ -895,6 +1186,21 @@ function disp(name, value) {
 	}
 	else if (row.action === "cycleSelect") return selectCycle(v);
 	else if (row.action === "cycleEdit") return cycleEditSelect(v);
+	else if (row.action === "lockSelect") return lockSelect(v);
+	else if (row.action === "lanePage") {
+		lanePage = v;
+		return showDisplay();
+	}
+	else if (row.action === "seqRest") return seqRest();
+	else if (row.action === "seqMode") {
+		if ((v === 1) === isSeq()) return;
+		var vel = defaultSeqVelocity(), mc = cycleEdit ? selCycle : -1;
+		lockSel = {};
+		seqSel = -1;
+		op = { desc: "track " + (t + 1) + (mc >= 0 ? " cycle " + (mc + 1) : "") + (v ? " SEQ" : " EUCLID") + " mode",
+			fn: function () { stepper.setSeqMode(t, mc, v === 1, vel); } };
+	}
+	else if (row.action === "stepPage") return stepPageSelect(v);
 	else if (row.action === "cycleMute") {
 		var mc = selCycle;
 		op = { desc: "track " + (t + 1) + " cycle " + (mc + 1) + (v ? " muted" : " unmuted"), fn: function () { stepper.setCycleMuted(t, mc, v); } };
@@ -925,12 +1231,20 @@ function pad(i, v) {
 	// 0", does nothing.
 	if (!BRAIN || !stepper) return;
 	if (v !== undefined && String(v) !== "bang" && Number(v) === 0) return;
-	var shift = mods.shift, ctrl = mods.ctrl;
-	mods = { shift: false, ctrl: false };
+	var shift = mods.shift, ctrl = mods.ctrl, alt = mods.alt;
+	mods = { shift: false, ctrl: false, alt: false };
 	i = Math.round(i);
 	if (i < 0 || i >= 16) return;
+	if (alt && padMode === MODE_STEP && isSeq()) return restPad(i); // Alt+click: a rest
 	if (padMode === MODE_MUTE) return mutePad(i, ctrl);
 	if (padMode === MODE_PATTERN) return patternPad(i, shift, ctrl);
+	if (ctrl) {
+		// A plain-clicked SEQ step joins the lock selection it starts.
+		if (!selCount() && seqSel >= 0) lockSel[seqSel] = true;
+		seqSel = -1;
+		return selectStep(stepPage * 16 + i);
+	}
+	if (isSeq()) return selectSeqStep(stepPage * 16 + i);
 	var t = editTrack, step = stepPage * 16 + i, c = cycleEdit ? selCycle : -1;
 	log("pad " + (Math.round(i) + 1) + " pressed (" + v + "): track " + (t + 1) + " step " + (step + 1) + " of " + stepsOf(t));
 	if (step < 0 || step >= stepsOf(t)) return;
@@ -941,8 +1255,39 @@ function pad(i, v) {
 
 // The modifier keys, from [modifiers] just before each pad press: "padMods shift ctrl"
 // (Ctrl on Windows, Cmd on the Mac).
-function padMods(shift, ctrl) {
-	mods = { shift: Number(shift) !== 0, ctrl: Number(ctrl) !== 0 };
+function padMods(shift, ctrl, alt) {
+	mods = { shift: Number(shift) !== 0, ctrl: Number(ctrl) !== 0, alt: Number(alt) !== 0 };
+}
+
+// Where the step pads are on the panel (from the patch: "padGeometry x y cell height"), for
+// a right-click.
+var padArea = null;
+function padGeometry(x, y, cell, h) {
+	padArea = { x: Number(x), y: Number(y), cell: Number(cell), h: Number(h) };
+}
+
+// A right-click somewhere on the device (from [mousestate]): on a step pad in SEQ mode, the
+// step becomes a rest, as on Rack.
+function rightClick(x, y) {
+	if (!BRAIN || !stepper || !padArea || padMode !== MODE_STEP) return;
+	x = Number(x);
+	y = Number(y);
+	if (y < padArea.y || y >= padArea.y + padArea.h) return;
+	var i = Math.floor((x - padArea.x) / padArea.cell);
+	if (i < 0 || i >= 16) return;
+	restPad(i);
+}
+
+// SEQ mode: pad i's step becomes a rest (right-click, or Alt+click).
+function restPad(i) {
+	if (!isSeq()) return;
+	var t = editTrack, c = cycleEdit ? selCycle : -1, step = stepPage * 16 + i;
+	if (step >= stepsOf(t)) return;
+	var pos = stepper.unrotated(t, c, step);
+	if (!stepper.seqStep(t, c, pos)) return;
+	ops.push({ desc: "track " + (t + 1) + " SEQ step " + (step + 1) + " a rest", store: true,
+		fn: function () { stepper.seqClear(t, c, pos); } });
+	if (lastStep < 0) takeEdits(-1);
 }
 
 // The time a change is made at, for the engine (quarter notes): while playing, the middle
@@ -964,6 +1309,10 @@ function padModeSelect(i) {
 		setStaged(0);
 	}
 	if (i === MODE_MUTE) preMuteMode = padMode;
+	if (i !== MODE_STEP) {
+		clearLockSel();
+		seqSel = -1;
+	}
 	padMode = i;
 	log("pad mode " + MODE_NAMES[i]);
 	showView();
@@ -1047,6 +1396,8 @@ function checkPattern(perf) {
 	if (first) return;
 	log("pattern " + (perf.current + 1) + " playing");
 	selCycle = Math.min(selCycle, stepper.cycleCount(editTrack) - 1);
+	lockSel = {};
+	seqSel = -1;
 	showEdits();
 	queueSave();
 }
@@ -1055,7 +1406,8 @@ function checkPattern(perf) {
 function blink() {
 	if (!BRAIN) return;
 	blinks++;
-	if (padMode !== MODE_STEP) showPads();
+	if (padMode !== MODE_STEP) showPads(); // staged mutes, a queue
+	if (DISPLAY && stepper && (selCount() || cycleEdit || dispShown.stepmark || dispShown.cycmark)) showRandomMark(); // the tab frames
 }
 
 function pageCount() {
@@ -1090,7 +1442,20 @@ var PAD_COLOURS = {
 	hit: [0.94, 0.54, 0.14],
 	play: [0.35, 0.35, 0.35],     // the playing step
 	playHit: [1, 1, 1],
+	sel: [0.08, 0.2, 0.5],        // selected for locks (a step with locks has a bar instead)
+	selHit: [0.3, 0.6, 1],
+	seq: [0.05, 0.3, 0.1],        // SEQ mode: the step selected for KEYS
+	seqHit: [0.25, 0.95, 0.4],
 };
+
+// The bar along the bottom of a pad whose step has locks (Step mode only).
+var padLocks = [];
+function setPadLock(i, on) {
+	on = !!on;
+	if (padLocks[i] === on) return;
+	padLocks[i] = on;
+	outlet(6, "script", on ? "show" : "hide", "d_padlock" + i);
+}
 
 // The edit track's step playing now, or -1 (stopped, off, or waiting to start).
 function playingStep() {
@@ -1105,6 +1470,7 @@ function showPads() {
 	var perf = perfShown();
 	checkPattern(perf);
 	showDisplay();
+	if (padMode !== MODE_STEP) for (var b = 0; b < 16; b++) setPadLock(b, false);
 	if (padMode === MODE_MUTE) return showMutePads(perf);
 	if (padMode === MODE_PATTERN) return showPatternPads(perf);
 	var t = editTrack, n = stepsOf(t), played = playedOf(t);
@@ -1118,13 +1484,17 @@ function showPads() {
 		stepPage = pages - 1;
 		outlet(5, "page", stepPage);
 	}
+	var lc = cycleEdit ? selCycle : -1, seq = isSeq();
 	for (var i = 0; i < 16; i++) {
-		var step = stepPage * 16 + i, hit = step < n && hits[step], key;
+		var step = stepPage * 16 + i, hit = step < n && hits[step], key, pos = step < n ? stepper.unrotated(t, lc, step) : -1;
 		if (step >= n) key = "none";
 		else if (step >= played) key = hit ? "cutHit" : "cut";
 		else if (step === now) key = hit ? "playHit" : "play";
+		else if (lockSel[pos]) key = hit ? "selHit" : "sel";
+		else if (pos === seqSel && seq) key = hit ? "seqHit" : "seq";
 		else key = hit ? "hit" : "off";
 		setPad(i, PAD_COLOURS[key]);
+		setPadLock(i, step < n && stepper.locksAt(t, lc, pos));
 	}
 }
 
@@ -1166,8 +1536,16 @@ function showPatternPads(perf) {
 
 function showEdits() {
 	if (!stepper) return;
-	for (var i = 0; i < EDIT_KEYS.length; i++)
-		outlet(3, EDIT_KEYS[i], dialValue(editTrack, EDIT_KEYS[i]));
+	var sel = selList(), c = cycleEdit ? selCycle : -1, seq = isSeq();
+	for (var i = 0; i < EDIT_KEYS.length; i++) {
+		var key = EDIT_KEYS[i], v = dialValue(editTrack, key), lockable = stepper.lockable(key);
+		if (sel.length && lockable) {
+			var locked = stepper.lockGet(editTrack, c, sel[0], key);
+			if (locked !== null) v = locked;
+		}
+		outlet(3, key, v);
+		outlet(3, "a_" + key, (sel.length && !lockable) || (seq && SEQ_IGNORES.indexOf(key) >= 0) ? 0 : 1);
+	}
 }
 
 // Applies waiting edits. s: this tick's step while playing (the steps already sent are
@@ -1182,6 +1560,12 @@ function takeEdits(s) {
 	var done = [], store = keys.length > 0;
 	for (var i = 0; i < keys.length; i++) {
 		var tk = keys[i].split(" "), v = edits[keys[i]];
+		if (tk[0] === "L") {
+			var lt = Number(tk[1]), lc = Number(tk[3]), sel = selList();
+			sel.forEach(function (pos) { stepper.lockSet(lt, lc, pos, tk[2], v); });
+			done.push("track " + (lt + 1) + " " + tk[2] + " " + v + " locked on " + sel.length + " steps");
+			continue;
+		}
 		if (tk.length > 2) stepper.setCycleParam(Number(tk[0]), Number(tk[2]), tk[1], v);
 		else stepper.setParamByKey(Number(tk[0]), tk[1], v);
 		done.push("track " + (Number(tk[0]) + 1) + (tk.length > 2 ? " cycle " + (Number(tk[2]) + 1) : "") + " " + tk[1] + " " + v);
@@ -1525,7 +1909,7 @@ function guarded(name, fn) {
 	["init", "instanceSelect", "trackSelect", "lookahead", "tick", "hello", "ev", "cue",
 		"loopinfo", "look", "announce", "anything", "status", "reset", "param",
 		"editTrackSelect", "debug", "savepattern", "restore", "enable", "pad", "stepPageSelect", "followSelect", "padMods", "padModeSelect",
-		"applyMutes", "blink", "displayPage", "disp", "phraseGrid", "poolKey", "scaleKey", "cycleEditSelect"].forEach(function (n) {
+		"applyMutes", "blink", "displayPage", "disp", "phraseGrid", "poolKey", "scaleKey", "cycleEditSelect", "lane", "laneClear", "lockStepClick", "padGeometry", "rightClick"].forEach(function (n) {
 		if (typeof g[n] !== "function") return;
 		var f = guarded(n, g[n]);
 		if (g[n].immediate) f.immediate = g[n].immediate; // keep scheduler-thread handlers there

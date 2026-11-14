@@ -8,7 +8,8 @@
 //                                    STYLE (dots 1): the next notes, a dash each
 //   grid label l0 .. l15             PHRASE's User shape: a column per 16th of the phrase,
 //                                    its level 0..11; click or drag sets a column
-//   steps n played now h0 h1 ...     TRACK: the track's n steps, 16 to a row: hits (h = 1),
+//   steps n played now h0 h1 ...     TRACK: the track's n steps, 16 to a row: h is 1 hit
+//                                    + 2 locked (a bar along the bottom) + 4 selected (blue),
 //                                    those past `played` cut off by Length, the step
 //                                    playing (`now`, -1 none)
 //   keys label first octaves scale root k p1..pk m l1..lm
@@ -17,10 +18,18 @@
 //                                    notes p) they can be clicked; the pool lit, the root
 //                                    marked, the m notes l starting now dotted
 //   scalekeys scale root             SCALE: one octave; a key is lit if in the scale
+//   lanes edit now c0..c15 L [name lo hi v0..v15]... more
+//                                    STEP: the step page's 16 steps (c: 0 past the Steps,
+//                                    else 1 + 2 hit + 4 selected + 8 locked + 16 cut off),
+//                                    `now` the playing one (-1), `edit` the row's label;
+//                                    then L lanes of locked parameters, each step's lock as
+//                                    a bar ("x": none); `more` 1 if more are locked
 //   play x                           the playhead, 0..1 across (-1: none)
 //   clear                            nothing
 //
-// Clicks go out of the outlet: "grid col level" (drag too), "key note", "scale pc".
+// Clicks go out of the outlet: "grid col level" (drag too), "key note", "scale pc",
+// "lane l step value" (0..1 up the lane; drag too, in the lane it started in), Ctrl+click
+// "laneclear l step"; on the STEPS row "stepsel step add" (add 1: Ctrl+click).
 
 inlets = 1;
 outlets = 1;
@@ -30,7 +39,7 @@ mgraphics.relative_coords = 0;
 mgraphics.autofill = 0;
 
 var LEVELS = 12, COLUMNS = 16;
-var kind = "clear", label = "", data = [], amount = 1, dots = false, play = -1;
+var kind = "clear", label = "", data = [], amount = 1, dots = false, playX = -1;
 var fg = [0.95, 0.6, 0.2, 1], dim = [0.55, 0.55, 0.55, 1];
 
 function groove(text, amt) {
@@ -56,7 +65,7 @@ function grid(text) {
 	mgraphics.redraw();
 }
 
-var keyFirst = 36, keyOctaves = 4, scaleBits = 0, root = 0, pool = [], lit = [], steps = null;
+var keyFirst = 36, keyOctaves = 4, scaleBits = 0, root = 0, pool = [], lit = [], stepsData = null;
 
 function keys(text, first, octaves, bits, r) {
 	kind = "keys";
@@ -83,11 +92,32 @@ function scalekeys(bits, r) {
 	mgraphics.redraw();
 }
 
-function steps_() {
+function steps() {
 	var a = Array.prototype.slice.call(arguments).map(Number);
 	kind = "steps";
 	label = "";
-	steps = { n: a[0], played: a[1], now: a[2], hits: a.slice(3) };
+	stepsData = { n: a[0], played: a[1], now: a[2], hits: a.slice(3) };
+	mgraphics.redraw();
+}
+
+var lanesData = null;
+
+function lanes() {
+	var a = Array.prototype.slice.call(arguments), i = 0;
+	kind = "lanes";
+	label = "";
+	var edit = String(a[i++]), now = Number(a[i++]), cells = a.slice(i, i + 16).map(Number);
+	i += 16;
+	var n = Number(a[i++]), list = [];
+	for (var l = 0; l < n; l++) {
+		var lane = { name: String(a[i++]), lo: Number(a[i++]), hi: Number(a[i++]), v: [] };
+		for (var k = 0; k < 16; k++) {
+			var v = a[i++];
+			lane.v.push(String(v) === "x" ? NaN : Number(v));
+		}
+		list.push(lane);
+	}
+	lanesData = { edit: edit, now: now, cells: cells, list: list, more: Number(a[i]) === 1 };
 	mgraphics.redraw();
 }
 
@@ -98,18 +128,16 @@ function clear() {
 }
 
 // The playhead, as a fraction of the width.
-function play_(x) {
-	play = Number(x);
+// (A message has a function of its own: a variable of the same name could take it.)
+function play(x) {
+	playX = Number(x);
 	mgraphics.redraw();
 }
 
 // Colours from [live.colors]: "live_lcd_control_fg r g b a" (the shapes), "live_lcd_title
-// r g b a" (labels, axes, the full groove shape). "play" comes here too (a reserved word
-// as a function name in some engines).
+// r g b a" (labels, axes, the full groove shape).
 function anything() {
 	var a = Array.prototype.slice.call(arguments);
-	if (messagename === "play") return play_(a[0]);
-	if (messagename === "steps") return steps_.apply(null, a);
 	if (a.length < 3) return;
 	var c = [Number(a[0]), Number(a[1]), Number(a[2]), a.length > 3 ? Number(a[3]) : 1];
 	if (messagename === "live_lcd_control_fg") fg = c;
@@ -128,6 +156,7 @@ function paint() {
 	var s = size(), w = s[0], h = s[1];
 	if (kind === "clear") return;
 	if (kind === "steps") return paintSteps(w, h);
+	if (kind === "lanes") return paintLanes(w, h);
 	if (kind === "keys" || kind === "scalekeys") return paintKeys(w, h);
 	var x0 = PAD, x1 = w - PAD, top = TOP, bottom = h - PAD;
 	// The corner label, top right.
@@ -140,8 +169,8 @@ function paint() {
 	if (kind === "groove") paintGroove(x0, x1, top, bottom);
 	else if (kind === "notes") paintNotes(x0, x1, top, bottom);
 	else if (kind === "grid") paintGrid(x0, x1, top, bottom);
-	if (play >= 0 && kind !== "grid" && !(kind === "notes" && dots)) {
-		var x = x0 + (x1 - x0) * play;
+	if (playX >= 0 && kind !== "grid" && !(kind === "notes" && dots)) {
+		var x = x0 + (x1 - x0) * playX;
 		mgraphics.set_source_rgba(dim);
 		mgraphics.set_line_width(1);
 		mgraphics.move_to(Math.round(x) + 0.5, top);
@@ -195,7 +224,7 @@ function gridRect() {
 // playing column lighter.
 function paintGrid(x0, x1, top, bottom) {
 	var r = gridRect(), cw = r[2] / COLUMNS, ch = r[3] / LEVELS;
-	var playCol = play >= 0 ? Math.min(COLUMNS - 1, Math.floor(play * COLUMNS)) : -1;
+	var playCol = playX >= 0 ? Math.min(COLUMNS - 1, Math.floor(playX * COLUMNS)) : -1;
 	for (var c = 0; c < COLUMNS; c++) {
 		var level = data[c] || 0;
 		for (var l = 0; l <= level; l++) {
@@ -216,19 +245,132 @@ function paintGrid(x0, x1, top, bottom) {
 
 // TRACK: the steps, 16 to a row, lit as the pads are.
 function paintSteps(w, h) {
-	if (!steps) return;
-	var rows = Math.max(1, Math.ceil(steps.n / 16)), cw = (w - 2 * PAD) / 16;
+	if (!stepsData) return;
+	var rows = Math.max(1, Math.ceil(stepsData.n / 16)), cw = (w - 2 * PAD) / 16;
 	var ch = Math.min(18, (h - 2 * PAD) / rows - 3);
-	for (var i = 0; i < steps.n; i++) {
+	for (var i = 0; i < stepsData.n; i++) {
 		var x = PAD + (i % 16) * cw, y = PAD + Math.floor(i / 16) * (ch + 3);
-		var hit = steps.hits[i] === 1, cut = i >= steps.played, now = i === steps.now;
-		if (now && hit) mgraphics.set_source_rgba(1, 1, 1, 1);
-		else if (now) mgraphics.set_source_rgba(dim[0], dim[1], dim[2], 0.7);
-		else if (hit) mgraphics.set_source_rgba(fg[0], fg[1], fg[2], cut ? 0.3 : 1);
-		else mgraphics.set_source_rgba(dim[0], dim[1], dim[2], cut ? 0.06 : 0.16);
-		mgraphics.rectangle(x + 1, y, cw - 2, ch);
+		var v = stepsData.hits[i];
+		stepCell(x, y, cw, ch, v & 1, i >= stepsData.played, i === stepsData.now, v & 4, v & 2);
+	}
+}
+
+// A step as the pads show it, but selected steps steady blue and locked ones with a
+// light-blue bar along the bottom (the pads blink the selection; they can't draw a bar).
+function stepCell(x, y, cw, ch, hit, cut, now, sel, locked) {
+	if (now && hit) mgraphics.set_source_rgba(1, 1, 1, 1);
+	else if (now) mgraphics.set_source_rgba(dim[0], dim[1], dim[2], 0.7);
+	else if (sel) mgraphics.set_source_rgba(hit ? 0.3 : 0.08, hit ? 0.6 : 0.2, hit ? 1 : 0.5, 1);
+	else if (hit) mgraphics.set_source_rgba(fg[0], fg[1], fg[2], cut ? 0.3 : 1);
+	else mgraphics.set_source_rgba(dim[0], dim[1], dim[2], cut ? 0.06 : 0.16);
+	mgraphics.rectangle(x + 1, y, cw - 2, ch);
+	mgraphics.fill();
+	if (locked) {
+		mgraphics.set_source_rgba(0.45, 0.8, 0.95, 1);
+		mgraphics.rectangle(x + 1, y + ch - 3, cw - 2, 3);
 		mgraphics.fill();
 	}
+}
+
+// STEP: the edit row (the page's steps, lit as the pads), then a lane per locked parameter.
+var LANE_X = 56, LANE_TOP = 18, EDIT_H = 13, LOCK_BLUE = [0.3, 0.6, 1, 1];
+
+function laneCellW(w) {
+	return (w - PAD - LANE_X) / 16;
+}
+
+function laneGeom(l, n, h) {
+	var avail = h - PAD - LANE_TOP, lh = Math.min(16, avail / Math.max(n, 1) - 2);
+	return [LANE_TOP + l * (lh + 2), lh];
+}
+
+function laneLabel(text, y, lh, c) {
+	mgraphics.select_font_face("Arial");
+	mgraphics.set_font_size(Math.min(9, lh + 1));
+	mgraphics.set_source_rgba(c);
+	mgraphics.move_to(PAD, y + lh / 2 + 3);
+	mgraphics.show_text(text);
+}
+
+function paintLanes(w, h) {
+	if (!lanesData) return;
+	var cw = laneCellW(w);
+	laneLabel(lanesData.edit, PAD, EDIT_H, lanesData.edit === "STEPS" ? dim : [1, 0.25, 0.2, 1]);
+	for (var i = 0; i < 16; i++) {
+		var c = lanesData.cells[i], x = LANE_X + i * cw;
+		if (!c) continue;
+		stepCell(x, PAD, cw, EDIT_H, c & 2, c & 16, i === lanesData.now, c & 4, c & 8);
+	}
+	var n = lanesData.list.length;
+	if (!n) {
+		mgraphics.select_font_face("Arial");
+		mgraphics.set_font_size(9);
+		mgraphics.set_source_rgba(dim);
+		mgraphics.move_to(LANE_X, LANE_TOP + 20);
+		mgraphics.show_text("NO LOCKS: CTRL+CLICK STEP PADS, THEN TURN A DIAL");
+		mgraphics.move_to(LANE_X, LANE_TOP + 34);
+		mgraphics.show_text("LANES HERE: CLICK / DRAG = SET A STEP'S LOCK, CTRL+CLICK = REMOVE");
+		return;
+	}
+	for (var l = 0; l < n; l++) {
+		var lane = lanesData.list[l], g = laneGeom(l, n, h), y = g[0], lh = g[1];
+		laneLabel(lane.name + (l === n - 1 && lanesData.more ? "+" : ""), y, lh, LOCK_BLUE);
+		var bipolar = lane.lo < 0;
+		for (i = 0; i < 16; i++) {
+			if (!lanesData.cells[i]) continue;
+			x = LANE_X + i * cw;
+			mgraphics.set_source_rgba(dim[0], dim[1], dim[2], 0.1);
+			mgraphics.rectangle(x + 1, y, cw - 2, lh);
+			mgraphics.fill();
+			var v = lane.v[i];
+			if (!isNaN(v)) {
+				var norm = Math.max(0, Math.min(1, (v - lane.lo) / (lane.hi - lane.lo))), from = bipolar ? 0.5 : 0;
+				var lo = Math.min(from, norm), hi = Math.max(from, norm);
+				mgraphics.set_source_rgba(LOCK_BLUE);
+				mgraphics.rectangle(x + 1, y + lh * (1 - hi), cw - 2, Math.max(lh * (hi - lo), 1));
+				mgraphics.fill();
+			}
+			if (i === lanesData.now) {
+				mgraphics.set_source_rgba(dim);
+				mgraphics.set_line_width(1);
+				mgraphics.rectangle(x + 1.5, y + 0.5, cw - 3, lh - 1);
+				mgraphics.stroke();
+			}
+		}
+	}
+}
+
+// The lane and step under (x, y), and the value there (0..1 up the lane); `only`: keep to
+// that lane (a drag).
+function laneAt(x, y, only) {
+	if (!lanesData || !lanesData.list.length) return null;
+	var s = size(), cw = laneCellW(s[0]), n = lanesData.list.length;
+	var step = Math.floor((x - LANE_X) / cw);
+	if (only !== undefined) step = Math.max(0, Math.min(15, step));
+	if (step < 0 || step > 15 || !lanesData.cells[step]) return null;
+	for (var l = 0; l < n; l++) {
+		if (only !== undefined && l !== only) continue;
+		var g = laneGeom(l, n, s[1]);
+		if (only === undefined && (y < g[0] || y > g[0] + g[1])) continue;
+		var norm = Math.max(0, Math.min(1, 1 - (y - g[0]) / g[1]));
+		return { lane: l, step: step, value: Math.round(norm * 1000) / 1000 };
+	}
+	return null;
+}
+
+var laneDrag = -1, laneSent = "";
+function laneEdit(x, y, remove) {
+	var at = laneAt(x, y, laneDrag >= 0 ? laneDrag : undefined);
+	if (!at) return;
+	if (remove) return outlet(0, "laneclear", at.lane, at.step);
+	if (laneDrag < 0) laneDrag = at.lane;
+	var key = at.lane + " " + at.step + " " + at.value;
+	if (key === laneSent) return;
+	laneSent = key;
+	var lane = lanesData.list[at.lane];
+	lane.v[at.step] = lane.lo + at.value * (lane.hi - lane.lo); // drawn at once
+	mgraphics.redraw();
+	outlet(0, "lane", at.lane, at.step, at.value);
 }
 
 var BLACK = [false, true, false, true, false, false, true, false, true, false, true, false];
@@ -328,8 +470,19 @@ function edit(x, y) {
 	outlet(0, "grid", col, level);
 }
 
-function onclick(x, y) {
+function onclick(x, y, but, cmd, shift, caps, option, ctrl) {
 	lastSent = "";
+	if (kind === "lanes") {
+		laneDrag = -1;
+		laneSent = "";
+		if (y >= PAD && y <= PAD + EDIT_H && lanesData) {
+			// The STEPS row: select the step (Ctrl+click: add or remove it).
+			var step = Math.floor((x - LANE_X) / laneCellW(size()[0]));
+			if (step >= 0 && step < 16 && lanesData.cells[step]) outlet(0, "stepsel", step, cmd || ctrl ? 1 : 0);
+			return;
+		}
+		return laneEdit(x, y, !!(cmd || ctrl));
+	}
 	if (kind === "keys" || kind === "scalekeys") {
 		var n = keyAt(x, y);
 		if (n < 0) return;
@@ -341,5 +494,10 @@ function onclick(x, y) {
 }
 
 function ondrag(x, y, but) {
+	if (kind === "lanes") {
+		if (but && laneDrag >= 0) laneEdit(x, y, false);
+		else if (!but) laneDrag = -1;
+		return;
+	}
 	if (but) edit(x, y);
 }

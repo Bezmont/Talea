@@ -12,6 +12,7 @@
 #include "core/third_party/nlohmann/json.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 #include <emscripten/emscripten.h>
 
@@ -397,6 +398,21 @@ EMSCRIPTEN_KEEPALIVE int talea_get_field(Host* h, int track, int id) {
 }
 
 /** Sets a track setting (clamped to its range). */
+/** SEQ mode: every sequence of the track (its own and its cycles') moves its notes onto the
+scale it plays with, after a scale, root or User scale edit (as Rack's conformSeqs). */
+static void conformSeqs(Host* h, int t) {
+	Pattern& p = h->engine.pattern;
+	const Track& base = p.tracks[t];
+	p.seqs[t].conform(base.scaleMask(), base.root);
+	for (int c = 0; c < kMaxCycles; c++) {
+		CycleOverrides& o = p.cycles[t].cycles[c];
+		if (!o.ownSeq)
+			continue;
+		Track r = p.cycles[t].resolve(base, c);
+		o.seq.conform(r.scaleMask(), r.root);
+	}
+}
+
 EMSCRIPTEN_KEEPALIVE void talea_set_field(Host* h, int track, int id, int v) {
 	if (!validTrack(track) || id < 0 || id >= kNumFields)
 		return;
@@ -407,6 +423,8 @@ EMSCRIPTEN_KEEPALIVE void talea_set_field(Host* h, int track, int id, int v) {
 		t.*(f.i) = v;
 	else
 		t.*(f.b) = v != 0;
+	if (id == 11 || id == 12) // scale, root: the SEQ notes follow
+		conformSeqs(h, track);
 }
 
 /** The sequencer's settings: 0 mute timing (MuteTiming), 1 mute cuts (0 finish, 1 cut),
@@ -626,9 +644,18 @@ EMSCRIPTEN_KEEPALIVE const char* talea_track_info(Host* h, int track) {
 	std::string s = "TRACK " + std::to_string(track + 1);
 	if (tr.cc)
 		s += "  CC " + std::to_string(tr.ccNumber);
-	s += "  STEPS " + std::to_string(tr.steps()) + "  PULSES " + std::to_string(tr.pulses()) + "  ROT " +
-	     std::to_string(tr.getInt(TP_ROTATE)) + "  " + kDivisions[tr.getInt(TP_DIVISION)].name + "  LEN " +
-	     kLengths[tr.getInt(TP_LENGTH)].name;
+	if (tr.seqMode) {
+		StepMask hits = h->engine.hits(track);
+		int notes = 0;
+		for (int i = 0; i < tr.steps(); i++)
+			notes += (hits >> i) & 1 ? 1 : 0;
+		s += "  SEQ  STEPS " + std::to_string(tr.steps()) + "  " + std::to_string(notes) + " WITH NOTES  " +
+		     kDivisions[tr.getInt(TP_DIVISION)].name + "  LEN " + kLengths[tr.getInt(TP_LENGTH)].name;
+	}
+	else
+		s += "  STEPS " + std::to_string(tr.steps()) + "  PULSES " + std::to_string(tr.pulses()) + "  ROT " +
+		     std::to_string(tr.getInt(TP_ROTATE)) + "  " + kDivisions[tr.getInt(TP_DIVISION)].name + "  LEN " +
+		     kLengths[tr.getInt(TP_LENGTH)].name;
 	if (played < tr.steps())
 		s += "  (" + std::to_string(played) + "/" + std::to_string(tr.steps()) + " PLAY)";
 	h->text = s;
@@ -679,6 +706,7 @@ EMSCRIPTEN_KEEPALIVE void talea_scale_key(Host* h, int track, int pc) {
 		tr.scale = kUserScale;
 	}
 	tr.userScale ^= ScaleMask(1u << (((pc - tr.root) % 12 + 12) % 12));
+	conformSeqs(h, track);
 }
 
 } // extern "C"
@@ -802,6 +830,200 @@ EMSCRIPTEN_KEEPALIVE const char* talea_cycle_info(Host* h, int track, int c) {
 	h->engine.pattern.tracks[track] = saved;
 	h->text = "CYCLE " + std::to_string(c + 1) + "  " + h->text;
 	return h->text.c_str();
+}
+
+} // extern "C"
+
+// ---- step locks (the STEP page) ------------------------------------------------------------
+//
+// `c` is the edited cycle in Cycle edit, or -1: the track. Positions are unrotated steps
+// (where locks are kept); talea_unrotated turns a played step into one.
+
+extern "C" {
+
+static bool lockParam(int p) {
+	return p >= 0 && p < kNumTrackParams && lockable(TrackParam(p));
+}
+
+/** The track (or the edited cycle, as it plays) at played step `step`: its position. */
+EMSCRIPTEN_KEEPALIVE int talea_unrotated(Host* h, int track, int c, int step) {
+	if (!validTrack(track))
+		return step;
+	const Track& base = h->engine.pattern.tracks[track];
+	return validCycle(c) ? h->engine.pattern.cycles[track].resolve(base, c).unrotated(step) : base.unrotated(step);
+}
+
+/** Step `pos`'s lock of p as the edited cycle (or the track) plays it, or NaN for none. */
+EMSCRIPTEN_KEEPALIVE double talea_lock_get(Host* h, int track, int c, int pos, int p) {
+	if (!validTrack(track) || !lockParam(p) || pos < 0 || pos >= kMaxSteps)
+		return std::nan("");
+	if (validCycle(c)) {
+		const CycleLocks& cl = h->engine.pattern.cycles[track].cycles[c].locks;
+		if (cl.has(pos, TrackParam(p)))
+			return cl.get(pos, TrackParam(p));
+	}
+	const StepLocks& l = h->engine.pattern.locks[track];
+	return l.has(pos, TrackParam(p)) ? double(l.values[pos][p]) : std::nan("");
+}
+
+/** Locks p on step `pos` (clamped and snapped): the edited cycle's, else the track's. */
+EMSCRIPTEN_KEEPALIVE void talea_lock_set(Host* h, int track, int c, int pos, int p, double v) {
+	if (!validTrack(track) || !lockParam(p) || pos < 0 || pos >= kMaxSteps)
+		return;
+	if (validCycle(c))
+		h->engine.pattern.cycles[track].cycles[c].locks.set(pos, TrackParam(p), float(v));
+	else
+		h->engine.pattern.locks[track].set(pos, TrackParam(p), float(v));
+}
+
+/** Removes a lock (p < 0: every lock of the step, its pool too). */
+EMSCRIPTEN_KEEPALIVE void talea_lock_clear(Host* h, int track, int c, int pos, int p) {
+	if (!validTrack(track) || pos < 0 || pos >= kMaxSteps)
+		return;
+	if (validCycle(c)) {
+		CycleLocks& cl = h->engine.pattern.cycles[track].cycles[c].locks;
+		if (p < 0)
+			cl.clearStep(pos);
+		else if (lockParam(p))
+			cl.clear(pos, TrackParam(p));
+		return;
+	}
+	StepLocks& l = h->engine.pattern.locks[track];
+	if (p < 0)
+		l.clearStep(pos);
+	else if (lockParam(p))
+		l.clear(pos, TrackParam(p));
+}
+
+/** The parameters locked on any step (the track's, with the edited cycle's): a bit each. */
+EMSCRIPTEN_KEEPALIVE int talea_locks_used(Host* h, int track, int c) {
+	if (!validTrack(track))
+		return 0;
+	uint32_t used = h->engine.pattern.locks[track].used;
+	if (validCycle(c))
+		used |= h->engine.pattern.cycles[track].cycles[c].locks.used;
+	return int(used);
+}
+
+/** Step `pos` has any lock (the track's, or the edited cycle's). */
+EMSCRIPTEN_KEEPALIVE int talea_locks_at(Host* h, int track, int c, int pos) {
+	if (!validTrack(track) || pos < 0 || pos >= kMaxSteps)
+		return 0;
+	bool any = h->engine.pattern.locks[track].any(pos);
+	if (validCycle(c))
+		any = any || h->engine.pattern.cycles[track].cycles[c].locks.any(pos);
+	return any ? 1 : 0;
+}
+
+/** Whether parameter p can be locked (not Steps, Pulses, Rotate, Division, Length). */
+EMSCRIPTEN_KEEPALIVE int talea_lockable(int p) {
+	return lockParam(p) ? 1 : 0;
+}
+
+} // extern "C"
+
+// ---- SEQ mode ------------------------------------------------------------------------------
+//
+// A track (or one cycle of it) can play a manual sequence: per step a chord, a velocity and a
+// gate in steps. `c`: the edited cycle in Cycle edit (its own mode and sequence), else -1.
+
+extern "C" {
+
+static Track viewOf(Host* h, int track, int c) {
+	const Track& base = h->engine.pattern.tracks[track];
+	return validCycle(c) ? h->engine.pattern.cycles[track].resolve(base, c) : base;
+}
+
+/** The track (or the edited cycle, as it plays) is in SEQ mode. */
+EMSCRIPTEN_KEEPALIVE int talea_seq_mode(Host* h, int track, int c) {
+	return validTrack(track) && viewOf(h, track, c).seqMode ? 1 : 0;
+}
+
+/** SETUP MODE: EUCLID or SEQ, for the track or as the edited cycle's own mode. A sequence
+still empty starts from the hits playing now, each with the pool and `velocity`, one step
+long, snapped to the scale (as Rack's). */
+EMSCRIPTEN_KEEPALIVE void talea_set_seq_mode(Host* h, int track, int c, int on, int velocity) {
+	if (!validTrack(track) || talea_seq_mode(h, track, c) == (on ? 1 : 0))
+		return;
+	Pattern& p = h->engine.pattern;
+	int cc = validCycle(c) ? c : -1;
+	StepMask hits = h->engine.hits(track, cc);
+	Track view = viewOf(h, track, c);
+	if (cc >= 0) {
+		CycleOverrides& o = p.cycles[track].cycles[cc];
+		o.ownMode = true;
+		o.seqMode = on != 0;
+	}
+	else
+		p.tracks[track].seqMode = on != 0;
+	if (on && p.sequenceOf(track, cc).empty()) {
+		StepSequence& sq = p.sequenceEdit(track, cc);
+		for (int s = 0; s < view.playedSteps(); s++) {
+			if ((hits >> s) & 1)
+				sq.set(s, view.pool, view.poolSize, std::max(1, std::min(127, velocity)), 1);
+		}
+		sq.conform(view.scaleMask(), view.root);
+	}
+}
+
+/** Step pos of the sequence: what 0 note count (0: a rest), 1 velocity, 2 gate (steps),
+3 + i note i. */
+EMSCRIPTEN_KEEPALIVE int talea_seq_step(Host* h, int track, int c, int pos, int what) {
+	if (!validTrack(track) || pos < 0 || pos >= kMaxSteps)
+		return 0;
+	const StepSequence& sq = h->engine.pattern.sequenceOf(track, validCycle(c) ? c : -1);
+	if (!sq.has(pos))
+		return 0;
+	const SeqStep& st = sq.steps[pos];
+	if (what == 0)
+		return st.count;
+	if (what == 1)
+		return st.velocity;
+	if (what == 2)
+		return st.gate;
+	int i = what - 3;
+	return i >= 0 && i < st.count ? st.notes[i] : 0;
+}
+
+/** KEYS: a note in or out of step pos's chord (a rest gets it at `velocity`, one step). */
+EMSCRIPTEN_KEEPALIVE void talea_seq_toggle_note(Host* h, int track, int c, int pos, int note, int velocity) {
+	if (validTrack(track) && pos >= 0 && pos < kMaxSteps && note >= 0 && note <= 127)
+		h->engine.pattern.sequenceEdit(track, validCycle(c) ? c : -1).toggleNote(pos, note, std::max(1, std::min(127, velocity)));
+}
+
+/** KEYS with several steps selected: step pos takes step from's chord, keeping its own
+velocity and gate (a rest: `velocity`, one step). */
+EMSCRIPTEN_KEEPALIVE void talea_seq_copy_chord(Host* h, int track, int c, int pos, int from, int velocity) {
+	if (!validTrack(track) || pos < 0 || pos >= kMaxSteps || from < 0 || from >= kMaxSteps || pos == from)
+		return;
+	StepSequence& sq = h->engine.pattern.sequenceEdit(track, validCycle(c) ? c : -1);
+	const SeqStep& f = sq.steps[from];
+	int notes[kMaxPool];
+	int n = sq.has(from) ? f.count : 0;
+	for (int i = 0; i < n; i++)
+		notes[i] = f.notes[i];
+	bool had = sq.has(pos);
+	sq.set(pos, notes, n, had ? sq.steps[pos].velocity : std::max(1, std::min(127, velocity)), had ? sq.steps[pos].gate : 1);
+}
+
+/** REST: step pos loses its notes. */
+EMSCRIPTEN_KEEPALIVE void talea_seq_clear(Host* h, int track, int c, int pos) {
+	if (validTrack(track) && pos >= 0 && pos < kMaxSteps)
+		h->engine.pattern.sequenceEdit(track, validCycle(c) ? c : -1).clear(pos);
+}
+
+/** LOCKS' N.VEL and GATE lanes: a step with notes takes a velocity (what 1, 1-127) or a gate
+(what 2, steps). */
+EMSCRIPTEN_KEEPALIVE void talea_seq_set(Host* h, int track, int c, int pos, int what, int v) {
+	if (!validTrack(track) || pos < 0 || pos >= kMaxSteps)
+		return;
+	StepSequence& sq = h->engine.pattern.sequenceEdit(track, validCycle(c) ? c : -1);
+	if (!sq.has(pos))
+		return;
+	if (what == 1)
+		sq.setVelocity(pos, v);
+	else if (what == 2)
+		sq.setGate(pos, v);
 }
 
 } // extern "C"

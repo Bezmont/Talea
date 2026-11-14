@@ -7,7 +7,8 @@
 //            row's "altWhen" setting is on, e.g. LOOPS while SYNC is LOOP)
 //   kind     "tab" (a live.tab), "menu" (a live.menu), "buttons" (a live.tab in button
 //            mode: each click an action, nothing stays selected), "num" (a live.numbox),
-//            "text" (a line the script writes: "text" says which)
+//            "text" (a line the script writes: "text" says which), "button" (one button,
+//            a live.text: "text" its label)
 //   items    the choices; "@scales" is the engine's scale list (Tonal.hpp), "@randomRates"
 //            its Random Rate names (Values.hpp)
 //   values   the engine value of each choice, if not 0, 1, 2 ...
@@ -24,6 +25,10 @@
 //            next row, at the left); "labelW" the label's width ("label" left out: none)
 //   unit     "%": a numbox shows its value in percent
 //   fontsize a tab row's font size (default 8)
+//   showWhen shown only while the script says so ("lanePages": more than 6 lanes,
+//            "stepPages": more than 16 steps, "seqStep": SEQ mode with steps selected)
+//   seqUnused dimmed while the edit track is in SEQ mode (it doesn't use it)
+//   altWhen  "@cycleEdit": the alt label in Cycle edit
 //   playBars a tab row with a bar under each choice, shown under the one playing
 //            ("d_<name>_play<i>": CYCLE's playing cycle)
 //   marks    "used": a pattern slot's choice reads "3*" while the slot holds a pattern;
@@ -36,7 +41,8 @@
 // (the same script, a bigger box).
 //
 // "MUTE" isn't a page: Mute pad mode shows it over whatever page is chosen, as on Rack.
-// No REPEAT page: its one setting, Choke or Tail, is on SETUP. VOICING is Rack's STYLE page
+// LOCKS is Rack's STEP page (its step locks). No REPEAT page: its one setting, Choke or Tail,
+// is on SETUP. VOICING is Rack's STYLE page
 // (what the Voicing dial moves). Pages without rows aren't built yet; they show a note.
 // SETUP also has the device's own controls (Instance, Look-ahead, the status line), placed
 // by build.py.
@@ -45,17 +51,24 @@
 
 module.exports = {
 	"diagrams": {"GROOVE": "groove", "PHRASE": "phrase", "VOICING": "style", "SCALE": "scale"},
-	"boards": {"TRACK": "steps", "KEYS": "keys"},
+	"boards": {"TRACK": "steps", "KEYS": "keys", "LOCKS": "lanes"},
 	"dialPages": {
 		"steps": "TRACK", "pulses": "TRACK", "rotate": "TRACK", "division": "TRACK", "length": "TRACK",
 		"repeats": "SETUP", "ramp": "SETUP", "repeatTime": "SETUP", "pace": "SETUP",
 		"velocity": "GROOVE", "probability": "GROOVE", "sustain": "GROOVE", "accent": "GROOVE", "timing": "GROOVE", "delay": "GROOVE",
 		"pitch": "SCALE", "voicing": "VOICING", "range": "PHRASE"
 	},
-	"pages": ["TRACK", "STEP", "CYCLE", "KEYS", "SCALE", "PHRASE", "VOICING", "GROOVE", "RANDOM", "PATTERN", "SONG", "SETUP"],
+	"pages": ["TRACK", "LOCKS", "CYCLE", "KEYS", "SCALE", "PHRASE", "VOICING", "GROOVE", "RANDOM", "PATTERN", "SONG", "SETUP"],
 	"views": {
 		"TRACK": [
 			{"name": "trackInfo", "kind": "text", "text": "trackInfo", "labelW": 0}
+		],
+		"LOCKS": [
+			{"name": "lockSelect", "label": "SELECT", "kind": "buttons", "items": ["NONE", "PAGE", "CLEAR LOCKS"], "action": "lockSelect", "width": 180},
+			{"name": "lockStepPage", "kind": "tab", "items": ["1-16", "17-32", "33-48", "49-64"], "action": "stepPage", "x": 244, "row": 0, "labelW": 0, "width": 116,
+				"marks": "stepPages", "showWhen": "stepPages"},
+			{"name": "lanePage", "kind": "tab", "items": ["1-6", "7-12", "13"], "action": "lanePage", "x": 364, "row": 0, "labelW": 0, "width": 90,
+				"marks": "lanePages", "showWhen": "lanePages"}
 		],
 		"CYCLE": [
 			{"name": "cycleCount", "label": "COUNT", "kind": "tab", "items": ["1", "2", "3", "4", "5", "6", "7", "8"], "action": "cycleCount"},
@@ -67,7 +80,8 @@ module.exports = {
 		],
 		"KEYS": [
 			{"name": "keysOctave", "label": "OCTAVE", "kind": "buttons", "items": ["<", ">"], "action": "octave", "width": 50},
-			{"name": "keysHelp", "kind": "text", "text": "keysHelp", "x": 120, "row": 0, "labelW": 0}
+			{"name": "keysHelp", "kind": "text", "text": "keysHelp", "x": 120, "row": 0, "labelW": 0, "width": 270},
+			{"name": "seqRest", "kind": "button", "text": "REST", "action": "seqRest", "x": 400, "row": 0, "labelW": 0, "width": 54, "showWhen": "seqStep"}
 		],
 		"SCALE": [
 			{"name": "scale", "label": "SCALE", "kind": "menu", "items": "@scales", "field": "scale", "width": 180},
@@ -75,15 +89,15 @@ module.exports = {
 		],
 		"PHRASE": [
 			{"name": "phrase", "label": "PHRASE", "kind": "tab", "items": ["CAD 1", "CAD 2", "CAD 3", "CAD 4", "SAW", "TRI", "SINE", "PULSE", "USER"],
-				"values": [0, 1, 2, 3, 4, 5, 6, 7, 9], "field": "phrase"},
+				"values": [0, 1, 2, 3, 4, 5, 6, 7, 9], "field": "phrase", "seqUnused": true},
 			{"name": "phraseLength", "label": "BARS", "alt": "LOOPS", "altWhen": "phraseLoop", "kind": "tab",
-				"items": ["1", "2", "4", "8", "16", "32", "64"], "field": "phraseLength", "width": 240},
-			{"name": "phraseLoop", "label": "SYNC", "kind": "tab", "items": ["BARS", "LOOP"], "field": "phraseLoop", "width": 100}
+				"items": ["1", "2", "4", "8", "16", "32", "64"], "field": "phraseLength", "seqUnused": true, "width": 240},
+			{"name": "phraseLoop", "label": "SYNC", "kind": "tab", "items": ["BARS", "LOOP"], "field": "phraseLoop", "seqUnused": true, "width": 100}
 		],
 		"VOICING": [
-			{"name": "style", "label": "STYLE", "kind": "tab", "items": ["FIXED", "RAMP", "CLIMB", "UP/DN", "CLB U/D"], "field": "style", "width": 260},
-			{"name": "mono", "label": "PLAY", "kind": "tab", "items": ["POLY", "MONO"], "field": "mono", "width": 100},
-			{"name": "voicingDown", "label": "VOICE", "kind": "tab", "items": ["UP", "DOWN"], "field": "voicingDown", "width": 100}
+			{"name": "style", "label": "STYLE", "kind": "tab", "items": ["FIXED", "RAMP", "CLIMB", "UP/DN", "CLB U/D"], "field": "style", "seqUnused": true, "width": 260},
+			{"name": "mono", "label": "PLAY", "kind": "tab", "items": ["POLY", "MONO"], "field": "mono", "seqUnused": true, "width": 100},
+			{"name": "voicingDown", "label": "VOICE", "kind": "tab", "items": ["UP", "DOWN"], "field": "voicingDown", "seqUnused": true, "width": 100}
 		],
 		"GROOVE": [
 			{"name": "groove", "label": "GROOVE", "kind": "tab", "items": ["AGOGO", "TIMBAL", "CONGAS", "BONGO", "SAW", "TRI", "SINE", "PULSE"], "field": "groove"},
@@ -140,7 +154,8 @@ module.exports = {
 			{"name": "cc", "label": "TYPE", "kind": "tab", "items": ["NOTE", "CC"], "field": "cc", "width": 100},
 			{"name": "ccNumber", "label": "CC", "kind": "num", "min": 0, "max": 119, "field": "ccNumber", "width": 44,
 				"activeWhen": {"field": "cc", "in": [1]}},
-			{"name": "repeatTail", "label": "REPEATS", "kind": "tab", "items": ["CHOKE", "TAIL"], "field": "repeatTail", "width": 100}
+			{"name": "repeatTail", "label": "REPEATS", "kind": "tab", "items": ["CHOKE", "TAIL"], "field": "repeatTail", "width": 100},
+			{"name": "seqMode", "label": "MODE", "alt": "CYC MODE", "altWhen": "@cycleEdit", "kind": "tab", "items": ["EUCLID", "SEQ"], "action": "seqMode", "width": 100}
 		],
 		"MUTE": [
 			{"name": "muteTiming", "label": "APPLY", "kind": "tab", "items": ["NOW", "BEAT", "BAR", "PATTERN"], "setting": "muteTiming", "width": 200},

@@ -84,6 +84,7 @@ World.prototype.device = function (role, trackNo, saved, restoreAfterInit, noTes
 				else if (a[0] === "remove") delete d.coll[a[1]];
 				else if (a[0] === "clear") d.coll = {};
 			} else if (n === 3 && a[0] === "clear") w.pipe = w.pipe.filter(function (e) { return e.dev !== d; });
+			else if (n === 3 && role === "brain") (d.dials = d.dials || {})[a[0]] = a[1];
 			else if (n === 5 && role === "brain") {
 				// the pads, the step page tabs and the Follow button
 				if (a[0] === "pad") (d.pads = d.pads || [])[a[1]] = a.slice(2, 5).join(" ");
@@ -735,8 +736,8 @@ function turn(brain, track, key, v) {
 // ---- Mute and Pattern pad modes ----
 
 // A pad press as the patch sends it: the modifier keys first, then the press.
-function press(b, i, shift, ctrl) {
-	b.ctx.padMods(shift ? 1 : 0, ctrl ? 1 : 0);
+function press(b, i, shift, ctrl, alt) {
+	b.ctx.padMods(shift ? 1 : 0, ctrl ? 1 : 0, alt ? 1 : 0);
 	b.ctx.pad(i, "bang");
 }
 
@@ -935,8 +936,9 @@ function loadBankStopped(s, bank) {
 
 // ---- the display ----
 
+// The display's controls shown now (not the tab frames and pad bars, which come and go).
 function shownNames(d) {
-	return Object.keys(d.shown).filter(function (k) { return d.shown[k]; }).sort().join(" ");
+	return Object.keys(d.shown).filter(function (k) { return d.shown[k] && !/^d_(padlock|stepmark|cycmark|rndmark)/.test(k); }).sort().join(" ");
 }
 
 // Pages: a page shows its rows (or the note for one not built yet), set from the edit
@@ -1119,10 +1121,17 @@ function shownNames(d) {
 	var ctx = { mgraphics: g, outlet: function () { sent.push(Array.prototype.slice.call(arguments, 1)); }, box: { rect: [0, 0, 454, 54] }, Math: Math };
 	vm.createContext(ctx);
 	vm.runInContext(fs.readFileSync(path.join(DEVICE, "jezric_talea_diagram.js"), "utf8"), ctx);
+	// As Max: a message goes to the function of its name, if there is one, else to anything.
+	function msg(name) {
+		var a = Array.prototype.slice.call(arguments, 1);
+		if (typeof ctx[name] === "function") return ctx[name].apply(null, a);
+		ctx.messagename = name;
+		ctx.anything.apply(null, a);
+	}
 	var curve = []; for (var i = 0; i <= 128; i++) curve.push(Math.sin(i / 20));
 	ctx.groove.apply(null, ["2 BARS", 0.5].concat(curve));
-	ctx.messagename = "play"; ctx.anything(0.25);
-	ctx.messagename = "live_lcd_control_fg"; ctx.anything(1, 0.5, 0, 1);
+	msg("play", 0.25);
+	msg("live_lcd_control_fg", 1, 0.5, 0, 1);
 	ctx.paint();
 	ctx.notes.apply(null, ["NEXT 16 NOTES", 1, 60, 62, 64, 65]);
 	ctx.paint();
@@ -1137,8 +1146,7 @@ function shownNames(d) {
 		sent.length === 2 && sent[0].join() === "grid,2,5" && sent[1].join() === "grid,5,11");
 	// The board: steps and the keyboard; a key click sends the note, SCALE's the pitch class.
 	g.size = [454, 97];
-	ctx.messagename = "steps";
-	ctx.anything.apply(null, [20, 16, 3, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0]);
+	msg.apply(null, ["steps", 20, 16, 3, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0]);
 	ctx.paint();
 	ctx.keys.apply(null, ["C2 - B5", 36, 4, 0xAB5, 0, 2, 48, 52, 1, 52]);
 	ctx.paint();
@@ -1150,6 +1158,24 @@ function shownNames(d) {
 	g.size = [454, 57];
 	ctx.onclick(56 + 450 / 28 * 2.5, 50); // E: SCALE's keys are KEYS' size, from x 56
 	ctx.onclick(56 + 450 / 28 * 8, 50);   // past the octave: nothing
+	var keySent = sent;
+	sent = [];
+	g.size = [454, 116];
+	var cells = []; for (i = 0; i < 16; i++) cells.push(i < 12 ? 1 + (i % 3 === 0 ? 2 : 0) + (i === 4 ? 4 : 0) + (i === 1 ? 8 : 0) : 0);
+	var vals = []; for (i = 0; i < 16; i++) vals.push(i === 1 ? 60 : "x");
+	msg.apply(null, ["lanes", "STEPS", 3].concat(cells, [2, "VEL", 0, 127], vals, ["TIM", -100, 100], vals, [0]));
+	ctx.paint();
+	var cw = (454 - 2 - 56) / 16;
+	ctx.onclick(56 + cw * 1.5, 30, 1, 0);       // lane 1, step 2, near the top
+	ctx.ondrag(56 + cw * 2.5, 90, 1);            // dragging stays in lane 1
+	ctx.onclick(56 + cw * 2.5, 30, 1, 1);        // Ctrl+click: remove
+	ctx.onclick(56 + cw * 14.5, 30, 1, 0);       // past the steps: nothing
+	ctx.onclick(56 + cw * 5.5, 8, 1, 0);         // the STEPS row: select step 6
+	ctx.onclick(56 + cw * 7.5, 8, 1, 1);         // Ctrl+click: add step 8
+	check("lanes draw; a click and drag set locks, Ctrl+click removes (" + JSON.stringify(sent) + ")",
+		sent.length === 5 && sent[3].join() === "stepsel,5,0" && sent[4].join() === "stepsel,7,1" && sent[0][0] === "lane" && sent[0][1] === 0 && sent[0][2] === 1 && sent[0][3] === 0.25 &&
+		sent[1][0] === "lane" && sent[1][1] === 0 && sent[1][2] === 2 && sent[1][3] === 0 && sent[2].join() === "laneclear,0,2");
+	sent = keySent;
 	check("the board draws steps and keys; key clicks send notes (" + JSON.stringify(sent) + ")",
 		sent.length === 3 && sent[0].join() === "key,48" && sent[1].join() === "key,37" && sent[2].join() === "scale,4");
 })();
@@ -1262,8 +1288,10 @@ function shownNames(d) {
 	b.disp("cycleSelect", 1);
 	check("CYCLE tab unframed (" + d.shown.d_cycmark + ")", !d.shown.d_cycmark);
 	b.disp("cycleEdit", 1);
-	check("EDIT on: the CYCLE tab framed red, the line says so (" + d.disp.d_cyclePlaying + ")",
-		d.shown.d_cycmark === true && /^EDIT: CYCLE 2 PLAYS ALONE/.test(d.disp.d_cyclePlaying));
+	var cyc = {};
+	for (var k = 0; k < 8; k++) { b.blink(); cyc[d.shown.d_cycmark] = true; }
+	check("EDIT on: the CYCLE tab's red frame blinks, the line says so (" + d.disp.d_cyclePlaying + ")",
+		cyc["true"] && cyc["false"] && /^EDIT: CYCLE 2 PLAYS ALONE/.test(d.disp.d_cyclePlaying));
 	check("Cycle edit: the dials show cycle 2's values (pulses " + b.dialValue(0, "pulses") + ")", b.dialValue(0, "pulses") === 9);
 	turn(s.brain, 0, "pulses", 3);
 	check("Cycle edit: a dial overrides cycle 2 only (" + b.stepper.getCycleParam(0, 1, "pulses") + ", track " + b.stepper.getParam(0, "pulses") + ")",
@@ -1331,6 +1359,176 @@ function shownNames(d) {
 	s.w.wait(SAVE_PAUSE_MS + 10);
 	var r = setup({ saved: s.brain.pattr });
 	check("cycles saved with the set (" + r.brain.ctx.stepper.cycleCount(0) + ")", r.brain.ctx.stepper.cycleCount(0) === 4 && r.brain.ctx.stepper.cycleState(0, 2).muted);
+	done(r);
+	done(s);
+})();
+
+// Step locks: Ctrl+click selects steps (pads blue; the dials that can't lock dim), a dial
+// locks its value on them (heard at Play, shown in STEP's lanes), a lane click sets a lock,
+// Ctrl+click in a lane removes one, CLEAR LOCKS clears the selected steps'.
+(function () {
+	var s = setup(), b = s.brain.ctx, d = s.brain;
+	press(s.brain, 1, false, true);
+	press(s.brain, 4, false, true);
+	check("Ctrl+click selects steps 2 and 5: blue pads (" + d.pads[1] + ", " + d.pads[4] + ")",
+		b.selList().join() === "1,4" && /^0\.(3|08) 0\.(6|2) /.test(d.pads[1]) && /^0\.(3|08) 0\.(6|2) /.test(d.pads[4]));
+	var seen = {}, frames = {};
+	for (var k = 0; k < 8; k++) { b.blink(); seen[d.pads[4]] = true; frames[d.shown.d_stepmark] = true; }
+	check("a selected pad stays blue; the LOCKS tab frame blinks (" + Object.keys(seen).join(" | ") + "; " + Object.keys(frames).join(" | ") + ")",
+		Object.keys(seen).join() === "0.08 0.2 0.5" && frames["true"] && frames["false"]);
+	check("the dials that can't lock dim (pulses " + d.dials.a_pulses + ", velocity " + d.dials.a_velocity + ")",
+		d.dials.a_pulses === 0 && d.dials.a_velocity === 1);
+	b.param("velocity", 30); // the edit track already chosen (choosing it ends a selection)
+	check("a dial locks its value on the selected steps (" + b.stepper.lockGet(0, -1, 1, "velocity") + ", " + b.stepper.lockGet(0, -1, 4, "velocity") +
+		", step 3 " + b.stepper.lockGet(0, -1, 2, "velocity") + "; track " + b.stepper.getParam(0, "velocity") + ")",
+		b.stepper.lockGet(0, -1, 1, "velocity") === 30 && b.stepper.lockGet(0, -1, 4, "velocity") === 30 &&
+		b.stepper.lockGet(0, -1, 2, "velocity") === null && b.stepper.getParam(0, "velocity") !== 30);
+	check("the dial shows the lock, the display LOCKS (" + d.dials.velocity + ", page " + d.disp.d_pages + ", " + shownNames(d) + ")",
+		d.dials.velocity === 30 && d.disp.d_pages === 1 && shownNames(d) === "d_board d_lockSelect dl_lockSelect");
+	var bd = d.disp.d_board;
+	check("LOCKS: a VEL lane, the locked steps' bars (" + bd.slice(0, 2).join(" ") + " ... " + bd.slice(19, 26).join(" ") + ")",
+		bd[0] === "lanes" && bd[1] === "STEPS" && bd[19] === 1 && bd[20] === "VEL" && bd[23] === "x" && bd[24] === 30 && bd[27] === 30);
+	check("locked steps: a bar on their pads (" + d.shown.d_padlock1 + ", " + d.shown.d_padlock4 + ", " + d.shown.d_padlock2 + "), no colour of their own",
+		d.shown.d_padlock1 === true && d.shown.d_padlock4 === true && !d.shown.d_padlock2);
+	b.displayPage(0);
+	check("TRACK: locked steps marked (+2), selected (+4) (" + d.disp.d_board.slice(4, 10).join(" ") + ")",
+		d.disp.d_board[4 + 1] === 6 && d.disp.d_board[4 + 4] === 6 && d.disp.d_board[4 + 2] < 2);
+	b.displayPage(1);
+	b.lane(0, 7, 1);
+	check("a lane click sets a lock (step 8 velocity " + b.stepper.lockGet(0, -1, 7, "velocity") + ")", b.stepper.lockGet(0, -1, 7, "velocity") === 127);
+	b.laneClear(0, 7);
+	check("Ctrl+click in a lane removes it", b.stepper.lockGet(0, -1, 7, "velocity") === null);
+	var t0 = s.w.now;
+	s.w.play(range(0, 64));
+	var st = new core.Stepper(M, preset), want = emptyWant();
+	st.lockSet(0, -1, 1, "velocity", 30);
+	st.lockSet(0, -1, 4, "velocity", 30);
+	range(0, 64).forEach(function (p, i) { addStep(want, st.step(p), i); });
+	st.destroy();
+	compare("locks while stopped: Play plays them", s.rx, t0, 120, want, 0);
+	s.w.stop();
+	s.w.wait(SAVE_PAUSE_MS + 10);
+	var r = setup({ saved: s.brain.pattr });
+	check("locks saved with the set", r.brain.ctx.stepper.lockGet(0, -1, 4, "velocity") === 30);
+	done(r);
+	b.displayPage(1);
+	b.disp("lockSelect", 2); // CLEAR LOCKS
+	check("CLEAR LOCKS: the selected steps' locks gone", b.stepper.lockGet(0, -1, 1, "velocity") === null && !b.stepper.locksAt(0, -1, 4));
+	b.editTrackSelect(1);
+	check("another track ends the selection (dials " + d.dials.a_pulses + ")", b.selList().length === 0 && d.dials.a_pulses === 1);
+	b.editTrackSelect(0);
+	b.displayPage(1);
+	check("no locks: no lanes (" + d.disp.d_board[19] + "); 16 steps: no step pages (" + d.shown.d_lockStepPage + ")",
+		d.disp.d_board[19] === 0 && !d.shown.d_lockStepPage);
+	turn(s.brain, 0, "steps", 40);
+	b.displayPage(1);
+	check("40 steps: the step pages, 3 of them (" + d.shown.d_lockStepPage + ", " + d.disp.dr_lockStepPage + ")",
+		d.shown.d_lockStepPage === true && d.disp.dr_lockStepPage.join() === "1-16,17-32,33-48");
+	s.w.wait(200);
+	b.disp("lockStepPage", 2);
+	check("a step page chosen: the lanes and pads show it, Follow off (" + b.stepPage + ", " + d.page + ", follow " + d.follow + ")",
+		b.stepPage === 2 && d.page === 2 && d.follow === 0);
+	turn(s.brain, 0, "steps", 16);
+	b.displayPage(1);
+	b.editTrackSelect(0);
+	// More than 6 lanes: LANES shows, a dial's lock shows its group; the STEP tab framed.
+	check("no selection: LOCKS tab unframed, no LANES (" + d.shown.d_stepmark + ", " + d.shown.d_lanePage + ")", !d.shown.d_stepmark && !d.shown.d_lanePage);
+	press(s.brain, 0, false, true);
+	var fr = {};
+	for (var k2 = 0; k2 < 8; k2++) { b.blink(); fr[d.shown.d_stepmark] = true; }
+	check("a selection: the LOCKS tab frame blinks", fr["true"] && fr["false"]);
+	["repeats", "ramp", "pace", "velocity", "probability", "sustain", "accent"].forEach(function (k, i) { b.param(k, i === 3 ? 20 : 1); });
+	check("7 locked: LANES 1-6 | 7 shows (" + d.shown.d_lanePage + ", " + d.disp.dr_lanePage + ")",
+		d.shown.d_lanePage === true && d.disp.dr_lanePage.join() === "1-6,7");
+	check("the dial last turned: its group shown (ACCENT, the 7th: " + d.disp.d_board[20] + ", page " + d.disp.d_lanePage + ")",
+		d.disp.d_board[19] === 1 && d.disp.d_board[20] === "ACC" && d.disp.d_lanePage === 1);
+	s.w.wait(200);
+	b.disp("lanePage", 0);
+	check("LANES 1-6: the first six (" + d.disp.d_board[19] + ", " + d.disp.d_board[20] + ", more " + d.disp.d_board[d.disp.d_board.length - 1] + ")",
+		d.disp.d_board[19] === 6 && d.disp.d_board[20] === "REP" && d.disp.d_board[d.disp.d_board.length - 1] === 1);
+	b.disp("lockSelect", 0);
+	check("deselected: the LOCKS tab unframed", d.shown.d_stepmark === false);
+	b.lockStepClick(3, 0);
+	b.lockStepClick(6, 1);
+	check("STEPS row: a click selects a step, Ctrl+click adds one (" + b.selList().join() + ")", b.selList().join() === "3,6");
+	b.lockStepClick(9, 0);
+	check("a plain click selects just that step (" + b.selList().join() + ")", b.selList().join() === "9");
+	b.lockStepClick(9, 0);
+	check("clicking the only selected step deselects it", b.selList().length === 0);
+	b.displayPage(0);
+	check("another page: LANES hidden", d.shown.d_lanePage === false);
+	done(s);
+})();
+
+// SEQ mode: SETUP MODE switches it (the sequence starts from the hits), a pad click
+// selects a step (green) for KEYS, KEYS edits its chord, REST makes it a rest, LOCKS' first
+// lanes are N.VEL and GATE; the dials SEQ doesn't use dim; a scale change moves the notes.
+(function () {
+	var s = setup(), b = s.brain.ctx, d = s.brain;
+	var hitsBefore = b.stepper.hits(0).slice(0, 16).join();
+	b.displayPage(11);
+	check("SETUP shows MODE (EUCLID at first: " + d.disp.d_seqMode + ")", / d_seqMode /.test(" " + shownNames(d) + " ") && d.disp.d_seqMode === 0);
+	b.disp("seqMode", 1);
+	check("SEQ mode: the sequence from the hits, the same rhythm (" + b.stepper.seqMode(0, -1) + ")",
+		b.stepper.seqMode(0, -1) && b.stepper.hits(0).slice(0, 16).join() === hitsBefore && b.stepper.seqStep(0, -1, 0) !== null);
+	check("the dials SEQ doesn't use dim (pulses " + d.dials.a_pulses + ", voicing " + d.dials.a_voicing + ", pitch " + d.dials.a_pitch + ")",
+		d.dials.a_pulses === 0 && d.dials.a_voicing === 0 && d.dials.a_pitch === 1);
+	check("TRACK's line in SEQ (" + b.stepper.trackInfo(0) + ")", /SEQ  STEPS 16  9 WITH NOTES/.test(b.stepper.trackInfo(0)));
+	press(s.brain, 2);
+	check("a pad click selects the step, green; nothing toggled (" + d.pads[2] + ")",
+		b.seqSel === 2 && /^0\.(25|05) 0\.(95|3) /.test(d.pads[2]) && b.stepper.hits(0).slice(0, 16).join() === hitsBefore);
+	b.displayPage(3);
+	check("KEYS: the step's chord, REST shown (" + d.disp.d_keysHelp + ", " + d.shown.d_seqRest + ")",
+		/^SEQ: /.test(d.disp.d_keysHelp) && d.shown.d_seqRest === true);
+	b.poolKey(64);
+	b.poolKey(67);
+	var chord = b.stepper.seqStep(0, -1, 2);
+	check("KEYS adds notes to the step's chord (" + (chord ? chord.notes.join(" ") : "rest") + ")", chord && chord.notes.indexOf(64) >= 0 && chord.notes.indexOf(67) >= 0);
+	b.displayPage(1);
+	var bd = d.disp.d_board;
+	check("LOCKS: N.VEL and GATE first (" + bd[19] + " lanes: " + bd[20] + ", " + bd[20 + 3 + 16] + ")", bd[19] === 2 && bd[20] === "N.VEL" && bd[39] === "GATE");
+	b.lane(1, 2, 3 / 15); // gate 4 on step 3
+	b.lane(0, 2, 0.5);    // velocity 64
+	check("the SEQ lanes set the step's gate and velocity (" + JSON.stringify(b.stepper.seqStep(0, -1, 2)) + ")",
+		b.stepper.seqStep(0, -1, 2).gate === 4 && b.stepper.seqStep(0, -1, 2).velocity === 64);
+	var t0 = s.w.now;
+	s.w.play(range(0, 64));
+	var st = new core.Stepper(M, preset), want = emptyWant();
+	st.setSeqMode(0, -1, true, b.defaultSeqVelocity());
+	st.seqToggleNote(0, -1, 2, 64, 100);
+	st.seqToggleNote(0, -1, 2, 67, 100);
+	st.seqSet(0, -1, 2, 2, 4);
+	st.seqSet(0, -1, 2, 1, 64);
+	range(0, 64).forEach(function (p, i) { addStep(want, st.step(p), i); });
+	st.destroy();
+	compare("SEQ edits while stopped: Play plays the sequence", s.rx, t0, 120, want, 0);
+	s.w.stop();
+	// Right-click and Alt+click on a pad: the step a rest.
+	b.padGeometry(88, 142, 29, 18);
+	var withNotes = range(3, 16).filter(function (p) { return b.stepper.seqStep(0, -1, p) !== null; });
+	var ra = withNotes[0], rb = withNotes[1], rc = withNotes[2];
+	b.rightClick(88 + 29 * ra + 10, 150);
+	press(s.brain, rb, false, false, true);
+	b.rightClick(88 + 29 * rc + 10, 120); // above the pads: nothing
+	check("right-click and Alt+click make steps rests (steps " + (ra + 1) + ", " + (rb + 1) + "; " + (rc + 1) + " kept)",
+		b.stepper.seqStep(0, -1, ra) === null && b.stepper.seqStep(0, -1, rb) === null && b.stepper.seqStep(0, -1, rc) !== null);
+	b.displayPage(3);
+	b.disp("seqRest", "bang");
+	check("REST: the step a rest (" + b.stepper.seqStep(0, -1, 2) + ")", b.stepper.seqStep(0, -1, 2) === null);
+	// A scale change moves the notes onto it.
+	b.displayPage(4);
+	var before = b.stepper.seqStep(0, -1, 0).notes.slice();
+	b.stepper.seqToggleNote(0, -1, 0, 61, 100); // C#: in the Chromatic scale
+	b.disp("scale", 1); // Major: C# moves (up, a tie) to D
+	var after = b.stepper.seqStep(0, -1, 0).notes;
+	check("a scale change moves the notes onto it (" + before.join(" ") + " + 61 -> " + after.join(" ") + ")",
+		after.indexOf(61) < 0 && after.indexOf(62) >= 0);
+	b.displayPage(11);
+	b.disp("seqMode", 0);
+	check("back to EUCLID: the dials undimmed (" + d.dials.a_pulses + ")", !b.stepper.seqMode(0, -1) && d.dials.a_pulses === 1);
+	s.w.wait(SAVE_PAUSE_MS + 10);
+	var r = setup({ saved: s.brain.pattr });
+	check("the sequence is saved with the set", r.brain.ctx.stepper.seqStep(0, -1, 0) !== null);
 	done(r);
 	done(s);
 })();

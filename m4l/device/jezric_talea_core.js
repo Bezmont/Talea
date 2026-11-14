@@ -261,6 +261,88 @@ Stepper.prototype.scaleKey = function (track, pc) {
 	this.c("scale_key", null, ["number", "number", "number"])(this.h, track, pc);
 };
 
+// ---- SEQ mode ----
+//
+// c: the edited cycle in Cycle edit (its own mode and sequence), else -1.
+Stepper.prototype.seqMode = function (track, c) {
+	return this.c("seq_mode", "number", ["number", "number", "number"])(this.h, track, c) === 1;
+};
+
+// Switching to SEQ with an empty sequence fills it from the hits, at `velocity`.
+Stepper.prototype.setSeqMode = function (track, c, on, velocity) {
+	this.c("set_seq_mode", null, ["number", "number", "number", "number", "number"])(this.h, track, c, on ? 1 : 0, velocity);
+};
+
+// Step pos: { notes, velocity, gate }, or null for a rest.
+Stepper.prototype.seqStep = function (track, c, pos) {
+	var f = this.c("seq_step", "number", ["number", "number", "number", "number", "number"]), h = this.h;
+	var n = f(h, track, c, pos, 0);
+	if (!n) return null;
+	var notes = [];
+	for (var i = 0; i < n; i++) notes.push(f(h, track, c, pos, 3 + i));
+	return { notes: notes, velocity: f(h, track, c, pos, 1), gate: f(h, track, c, pos, 2) };
+};
+
+Stepper.prototype.seqToggleNote = function (track, c, pos, note, velocity) {
+	this.c("seq_toggle_note", null, ["number", "number", "number", "number", "number", "number"])(this.h, track, c, pos, note, velocity);
+};
+
+Stepper.prototype.seqCopyChord = function (track, c, pos, from, velocity) {
+	this.c("seq_copy_chord", null, ["number", "number", "number", "number", "number", "number"])(this.h, track, c, pos, from, velocity);
+};
+
+Stepper.prototype.seqClear = function (track, c, pos) {
+	this.c("seq_clear", null, ["number", "number", "number", "number"])(this.h, track, c, pos);
+};
+
+// what 1 velocity, 2 gate (steps).
+Stepper.prototype.seqSet = function (track, c, pos, what, v) {
+	this.c("seq_set", null, ["number", "number", "number", "number", "number", "number"])(this.h, track, c, pos, what, v);
+};
+
+// ---- step locks ----
+//
+// c: the edited cycle in Cycle edit, else -1 (the track). pos: an unrotated step (where locks
+// are kept): unrotated() turns a played step into one.
+Stepper.prototype.unrotated = function (track, c, step) {
+	return this.c("unrotated", "number", ["number", "number", "number", "number"])(this.h, track, c, step);
+};
+
+// The lock of `key` on step pos, or null.
+Stepper.prototype.lockGet = function (track, c, pos, key) {
+	var v = this.c("lock_get", "number", ["number", "number", "number", "number", "number"])(this.h, track, c, pos, this.keys.indexOf(key));
+	return isNaN(v) ? null : v;
+};
+
+Stepper.prototype.lockSet = function (track, c, pos, key, v) {
+	this.c("lock_set", null, ["number", "number", "number", "number", "number", "number"])(this.h, track, c, pos, this.keys.indexOf(key), v);
+};
+
+// key null: every lock of the step.
+Stepper.prototype.lockClear = function (track, c, pos, key) {
+	this.c("lock_clear", null, ["number", "number", "number", "number", "number"])(this.h, track, c, pos, key ? this.keys.indexOf(key) : -1);
+};
+
+// The parameters locked on any step, as keys.
+Stepper.prototype.locksUsed = function (track, c) {
+	var bits = this.c("locks_used", "number", ["number", "number", "number"])(this.h, track, c);
+	return this.keys.filter(function (k, i) { return (bits >> i) & 1; });
+};
+
+Stepper.prototype.locksAt = function (track, c, pos) {
+	return this.c("locks_at", "number", ["number", "number", "number", "number"])(this.h, track, c, pos) === 1;
+};
+
+Stepper.prototype.lockable = function (key) {
+	return this.c("lockable", "number", ["number"])(this.keys.indexOf(key)) === 1;
+};
+
+// A parameter's range: [min, max].
+Stepper.prototype.paramRange = function (key) {
+	var i = this.keys.indexOf(key);
+	return [this.M.cwrap("talea_param_min", "number", ["number"])(i), this.M.cwrap("talea_param_max", "number", ["number"])(i)];
+};
+
 // ---- cycles ----
 //
 // A track's cycles (talea_cycle_*): c is a slot, 0..7.

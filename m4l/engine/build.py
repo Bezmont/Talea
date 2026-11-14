@@ -37,6 +37,8 @@ EXPORTS = [
     "cycle_count", "set_cycle_count", "cycle_flags", "set_cycle_muted", "cycle_overrides",
     "get_cycle_param", "set_cycle_param", "cycle_clear", "toggle_cycle_step", "cycle_hits_low",
     "cycle_hits_high", "cycle_steps", "cycle_played_steps", "set_solo_cycle", "cycle_at", "cycle_info",
+    "unrotated", "lock_get", "lock_set", "lock_clear", "locks_used", "locks_at", "lockable",
+    "seq_mode", "set_seq_mode", "seq_step", "seq_toggle_note", "seq_copy_chord", "seq_clear", "seq_set",
 ]
 
 

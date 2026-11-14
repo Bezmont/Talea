@@ -79,7 +79,12 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
   They are plain buttons, not Live parameters, and light as on the Rack module. Shift and
   Ctrl (Cmd on the Mac) are read with `[modifiers]`, polled by each press.
   - **Step**: a pad turns a step of the edit track off or on, taken on the next 16th like
-    a dial. Orange is a hit, white the playing step, dark past Length. The **step page**
+    a dial. Ctrl+click selects steps for **locks** (blue; again deselects): the dials that
+    can lock (not Steps, Pulses, Rotate, Division, Length, which dim) show the first
+    selected step's value and set it on every selected step. A step with locks has a
+    light-blue bar along the bottom of its pad (a panel over the pad, clicks going
+    through), and on the display (TRACK's grid, LOCKS' STEPS row) too. Another edit track, another pad mode, a pattern switch or Cycle edit ends the
+    selection. In Cycle edit locks go to the edited cycle, over the track's. Orange is a hit, white the playing step, dark past Length. The **step page**
     tabs 1-4 in the left column show steps 1-16 ... 49-64 (a page past the track's Steps
     doesn't take); **Follow** moves the page with the playing step, and choosing a page
     turns it off, as on Rack.
@@ -107,6 +112,16 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
   - **TRACK**: the info line (steps, pulses, rotate, division, length; how many steps play
     when Length cuts the loop) and the track's steps, 16 to a row, lit as the pads are.
     Rack's clock and tempo aren't here.
+  - **LOCKS** (Rack's STEP page: its step locks): SELECT (NONE, PAGE: the step page's
+    steps, CLEAR LOCKS on the selected steps) and, with more than 16 steps, the step pages
+    (1-16, 17-32, ...: as the page tabs in the left column, Follow too); under them the
+    step page as a row (STEPS, or CYCLE n in Cycle edit: a click there selects a step,
+    Ctrl+click adds or removes one) and a lane per locked parameter
+    (up to 6), each step's lock as a bar. Click or drag in a lane sets a step's lock (a
+    drag keeps to its lane), Ctrl+click removes it. A lockable dial turned with steps
+    selected shows LOCKS. With more than 6 parameters locked, LANES (1-6, 7-12, 13) picks
+    the group shown; a dial's lock shows its group. While steps are selected the LOCKS tab's
+    blue frame blinks.
   - **CYCLE**: all of the cycles' controls (Rack's Cycle pad mode and CYC EDIT button
     are here instead): COUNT (1-8), CYCLE (the selected one, one past the last adds
     cycles; "3*" has changes, "(3)" is muted), EDIT, MUTE (the selected cycle), CLEAR (ALL
@@ -114,7 +129,8 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
     saying which cycle plays. While playing, a bar under the CYCLE row marks the playing
     cycle (a panel per choice, shown by the script). **EDIT** on: the dials and the step pads edit the selected
     cycle (a dial overrides its value there; a step pad gives it step edits of its own),
-    that cycle plays alone, TRACK shows it, and the CYCLE tab is framed red on every page.
+    that cycle plays alone, TRACK shows it, and the CYCLE tab's red frame blinks on every
+    page.
     The other pages still edit the track: a cycle's own scale, pool, random amounts and
     locks aren't here yet, nor Rack's lanes of every cycle on TRACK.
   - **KEYS**: the note pool on a 4-octave keyboard (OCTAVE < > moves it, from C2 at first):
@@ -137,7 +153,8 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
     (`_parameter_range`), and ignores what a row sends within 100 ms of a rename, in case
     Live echoes it as a click.
   - **SETUP**: Type (note or CC), CC number (dimmed for a note track), Repeats (Choke or
-    Tail: a new pulse cuts the repeats before it, or they overlap), and the device's
+    Tail: a new pulse cuts the repeats before it, or they overlap), MODE (EUCLID or SEQ;
+    CYC MODE in Cycle edit: the edited cycle's own), and the device's
     own Instance, Look-ahead and status line. Rack's MIDI channel and clock aren't here:
     each receiver picks its track.
   - **Mute mode** shows its settings over any page, as on Rack: Apply timing (Now, Beat,
@@ -148,6 +165,19 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
     PHRASE's notes over the phrase, or for the User shape its grid, which a click or drag
     edits; VOICING's next 16 notes. The engine works out the points (`talea_diagram`); the
     script sends them when they change and the playhead on each 16th.
+  - **SEQ mode** (SETUP MODE; Rack's §3.15): the track plays a manual sequence, per step a
+    chord, a velocity and a gate in steps. Switching to SEQ with an empty sequence fills it
+    from the hits playing now (the pool's notes, the Velocity dial, one step), so the rhythm
+    carries over. A pad click selects one step (green) instead of toggling it; Ctrl+click
+    still selects for locks (the green step joining); right-click (or Alt+click) makes the
+    step a rest, as on Rack. A live.text doesn't report a right-click: `[mousestate]` (patcher
+    coordinates, polling) gives the mouse position on a right-button press, and the script
+    finds the pad under it ("padGeometry" from the patch). KEYS edits the selected steps' chord
+    (keys in the scale; REST makes them rests); LOCKS' first lanes are N.VEL and GATE (1-16
+    steps; Ctrl+click puts the default back). Pulses, Rotate, Voicing and Range dim, and so
+    do the PHRASE and VOICING rows. A scale, root or scale-note change moves the stored
+    notes onto the new scale (destructive, one undo step), as on Rack. Recording comes
+    next.
   - The other pages say they aren't built yet.
   - Turning a dial shows its page, as Rack's "display follows knobs": the shape dials
     TRACK, the repeat dials SETUP (Choke / Tail), the groove dials GROOVE, Pitch SCALE, Voicing VOICING,
