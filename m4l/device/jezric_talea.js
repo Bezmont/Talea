@@ -20,11 +20,12 @@
 
 autowatch = 1;
 inlets = 1;
-outlets = 5; // 0: MIDI now, "pitch velocity"   1: status text
+outlets = 6; // 0: MIDI now, "pitch velocity"   1: status text
              // receiver: 2: to [coll]: "store step entries...", "remove step", "clear"
              //           3: to [pipe]
              // brain: 2: "savelater" to a [delay] -> [deferlow] -> "savepattern" back
              //        3: the dials   4: to [pattr] (the pattern)
+             //        5: the pads: "pad i r g b a", "page i", "follow 0/1"
 
 var ROLE = (typeof jsarguments !== "undefined" && jsarguments.length > 1) ? String(jsarguments[1]) : "receiver";
 var BRAIN = ROLE === "brain";
@@ -54,10 +55,25 @@ var cueReady = false; // the cue's steps went out and Play hasn't moved since
 var sent = {}; // step -> the "ev" message, to resend to a receiver that joins mid-play
 var ahead = []; // steps sent and not yet played, in order: { step, id } (id: stepper's)
 var playing = null; // the step playing now, as in `ahead`, or null if unknown
-var edits = {}; // "track key" -> value: edits waiting for the next tick
+var edits = {}; // "track key" -> value: dial edits waiting for the next tick
+// Other edits waiting for the next tick, in order: { desc, fn (changes the engine), store
+// (false: undo or redo, which Live already holds) }.
+var ops = [];
+// The step pads: the edit track's steps, 16 to a page.
+var stepPage = 0;
+var follow = true; // the page follows the playing step
+var padKeys = []; // the colour each pad shows, to send only changes
 var newLoop = null; // a loop change waiting for the next tick
 var editTrack = 0; // the track the brain's dials edit
-var EDIT_KEYS = ["pulses", "rotate", "repeats", "pace", "probability", "sustain", "timing", "delay"];
+// The track parameters the dials edit: all of them (Params.hpp), from the engine at init.
+var EDIT_KEYS = ["steps", "pulses", "rotate", "division", "length", "repeats", "ramp", "repeatTime", "pace",
+	"velocity", "probability", "sustain", "accent", "timing", "delay", "pitch", "voicing", "range"];
+// On/off: off, the sequencer plays nothing. Switched on while Live plays, it starts at
+// Live's next launch-quantization boundary, as a clip would.
+var on = true;
+var newOn = null; // a switch waiting for the next tick
+var onIn = 0; // while playing: ticks until the steps play again (the quantization boundary)
+var quantum = 16; // Live's launch quantization, in steps (16ths)
 var startValues = null; // the dials' values in the pattern the engine started with, per track
 // A test (tests/sim.js) gives the brain its test pattern as this global; Live doesn't.
 var TEST_PATTERN = typeof TALEA_TEST_PATTERN !== "undefined" ? TALEA_TEST_PATTERN : null;
@@ -159,7 +175,9 @@ function init() {
 		observe("loop_start", loopChanged);
 		observe("loop_length", loopChanged);
 		observe("start_time", cueChanged);
+		observe("clip_trigger_quantization", function (v) { quantum = quantumSteps(Number(v[0])); });
 		if (stepper) {
+			EDIT_KEYS = stepper.keys.slice();
 			startValues = [];
 			for (var t = 0; t < stepper.tracks; t++) startValues.push(EDIT_KEYS.map(function (k) { return stepper.getParam(t, k); }));
 			// Live gives the device its saved values before it says the device is loaded,
@@ -172,7 +190,12 @@ function init() {
 		}
 		loopChanged();
 		cueChanged();
+		readOn();
 		showEdits();
+		padKeys = [];
+		outlet(5, "follow", follow ? 1 : 0);
+		outlet(5, "page", stepPage);
+		showPads();
 		send("announce");
 	} else {
 		send("hello");
@@ -260,8 +283,10 @@ function tickBody(bars, beats, units) {
 	var fromCue = fromStop && s === cueStep;
 	lastStep = s;
 	stats.ticks++;
-	if (BRAIN) brainTick(s, jump && !fromCue);
-	else receiverTick(s, jump, fromCue);
+	if (BRAIN) {
+		brainTick(s, jump && !fromCue);
+		showPads();
+	} else receiverTick(s, jump, fromCue);
 	if (stats.ticks % 16 === 0) status();
 }
 tick.immediate = 1;
@@ -271,7 +296,8 @@ tick.immediate = 1;
 // Sends step p: every track's entries, as "ev epoch p n0 entries0... n1 entries1...".
 function sendStep(p) {
 	if (!stepper) return;
-	var out = stepper.step(p), a = ["ev", epoch, p];
+	var silent = !on || (lastStep >= 0 && onIn > 0 && elapsed(lastStep, p) < onIn);
+	var out = silent ? stepper.silence() : stepper.step(p), a = ["ev", epoch, p];
 	for (var t = 0; t < TRACKS; t++) {
 		var list = t < out.length ? out[t] : [];
 		a.push(list.length);
@@ -280,7 +306,7 @@ function sendStep(p) {
 	send.apply(null, a);
 	sent[p] = a;
 	delete sent[p - 64];
-	ahead.push({ step: p, id: stepper.id });
+	ahead.push({ step: p, id: silent ? -1 : stepper.id });
 }
 
 // Starts a new run of the engine at step s: a new epoch.
@@ -322,12 +348,15 @@ function brainTick(s, jump) {
 		var a = ahead.shift();
 		if (a.step === s) playing = a;
 	}
+	if (onIn > 0) onIn--;
 	if (jump) {
 		restartAt(s);
 		takeLoop();
+		takeOn(s, true);
 		takeEdits(-2);
 	} else {
 		takeLoop();
+		takeOn(s, false);
 		takeEdits(s);
 		// The next step to send should be at most look-ahead + 1 steps ahead. If not (a
 		// change the brain heard of too late), start again from the next step.
@@ -352,7 +381,11 @@ function sendCue() {
 function stopped() {
 	timingReport();
 	lastStep = -1;
-	if (BRAIN) sendCue();
+	onIn = 0; // a start waiting for its boundary: Play starts it
+	if (BRAIN) {
+		sendCue();
+		showPads();
+	}
 	else {
 		outlet(3, "clear");
 		allOff();
@@ -368,6 +401,58 @@ function hello(id) {
 	send("look", lookaheadSteps);
 	if (lastStep < 0) sendCue();
 	else for (var p in sent) if (elapsed(lastStep, Number(p)) >= 1 && elapsed(lastStep, Number(p)) < 64) send.apply(null, sent[p]);
+}
+
+// ---- on/off (brain) ----------------------------------------------------------------
+
+// Live's clip_trigger_quantization (0 None, 1 8 bars, 2 4 bars, 3 2 bars, 4 1 bar, 5 1/2,
+// 6 1/2T, 7 1/4, 8 1/4T, 9 1/8, 10 1/8T, 11 1/16, 12 1/16T, 13 1/32) in 16th steps, 4/4.
+// Triplets start on the straight boundary below them; None and 1/32 on the next step.
+var QUANTUM_STEPS = [1, 128, 64, 32, 16, 8, 8, 4, 4, 2, 2, 1, 1, 1];
+
+function quantumSteps(q) {
+	return QUANTUM_STEPS[q] || 1;
+}
+
+// The device's patcher, to read the On button's value at init (a bang would toggle it).
+var PATCHER = (typeof this !== "undefined" && this && this.patcher) ? this.patcher : null;
+
+function readOn() {
+	var o = PATCHER && PATCHER.getnamed ? PATCHER.getnamed("On") : null;
+	if (o && typeof o.getvalueof === "function") enable(o.getvalueof());
+}
+
+// The On button: "enable 0/1". Taken on the next tick while playing.
+function enable(v) {
+	if (!BRAIN) return;
+	var want = Number(v) !== 0;
+	if (want === (newOn === null ? on : newOn)) return;
+	newOn = want;
+	if (lastStep < 0) takeOn(-1, false);
+	status();
+}
+
+// Takes a waiting switch. Off: silent from the next step (what's sounding ends there).
+// On while playing: silent until the next boundary of Live's launch quantization, then
+// the engine starts there, as a clip launched now would.
+function takeOn(s, jump) {
+	if (newOn === null) return;
+	on = newOn;
+	newOn = null;
+	if (s === -1) {
+		onIn = 0;
+		log("switched " + (on ? "on" : "off") + " while stopped");
+		sendCue();
+		return;
+	}
+	onIn = 0;
+	if (on) {
+		var q = s, k = 0;
+		do { q = future(q, 1); k++; } while (q % quantum !== 0 && k < 1024);
+		onIn = k;
+	}
+	log("switched " + (on ? "on at step " + s + ", playing from step " + future(s, onIn) : "off at step " + s));
+	if (!jump) restartAt(future(s, 1));
 }
 
 // ---- edits (brain) -----------------------------------------------------------------
@@ -386,6 +471,92 @@ function editTrackSelect(i) {
 	if (!BRAIN) return;
 	editTrack = Math.max(0, Math.min(TRACKS - 1, Math.round(i)));
 	showEdits();
+	showPads();
+}
+
+// ---- the step pads (brain) -----------------------------------------------------------
+
+// A pad: "pad i v" (v: 1 pressed). In Step mode it turns step (page * 16 + i) of the edit
+// track off or on, taken on the next tick like a dial.
+function pad(i, v) {
+	// A press: "pad i 1", or "pad i bang" (a button-mode live.text bangs); a release, "pad i
+	// 0", does nothing.
+	if (!BRAIN || !stepper) return;
+	if (v !== undefined && String(v) !== "bang" && Number(v) === 0) return;
+	var t = editTrack, step = stepPage * 16 + Math.round(i);
+	log("pad " + (Math.round(i) + 1) + " pressed (" + v + "): track " + (t + 1) + " step " + (step + 1) + " of " + stepper.steps(t));
+	if (step < 0 || step >= stepper.steps(t)) return;
+	ops.push({ desc: "track " + (t + 1) + " step " + (step + 1) + " toggled", store: true,
+		fn: function () { stepper.toggleStep(t, step); } });
+	if (lastStep < 0) takeEdits(-1);
+}
+
+function pageCount() {
+	return stepper ? Math.max(1, Math.ceil(stepper.steps(editTrack) / 16)) : 1;
+}
+
+// The step page tabs (0-3): pages past the track's Steps don't take. Choosing one turns
+// Follow off, as on the Rack module.
+function stepPageSelect(i) {
+	if (!BRAIN) return;
+	i = Math.round(i);
+	if (i >= 0 && i < pageCount()) {
+		stepPage = i;
+		if (follow) { follow = false; outlet(5, "follow", 0); }
+	}
+	outlet(5, "page", stepPage);
+	showPads();
+}
+
+function followSelect(v) {
+	if (!BRAIN) return;
+	follow = Number(v) !== 0;
+	showPads();
+}
+
+// Rack's pad colours (Step mode).
+var PAD_COLOURS = {
+	none: [0.06, 0.06, 0.07],     // past the track's Steps
+	cut: [0.02, 0.02, 0.02],      // cut off by Length
+	cutHit: [0.24, 0.14, 0.04],
+	off: [0.06, 0.06, 0.07],
+	hit: [0.94, 0.54, 0.14],
+	play: [0.35, 0.35, 0.35],     // the playing step
+	playHit: [1, 1, 1],
+};
+
+// The edit track's step playing now, or -1 (stopped, off, or waiting to start).
+function playingStep() {
+	if (!stepper || lastStep < 0 || !on || onIn > 0) return -1;
+	return stepper.stepAt(editTrack, lastStep / 4 + 1e-6);
+}
+
+// Sends the pads' colours, only those that changed. Follow moves the page with the
+// playing step.
+function showPads() {
+	if (!BRAIN || !stepper) return;
+	var t = editTrack, n = stepper.steps(t), played = stepper.playedSteps(t);
+	var hits = stepper.hits(t), now = playingStep();
+	var pages = pageCount();
+	if (follow && now >= 0 && Math.floor(now / 16) !== stepPage) {
+		stepPage = Math.floor(now / 16);
+		outlet(5, "page", stepPage);
+	}
+	if (stepPage >= pages) {
+		stepPage = pages - 1;
+		outlet(5, "page", stepPage);
+	}
+	for (var i = 0; i < 16; i++) {
+		var step = stepPage * 16 + i, hit = step < n && hits[step], key;
+		if (step >= n) key = "none";
+		else if (step >= played) key = hit ? "cutHit" : "cut";
+		else if (step === now) key = hit ? "playHit" : "play";
+		else key = hit ? "hit" : "off";
+		if (padKeys[i] === key) continue;
+		padKeys[i] = key;
+		var c = PAD_COLOURS[key];
+		outlet(5, "pad", i, c[0], c[1], c[2], 1);
+	}
 }
 
 function showEdits() {
@@ -399,16 +570,24 @@ function showEdits() {
 // heard from the next step on); -1 stopped; -2 on a jump (the restart covers it).
 function takeEdits(s) {
 	var keys = Object.keys(edits);
-	if (!keys.length || !stepper) return;
-	var done = [];
+	if ((!keys.length && !ops.length) || !stepper) return;
+	var done = [], store = keys.length > 0;
 	for (var i = 0; i < keys.length; i++) {
 		var tk = keys[i].split(" "), v = edits[keys[i]];
 		stepper.setParamByKey(Number(tk[0]), tk[1], v);
 		done.push("track " + (Number(tk[0]) + 1) + " " + tk[1] + " " + v);
 	}
 	edits = {};
+	var todo = ops;
+	ops = [];
+	todo.forEach(function (op) {
+		op.fn();
+		done.push(op.desc);
+		if (op.store) store = true;
+	});
 	showEdits();
-	queueSave();
+	showPads();
+	if (store) queueSave();
 	if (s === -1) {
 		log("edit while stopped: " + done.join(", "));
 		sendCue();
@@ -497,7 +676,7 @@ function queueSave() {
 function savepattern() {
 	if (!BRAIN || !stepper) return;
 	// Edits waiting for a tick (an undo during play, say) store when they're taken.
-	if (Object.keys(edits).length) return;
+	if (Object.keys(edits).length || ops.length) return;
 	var text = stepper.savePattern();
 	if (text === savedText) return;
 	savedText = text;
@@ -521,27 +700,20 @@ function restore() {
 	if (text === null) { warn("the pattern saved with the set isn't readable: keeping the current pattern"); return; }
 	if (text === savedText) { log("[pattr] holds the stored pattern"); return; }
 	if (!stepper) { pendingRestore = text; return; } // init takes it
-	// After init this is Live's undo or redo: the values that differ become edits, taken
-	// and logged like a dial's.
+	// After init this is Live's undo or redo: the whole pattern from Live, taken on the
+	// next tick like an edit (so it's heard from the next step), and not stored back, so
+	// redo still works. Edits not yet taken give way to it.
 	var now = stepper.savePattern();
 	if (!stepper.loadPattern(text)) {
 		warn("[pattr] gave a pattern that isn't readable: ignored");
 		return;
 	}
-	var want = [];
-	for (var t = 0; t < startValues.length; t++)
-		for (var i = 0; i < EDIT_KEYS.length; i++) want.push([t, EDIT_KEYS[i], stepper.getParam(t, EDIT_KEYS[i])]);
 	stepper.loadPattern(now);
-	savedText = text; // what [pattr] holds now: the edits leave the pattern equal to it
-	var n = 0;
-	want.forEach(function (x) {
-		if (stepper.getParam(x[0], x[1]) !== x[2] || edits[x[0] + " " + x[1]] !== undefined) {
-			edits[x[0] + " " + x[1]] = x[2];
-			n++;
-		}
-	});
-	log("undo or redo: the pattern from Live changes " + n + " value" + (n === 1 ? "" : "s"));
-	if (n && lastStep < 0) takeEdits(-1);
+	savedText = text; // what [pattr] holds now: the pattern will equal it
+	edits = {};
+	ops = [{ desc: "undo or redo (the pattern from Live)", store: false, fn: function () { stepper.loadPattern(text); } }];
+	log("undo or redo: the pattern from Live, taken " + (lastStep < 0 ? "now" : "on the next step"));
+	if (lastStep < 0) takeEdits(-1);
 }
 
 function applyPattern(text) {
@@ -684,7 +856,8 @@ function anything() {
 function status() {
 	var id = IDS[instance], text;
 	if (BRAIN) {
-		text = "Sequencer " + id + (stepper ? "" : " | NO ENGINE") + " | ahead " + lookaheadSteps +
+		text = "Sequencer " + id + (stepper ? "" : " | NO ENGINE") + (on ? "" : " | OFF") +
+			(onIn > 0 ? " | starts in " + onIn : "") + " | ahead " + lookaheadSteps +
 			" | step " + lastStep + " | epoch " + epoch + (loop.on ? " | loop" : "");
 	} else if (!connected) {
 		text = "Waiting for sequencer " + id;
@@ -717,7 +890,7 @@ function guarded(name, fn) {
 	var g = this;
 	["init", "instanceSelect", "trackSelect", "lookahead", "tick", "hello", "ev", "cue",
 		"loopinfo", "look", "announce", "anything", "status", "reset", "param",
-		"editTrackSelect", "debug", "savepattern", "restore"].forEach(function (n) {
+		"editTrackSelect", "debug", "savepattern", "restore", "enable", "pad", "stepPageSelect", "followSelect"].forEach(function (n) {
 		if (typeof g[n] !== "function") return;
 		var f = guarded(n, g[n]);
 		if (g[n].immediate) f.immediate = g[n].immediate; // keep scheduler-thread handlers there

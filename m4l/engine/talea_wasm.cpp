@@ -146,6 +146,44 @@ EMSCRIPTEN_KEEPALIVE void talea_set_muted(Host* h, int track, int muted, double 
 	}
 }
 
+// ---- the step pads -------------------------------------------------------------------
+
+static bool validTrack(int track) {
+	return track >= 0 && track < kNumTracks;
+}
+
+/** A pad click in Step mode: turns played step `step` of the track off or on, without
+moving any other hit (Track::toggleStep, as Rack's pads). */
+EMSCRIPTEN_KEEPALIVE void talea_toggle_step(Host* h, int track, int step) {
+	if (validTrack(track) && step >= 0 && step < kMaxSteps)
+		h->engine.pattern.tracks[track].toggleStep(step);
+}
+
+/** The track's Steps, and how many of them play before Length cuts the loop off. */
+EMSCRIPTEN_KEEPALIVE int talea_steps(Host* h, int track) {
+	return validTrack(track) ? h->engine.pattern.tracks[track].steps() : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int talea_played_steps(Host* h, int track) {
+	return validTrack(track) ? h->engine.pattern.tracks[track].playedSteps() : 0;
+}
+
+/** The track's hits (a bit per played step), in two 32-bit halves: steps 0-31 and 32-63.
+As doubles, so the top bit doesn't come back as a sign. */
+EMSCRIPTEN_KEEPALIVE double talea_hits_low(Host* h, int track) {
+	return validTrack(track) ? double(uint32_t(h->engine.hits(track) & 0xffffffffu)) : 0.0;
+}
+
+EMSCRIPTEN_KEEPALIVE double talea_hits_high(Host* h, int track) {
+	return validTrack(track) ? double(uint32_t(h->engine.hits(track) >> 32)) : 0.0;
+}
+
+/** The track's step at time `t` (quarter notes since the start of the song), or -1 before
+the start. */
+EMSCRIPTEN_KEEPALIVE int talea_step_at(Host* h, int track, double t) {
+	return validTrack(track) ? h->engine.stepAt(track, t) : -1;
+}
+
 // The events of the latest call, by index.
 EMSCRIPTEN_KEEPALIVE double talea_event_time(Host* h, int i) {
 	const NoteEvent* e = event(h, i);

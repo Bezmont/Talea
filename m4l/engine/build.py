@@ -28,6 +28,7 @@ EXPORTS = [
     "save_playback", "load_playback", "playback_slots",
     "event_time", "event_track", "event_on", "event_note", "event_velocity",
     "event_chord_size", "event_chord_note", "event_cc", "event_glide",
+    "toggle_step", "steps", "played_steps", "hits_low", "hits_high", "step_at",
 ]
 
 
@@ -71,7 +72,14 @@ def main():
     if args.debug:
         cmd += ["-sASSERTIONS=2"]
     print(" ".join(cmd[:1] + ["..."] + cmd[-12:]))
-    subprocess.run(cmd, check=True, env=dict(os.environ, EMSDK=str(args.emsdk)))
+    env = dict(os.environ, EMSDK=str(args.emsdk))
+    # em++.exe runs Python from EMSDK_PYTHON or PATH; emsdk ships one, for machines
+    # without Python on PATH.
+    if "EMSDK_PYTHON" not in env:
+        bundled = sorted((Path(args.emsdk) / "python").glob("*/python.exe"))
+        if bundled:
+            env["EMSDK_PYTHON"] = str(bundled[-1])
+    subprocess.run(cmd, check=True, env=env)
     print(f"wrote {OUT} ({OUT.stat().st_size // 1024} KB)")
 
 

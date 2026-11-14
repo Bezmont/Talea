@@ -133,6 +133,39 @@ Stepper.prototype.getParam = function (track, key) {
 	return i >= 0 ? this.getParamFn(this.h, track, i) : 0;
 };
 
+// An engine function by name, wrapped once (the pads ask several times a step).
+Stepper.prototype.c = function (name, ret, args) {
+	var k = "_" + name;
+	return this[k] || (this[k] = this.M.cwrap("talea_" + name, ret, args));
+};
+
+// The step pads: a pad click toggles a played step; the track's Steps, the steps that play
+// before Length cuts the loop off, its hits (an array of booleans, by played step) and the
+// step playing at time t (quarter notes since the song's start; -1 before it).
+Stepper.prototype.toggleStep = function (track, step) {
+	this.c("toggle_step", null, ["number", "number", "number"])(this.h, track, step);
+};
+
+Stepper.prototype.steps = function (track) {
+	return this.c("steps", "number", ["number", "number"])(this.h, track);
+};
+
+Stepper.prototype.playedSteps = function (track) {
+	return this.c("played_steps", "number", ["number", "number"])(this.h, track);
+};
+
+Stepper.prototype.hits = function (track) {
+	var lo = this.c("hits_low", "number", ["number", "number"])(this.h, track);
+	var hi = this.c("hits_high", "number", ["number", "number"])(this.h, track);
+	var out = [];
+	for (var i = 0; i < 64; i++) out.push(Math.floor((i < 32 ? lo : hi) / Math.pow(2, i % 32)) % 2 === 1);
+	return out;
+};
+
+Stepper.prototype.stepAt = function (track, t) {
+	return this.c("step_at", "number", ["number", "number", "number"])(this.h, track, t);
+};
+
 // The pattern as JSON (Rack's "core" pattern format), and back: false if the text isn't
 // a usable pattern. Loading changes the settings only; what's sounding carries on.
 Stepper.prototype.savePattern = function () {
@@ -141,6 +174,18 @@ Stepper.prototype.savePattern = function () {
 
 Stepper.prototype.loadPattern = function (text) {
 	return this.M.cwrap("talea_load_pattern", "number", ["number", "string"])(this.h, text) === 1;
+};
+
+// A silent step (the sequencer switched off): ends what's sounding, at offset 0, and
+// forgets the position, so the engine starts afresh at the next step().
+Stepper.prototype.silence = function () {
+	var out = [];
+	for (var t = 0; t < this.tracks; t++) {
+		out.push(this.sounding[t].map(function (n) { return [0, n, 0, 0, 0]; }));
+		this.sounding[t] = [];
+	}
+	this.last = null;
+	return out;
 };
 
 // Forget the position, so the next step counts as a jump.

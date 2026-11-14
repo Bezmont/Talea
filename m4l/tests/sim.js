@@ -84,6 +84,12 @@ World.prototype.device = function (role, trackNo, saved, restoreAfterInit, noTes
 				else if (a[0] === "remove") delete d.coll[a[1]];
 				else if (a[0] === "clear") d.coll = {};
 			} else if (n === 3 && a[0] === "clear") w.pipe = w.pipe.filter(function (e) { return e.dev !== d; });
+			else if (n === 5 && role === "brain") {
+				// the pads, the step page tabs and the Follow button
+				if (a[0] === "pad") (d.pads = d.pads || [])[a[1]] = a.slice(2, 5).join(" ");
+				else if (a[0] === "page") d.page = a[1];
+				else if (a[0] === "follow") d.follow = a[1];
+			}
 		},
 		Math: Math, Date: FakeDate
 	};
@@ -250,7 +256,10 @@ function expectRuns(runs) {
 		var st = new core.Stepper(M, preset);
 		r.steps.forEach(function (p, i) {
 			addStep(want, st.step(p), r.at + i);
-			(r.edits && r.edits[i] || []).forEach(function (e) { st.setParamByKey(e[0], e[1], e[2]); });
+			(r.edits && r.edits[i] || []).forEach(function (e) {
+				if (e[1] === "toggle") st.toggleStep(e[0], e[2]);
+				else st.setParamByKey(e[0], e[1], e[2]);
+			});
 		});
 		st.destroy();
 	});
@@ -569,15 +578,15 @@ function turn(brain, track, key, v) {
 	u.brain.ctx.restore.apply(null, first); // undo, stopped
 	var st = u.brain.ctx.stepper;
 	check("undo while stopped: the earlier values (pace " + st.getParam(2, "pace") + ")",
-		st.getParam(0, "pulses") === 5 && st.getParam(2, "pace") === u.brain.ctx.startValues[2][3]);
-	check("undo logged as an edit", u.w.logs.some(function (l) { return /edit while stopped: track 3 pace/.test(l); }));
+		st.getParam(0, "pulses") === 5 && st.getParam(2, "pace") === u.brain.ctx.startValues[2][u.brain.ctx.EDIT_KEYS.indexOf("pace")]);
+	check("undo logged as an edit", u.w.logs.some(function (l) { return /edit while stopped: undo or redo/.test(l); }));
 	var t0 = u.w.now;
 	u.w.play(range(0, 128), function (i) {
 		if (i === 30) u.brain.ctx.restore.apply(null, second); // redo, playing
 	});
 	check("redo while playing: taken on a tick and logged as an edit (" +
 		(u.w.logs.filter(function (l) { return /edit at step/.test(l); })[0] || "none") + ")",
-		st.getParam(2, "pace") === -40 && u.w.logs.some(function (l) { return /edit at step \d+: track 3 pace -40$/.test(l); }));
+		st.getParam(2, "pace") === -40 && u.w.logs.some(function (l) { return /edit at step \d+: undo or redo/.test(l); }));
 	u.w.stop();
 	u.w.wait(600);
 	check("undo and redo store nothing back (" + (u.brain.saves - saves) + ")", u.brain.saves === saves);
@@ -587,6 +596,130 @@ function turn(brain, track, key, v) {
 	check("an unreadable saved pattern: the test pattern, and a log line",
 		bad.brain.ctx.stepper.getParam(0, "pulses") === 9 && bad.w.logs.some(function (l) { return /isn't readable/.test(l); }));
 	done(bad);
+})();
+
+// The On button while playing: off is silent from the next step (what was sounding ends);
+// on again starts the engine afresh at Live's next launch-quantization boundary.
+[[4, 16, "1 bar"], [11, 1, "1/16"]].forEach(function (q) {
+	var s = setup(), steps = range(0, 160);
+	s.w.setSong("clip_trigger_quantization", q[0]);
+	var t0 = s.w.now, offAt = 20, onAt = 37;
+	var startAt = Math.ceil((onAt + 1) / q[1]) * q[1];
+	s.w.play(steps, function (i) {
+		if (i === offAt) s.brain.ctx.enable(0);
+		if (i === onAt) s.brain.ctx.enable(1);
+	});
+	var want = expectRuns([{ steps: range(0, offAt + 1), at: 0 }, { steps: range(startAt, 160), at: startAt }]);
+	compare("On button, quantization " + q[2] + ": silent from step " + (offAt + 1) + ", playing again from step " + startAt,
+		s.rx, t0, 120, want, 0);
+	check("On button, " + q[2] + ": no misses (" + misses(s.rx) + "), no hanging notes (" + hanging(s.rx) + ")",
+		misses(s.rx) === 0 && hanging(s.rx) === 0);
+	done(s);
+});
+
+// Off while stopped: Play is silent; on again while stopped: Play plays from the start.
+(function () {
+	var s = setup();
+	s.brain.ctx.enable(0);
+	var t0 = s.w.now;
+	s.w.play(range(0, 64));
+	var silent = s.rx.every(function (d) { return d.played.length === 0; });
+	s.w.stop();
+	s.brain.ctx.enable(1);
+	var t1 = s.w.now;
+	s.rx.forEach(function (d) { d.played = []; });
+	s.w.play(range(0, 64));
+	check("off while stopped: Play is silent", silent);
+	compare("on again while stopped: Play plays from the start", s.rx, t1, 120, expectRuns([{ steps: range(0, 64), at: 0 }]), 0);
+	check("off and on while stopped: no misses (" + misses(s.rx) + ")", misses(s.rx) === 0);
+	done(s);
+})();
+
+// The step pads (Step mode): a pad toggles a step of the edit track, taken on the next
+// tick like a dial; heard from the next step.
+(function () {
+	var s = setup(), steps = range(0, 128);
+	var t0 = s.w.now;
+	s.w.play(steps, function (i) {
+		if (i === 30) { s.brain.ctx.editTrackSelect(0); s.brain.ctx.pad(5, 1); }
+		if (i === 50) { s.brain.ctx.editTrackSelect(2); s.brain.ctx.pad(0, 1); s.brain.ctx.pad(9, 1); }
+	});
+	var want = expectRuns([{ steps: steps, at: 0, edits: { 30: [[0, "toggle", 5]], 50: [[2, "toggle", 0], [2, "toggle", 9]] } }]);
+	var old = expectRuns([{ steps: steps, at: 0 }]);
+	compare("pads while playing: every note as the engine plays it after the toggles", s.rx, t0, 120, want, 0);
+	check("the toggles change the notes", want.some(function (tr, t) { return tr.join() !== old[t].join(); }));
+	check("pads: no misses (" + misses(s.rx) + "), no hanging notes (" + hanging(s.rx) + ")", misses(s.rx) === 0 && hanging(s.rx) === 0);
+	done(s);
+})();
+
+// Pads while stopped, a second page, and the pads' colours.
+(function () {
+	var s = setup(), b = s.brain.ctx;
+	b.editTrackSelect(1);
+	turn(s.brain, 1, "steps", 32);
+	var before = b.stepper.hits(1).slice();
+	b.stepPageSelect(1); // steps 17-32: Follow goes off
+	b.pad(3, 1);         // step 20
+	var after = b.stepper.hits(1);
+	check("pad on page 2 toggles step 20 (" + before[19] + " -> " + after[19] + "), and only it",
+		after[19] === !before[19] && after.every(function (h, i) { return i === 19 || h === before[i]; }));
+	check("choosing a page turns Follow off (" + s.brain.follow + "), page shown " + s.brain.page,
+		s.brain.follow === 0 && s.brain.page === 1);
+	b.stepPageSelect(3); // past the track's 32 steps: stays on page 2
+	check("a page past the track's Steps doesn't take (page " + s.brain.page + ")", s.brain.page === 1);
+	var hitColour = "0.94 0.54 0.14", ok = true;
+	for (var i = 0; i < 16; i++) ok = ok && (s.brain.pads[i] === hitColour) === after[16 + i];
+	check("the pads show the page's hits", ok);
+	var t0 = s.w.now;
+	s.w.play(range(0, 64));
+	var st = new core.Stepper(M, preset), want = emptyWant();
+	st.setParamByKey(1, "steps", 32);
+	st.toggleStep(1, 19);
+	range(0, 64).forEach(function (p, i) { addStep(want, st.step(p), i); });
+	st.destroy();
+	compare("pads while stopped: Play plays the toggled step", s.rx, t0, 120, want, 0);
+	done(s);
+})();
+
+// The playing step lights on the pads while playing, and Follow moves the page with it.
+(function () {
+	var s = setup(), b = s.brain.ctx, seen = 0, pages = {};
+	b.editTrackSelect(0);
+	turn(s.brain, 0, "steps", 48);
+	b.followSelect(1);
+	s.w.play(range(0, 96), function (i) {
+		if (i > 2) {
+			var lit = (s.brain.pads || []).filter(function (c) { return c === "1 1 1" || c === "0.35 0.35 0.35"; }).length;
+			if (lit === 1) seen++;
+			pages[s.brain.page] = true;
+		}
+	});
+	check("one pad lit for the playing step on each tick (" + seen + " of 93)", seen === 93);
+	check("Follow moves through the pages (" + Object.keys(pages).join(",") + ")", Object.keys(pages).length === 3);
+	done(s);
+})();
+
+// Undo of a pad toggle: Live gives back the earlier pattern, step and all.
+(function () {
+	var s = setup(), b = s.brain.ctx;
+	b.editTrackSelect(0);
+	var before = b.stepper.hits(0)[5];
+	s.w.wait(SAVE_PAUSE_MS + 10);
+	var first = s.brain.pattr ? s.brain.pattr.slice() : null;
+	b.pad(5, 1);
+	s.w.wait(SAVE_PAUSE_MS + 10);
+	var toggled = b.stepper.hits(0)[5];
+	if (!first) { // nothing stored yet: store the pattern before the toggle by undoing it by hand
+		b.pad(5, 1);
+		s.w.wait(SAVE_PAUSE_MS + 10);
+		first = s.brain.pattr.slice();
+		b.pad(5, 1);
+		s.w.wait(SAVE_PAUSE_MS + 10);
+	}
+	b.restore.apply(null, first);
+	check("undo of a pad toggle brings the step back (" + before + " -> " + toggled + " -> " + b.stepper.hits(0)[5] + ")",
+		toggled === !before && b.stepper.hits(0)[5] === before);
+	done(s);
 })();
 
 // As in Live: no test pattern, so the engine's own default pattern, which is silent (no

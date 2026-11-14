@@ -22,11 +22,12 @@ set, undo, CPU load). This folder is that design, without the test scaffolding.
 | `device/build.py` | Builds the devices into `m4l/build/`: `python m4l/device/build.py`. |
 | `device/jezric_talea.js` | The script both devices run (`[v8 jezric_talea.js brain]` in the sequencer, `receiver` in the receiver). |
 | `device/jezric_talea_core.js` | Runs the engine a step at a time and turns its events into MIDI entries. |
+| `device/jezric_talea_label.js` | Draws a panel section's name turned on its side, in Live's theme colour. |
 | `tests/sim.js` | The devices simulated with a fake Max, checked against the engine: `node m4l/tests/sim.js`. |
 | `tests/test_pattern.js` | The pattern the simulation plays: off-grid timing, repeats, chords, a CC track. |
 
 `m4l/build/` (not in git) gets the two `.amxd` files, a readable `.maxpat` of each, and
-the three `.js` files they load from their own folder.
+the `.js` files they load from their own folder.
 
 To build and test:
 
@@ -60,11 +61,32 @@ A CC track's value travels as `offset -1 ccNumber value glide`; after `[pipe]`,
 `[route -1]` sends it to `[line]`, which moves the controller to the value over the glide
 and sends each new whole number as CC on channel 1. A chord is one entry per note.
 
+## The panel (in progress)
+
+- **On**: the whole sequencer. Off, it plays nothing (what's sounding ends on the next
+  step). Switched on while Live plays, it starts at Live's next launch-quantization
+  boundary (the Quantization menu in Live's control bar), as a clip launched then would;
+  while stopped, at once. A stored parameter: saved, automatable, undoable. It isn't
+  banged at load like the other controls (a bang toggles a `live.text`); the script reads
+  its value at init.
+- **Dials** in two rows of shaded sections, each named down its left side, as on the Rack module's panel: Shape and Repeats,
+  then Groove and Tonal; every track parameter has one. Ranges, defaults and value names
+  are read from the engine's tables (`src/core/Params.hpp`, `Values.hpp`) when the device
+  is built. Rack's Harmony knob, and the Random knobs (for the display's RANDOM page),
+  aren't here yet.
+- **Track select** (1-16) along the top, like tabs over the sections: the track the dials edit.
+- **Step pads** under the sections (Step mode, for now the only pad mode): a pad turns a
+  step of the edit track off or on, taken on the next 16th like a dial. They light as on
+  the Rack module: orange for a hit, white for the playing step, dark past Length. The
+  **step page** tabs 1-4 in the left column show steps 1-16 ... 49-64 (a page past the
+  track's Steps doesn't take); **Follow** moves the page with the playing step, and choosing
+  a page turns it off, as on Rack. The pads are plain buttons, not Live parameters.
+- The right half is where the display goes; for now it has Instance, Look-ahead and the
+  status line.
+
 ## Edits
 
-For now the sequencer has an **Edit track** menu and dials for Pulses, Rotate, Repeats,
-Pace, Probability, Sustain, Timing and Delay (the real controls come next). A turn is
-taken on the next 16th: the sequencer puts the engine back as it was after the step playing
+A turn is taken on the next 16th: the sequencer puts the engine back as it was after the step playing
 now (it keeps the engine's state after each of the last steps), works out the steps it
 had already sent again with the new value, and sends them over the old ones. So an edit
 is heard from the next step, not look-ahead steps later.
@@ -94,8 +116,9 @@ device starts. Things that matter:
   it holds.
 
 **Undo and redo:** each stored pattern is one step in Live's undo history ("Change in
-Talea Sequencer"). Live gives `[pattr]` the earlier value back; the values that differ
-become edits, taken like a dial's, and nothing is stored back, so redo still works.
+Talea Sequencer"). Live gives `[pattr]` the earlier value back; the whole pattern is taken
+on the next 16th, like an edit (step toggles and all), and nothing is stored back, so redo
+still works. Edits not yet taken give way to it.
 
 **The dials are Hidden parameters:** not saved, automated or undone themselves. Their
 values are the pattern's and the script sets them from it. As stored parameters, setting

@@ -15,6 +15,7 @@ it is fine, but changes belong in this file.
 """
 
 import json
+import re
 import shutil
 import struct
 import sys
@@ -31,6 +32,57 @@ BUS = "jezric_talea_bus"  # the script's BUS: the [r] the brain's messages arriv
 SAVE_PAUSE_MS = 500  # the brain stores the pattern once edits pause this long
 DEVICE_WIDTH = 320  # at least; wider when the controls need it (Patch.width)
 TRACKS = 16
+CORE = M4L.parent / "src" / "core"
+
+# The sequencer's dials in two rows of sections, as on the Rack module's panel: (engine
+# key, label). Ranges, defaults and value names come from the engine's own tables
+# (Params.hpp, Values.hpp).
+DIAL_ROWS = [
+    [("SHAPE", [("steps", "Steps"), ("pulses", "Pulses"), ("rotate", "Rotate"),
+                ("division", "Division"), ("length", "Length")]),
+     ("REPEATS", [("repeats", "Repeats"), ("ramp", "Ramp"), ("repeatTime", "Time"), ("pace", "Pace")])],
+    [("GROOVE", [("velocity", "Velocity"), ("probability", "Prob"), ("sustain", "Sustain"),
+                 ("accent", "Accent"), ("timing", "Timing"), ("delay", "Delay")]),
+     ("TONAL", [("pitch", "Pitch"), ("voicing", "Voicing"), ("range", "Range")])],
+]
+# Panel layout (presentation px; the device is 169 tall). Each section is a shaded frame
+# with its name down its left side, turned counterclockwise (jezric_talea_label.js).
+LEFT_X = 60        # the sections' and pads' column, right of the transport column
+DIAL_STEP = 47     # dial to dial
+SECTION_GAP = 8    # between sections in a row
+FRAME_PAD = 3      # frame edge to dials
+LABEL_W = 13       # the name's strip down the frame's left side
+TRACKS_Y = 2       # track select, like tabs over the sections, TRACKS to its left
+ROW_Y = [24, 82]   # the two rows' frames (live.dial: 44 x 48); the pads go under them
+ON_Y = 24          # the On button, at the top of the transport column
+TRACKS_H = 18
+PADS_Y = 142       # the step pads, under the sections, the size of the track buttons
+PAGE_Y = 104       # the step page tabs and Follow, in the left column
+FOLLOW_Y = 122
+LABEL_SCRIPT = "jezric_talea_label.js"
+CELL = 29          # a track select button's width
+DISPLAY_X = 560    # the display's place
+
+
+def engine_params():
+    """The track parameters from Params.hpp, with their value names from Values.hpp:
+    {key: (min, max, default, unit, snap, names or None)}."""
+    values = (CORE / "Values.hpp").read_text(encoding="utf-8")
+    lists = {}
+    for name, body in re.findall(r"NamedValue (k\w+)\[\] = \{(.*?)\n\};", values, re.S):
+        lists[name] = re.findall(r'\{"([^"]*)",', body)
+    consts = {k: int(v) for k, v in re.findall(r"constexpr int (k\w+) = (\d+);", values)}
+    euclid = (CORE / "Euclid.hpp").read_text(encoding="utf-8")
+    consts.update({k: int(v) for k, v in re.findall(r"constexpr int (k\w+) = (\d+);", euclid)})
+    env = dict(consts, countOf=len, **lists)
+    params = (CORE / "Params.hpp").read_text(encoding="utf-8")
+    out = {}
+    for m in re.finditer(r'\{"(\w+)", "[^"]*", ([^,]+), ([^,]+), ([^,]+), "([^"]*)", (true|false)'
+                         r'(?:, TALEA_LIST\((\w+)\))?\}', params):
+        key, lo, hi, de, unit, snap, lst = m.groups()
+        ev = lambda x: eval(x, {"__builtins__": {}}, env)  # noqa: E731 (constants and countOf only)
+        out[key] = (ev(lo), ev(hi), ev(de), unit, snap == "true", lists[lst] if lst else None)
+    return out
 
 
 class Patch:
@@ -74,7 +126,8 @@ class Patch:
         self.lines.append({"patchline": {"source": [src, outlet], "destination": [dst, inlet]}})
 
     def param(self, maxclass, rect, present, name, ptype, *, mmin=0, mmax=127, initial=0,
-              enum=None, outlets=2, outlettype=None, hidden=False):
+              enum=None, outlets=2, outlettype=None, hidden=False, varname=None, unitstyle=None,
+              **extra):
         """A Live parameter on a UI object (live.dial, live.menu, ...). Hidden: not saved
         with the set, recalled, automated or in the undo history."""
         attrs = {
@@ -86,15 +139,21 @@ class Patch:
         }
         if hidden:
             attrs["parameter_invisible"] = 2
+        if unitstyle is not None:
+            attrs["parameter_unitstyle"] = unitstyle
         if enum is not None:
             attrs["parameter_enum"] = enum
             attrs["parameter_mmax"] = len(enum) - 1
         else:
             attrs["parameter_mmin"] = float(mmin)
             attrs["parameter_mmax"] = float(mmax)
-        return self.box(maxclass, rect, None, 1, outlets, outlettype, present,
-                        parameter_enable=1, varname=name,
-                        saved_attribute_attributes={"valueof": attrs})
+        label = extra.pop("text", None)  # live.text's label, not a box's text
+        bid = self.box(maxclass, rect, None, 1, outlets, outlettype, present,
+                       parameter_enable=1, varname=varname or name,
+                       saved_attribute_attributes={"valueof": attrs}, **extra)
+        if label is not None:
+            self.boxes[-1]["box"]["text"] = label
+        return bid
 
     def width(self):
         """The device's width: its controls' right edge plus a margin, so a control added
@@ -171,7 +230,7 @@ def common(p, role):
     pack = p.obj("pack 0 0 0", [120, 220, 80, 22], 3, 1)
     prep = p.obj("prepend tick", [120, 260, 80, 22])
     bus = p.obj(f"r {BUS}", [340, 260, 120, 22], 0, 1)
-    script = p.obj(f"v8 {SCRIPT} {role}", [20, 320, 200, 22], 1, 5)
+    script = p.obj(f"v8 {SCRIPT} {role}", [20, 320, 200, 22], 1, 6)
     midiin = p.obj("midiin", [500, 20, 50, 22], 1, 1, ["int"])
     midiout = p.obj("midiout", [500, 420, 60, 22], 1, 0)
 
@@ -213,9 +272,9 @@ def ui(p, trig, script, ctrl, selector, x):
     p.connect(prep, script)
 
 
-def instance_menu(p, trig, script):
-    p.comment("Instance", [600, 420, 60, 20], [8, 30, 60, 20])
-    inst = p.param("live.menu", [600, 440, 60, 15], [70, 32, 50, 15], "Instance", 2,
+def instance_menu(p, trig, script, x=8, y=30):
+    p.comment("Instance", [600, 420, 60, 20], [x, y, 60, 20])
+    inst = p.param("live.menu", [600, 440, 60, 15], [x + 62, y + 2, 50, 15], "Instance", 2,
                    enum=["A", "B", "C", "D"], outlets=3, outlettype=["", "", "float"])
     ui(p, trig, script, inst, "instanceSelect", 600)
 
@@ -324,15 +383,139 @@ def receiver():
 
 
 def brain():
+    """The panel: on the left a column with the On button; next to it two rows of dials
+    (Shape and Repeats, Groove and Tonal, as on the Rack module) over the track select
+    row; on the right the display's place, for now Instance, Look-ahead and the status
+    line."""
     p = Patch()
     script, trig, _, _, _ = common(p, "brain")
-    p.comment("Talea Sequencer", [600, 400, 150, 20], [8, 4, 200, 20])
-    instance_menu(p, trig, script)
-    p.comment("Look-ahead", [720, 600, 70, 20], [140, 30, 70, 20])
-    ahead = p.param("live.numbox", [720, 620, 44, 15], [210, 32, 44, 15], "Lookahead", 1,
+    info = engine_params()
+
+    # On: the whole sequencer. A stored parameter, so it's saved, automatable and undone
+    # like any other; the script starts it at Live's next launch-quantization boundary.
+    # Not banged at load like the others: a bang toggles a live.text. The script reads its
+    # value at init instead, by its scripting name "On".
+    on = p.param("live.text", [840, 440, 44, 20], [6, ON_Y, 48, 20], "On", 2, enum=["off", "on"],
+                 initial=1, outlets=2, outlettype=["", ""], mode=1, text="On", texton="On")
+    prep = p.obj("prepend enable", [840, 520, 110, 22])
+    p.connect(on, prep)
+    p.connect(prep, script)
+
+    # Track select: the track the dials edit, along the top, named in the left column.
+    p.box("live.comment", [840, 570, 60, 18], "TRACKS", 1, 0, None, [4, TRACKS_Y + 2, 54, TRACKS_H],
+          fontsize=9.0, fontface=1, textjustification=2)
+    etrack = p.param("live.tab", [840, 600, 448, 18], [LEFT_X, TRACKS_Y, CELL * TRACKS, TRACKS_H], "Edit track", 2,
+                     enum=[str(i) for i in range(1, TRACKS + 1)], outlets=3, outlettype=["", "", "float"])
+    ui(p, trig, script, etrack, "editTrackSelect", 840)
+
+    # The dials, one per track parameter. Each sends "param key value" for the edit
+    # track; the script sets them to a track's values ("key value" from outlet 3) when the
+    # track changes. Hidden parameters: the values are the pattern's (saved with it); as
+    # stored parameters, the script setting them at load would mark the set changed, and
+    # each turn would be an undo step of its own besides the pattern's.
+    keys = [k for row in DIAL_ROWS for _, section in row for k, _ in section]
+    route = p.obj("route " + " ".join(keys), [600, 700, 900, 22], 1, len(keys) + 1)
+    p.connect(script, route, 3)
+    # The section names take Live's theme colour, at load and when the theme changes.
+    colors = p.obj("live.colors", [1300, 300, 80, 22], 1, 2)
+    ask = p.msg("live_control_fg", [1300, 270, 100, 22])
+    p.connect(trig, ask, 2)
+    p.connect(colors, ask, 1)
+    p.connect(ask, colors)
+    n = 0
+    for r, row in enumerate(DIAL_ROWS):
+        x0 = LEFT_X
+        for title, section in row:
+            fx, fy = x0, ROW_Y[r]
+            fw = LABEL_W + (len(section) - 1) * DIAL_STEP + 44 + 2 * FRAME_PAD
+            p.box("panel", [1300 + n * 10, 20, 40, 40], None, 1, 0, None, [fx, fy, fw, 48 + 2 * FRAME_PAD],
+                  bgcolor=[0.5, 0.5, 0.5, 0.12], border=1, rounded=3, background=1,
+                  bordercolor=[0.5, 0.5, 0.5, 1.0],  # replaced by Live's theme colour:
+                  saved_attribute_attributes={"bordercolor": {"expression": "themecolor.live_control_fg_off"}})
+            label = p.box("v8ui", [1300 + n * 10, 360, 14, 54], None, 1, 0, None,
+                          [fx + 1, fy, LABEL_W, 48 + 2 * FRAME_PAD], filename=LABEL_SCRIPT, border=0,
+                          parameter_enable=0)
+            name = p.msg(f"title {title}", [1300 + n * 10, 330, 80, 22])
+            p.connect(trig, name, 2)
+            p.connect(name, label)
+            p.connect(colors, label)
+            for i, (key, label) in enumerate(section):
+                lo, hi, de, unit, snap, names = info[key]
+                x = 600 + n * 70
+                kw = dict(hidden=True, varname="dial_" + key, outlets=2, outlettype=["", "float"])
+                if key == "repeats":  # the last position is endless, as on the Rack knob
+                    names = [str(v) for v in range(int(lo), int(hi))] + ["\u221e"]
+                if names:
+                    kw.update(enum=names, initial=int(de))
+                    ptype = 2
+                elif snap:
+                    kw.update(mmin=lo, mmax=hi, initial=int(de), unitstyle=7 if unit.strip() == "st" else 0)
+                    ptype = 1
+                else:
+                    kw.update(mmin=lo, mmax=hi, initial=float(de), unitstyle=5 if unit == "%" else 1)
+                    ptype = 0
+                dial = p.param("live.dial", [x, 760, 44, 48],
+                               [fx + LABEL_W + FRAME_PAD + i * DIAL_STEP, fy + FRAME_PAD, 44, 48],
+                               label, ptype, **kw)
+                setter = p.obj("prepend set", [x, 730, 66, 22])
+                p.connect(route, setter, n)
+                p.connect(setter, dial)
+                prep = p.obj(f"prepend param {key}", [x, 820, 66, 22])
+                p.connect(dial, prep)
+                p.connect(prep, script)
+                n += 1
+            x0 += fw + SECTION_GAP
+
+    # The step pads: plain buttons (not parameters), one per step of the page; the script
+    # colours them ("pad i r g b a" from outlet 5) as Rack lights its pads, and a press
+    # sends "pad i 1".
+    panel_out = p.obj("route pad page follow", [1500, 400, 140, 22], 1, 4)
+    p.connect(script, panel_out, 5)
+    which = p.obj("route " + " ".join(str(i) for i in range(16)), [1500, 440, 300, 22], 1, 17)
+    p.connect(panel_out, which, 0)
+    for i in range(16):
+        x = 1500 + i * 60
+        pad = p.box("live.text", [x, 520, 24, 18], None, 1, 2, ["", ""],
+                    [LEFT_X + i * CELL + 1, PADS_Y, CELL - 2, TRACKS_H],
+                    parameter_enable=0, mode=0, texton="")
+        p.boxes[-1]["box"]["text"] = ""  # a live.text's label (box() takes text as the box's)
+        colour = p.obj("prepend activebgcolor", [x, 480, 90, 22])
+        p.connect(which, colour, i)
+        p.connect(colour, pad)
+        press = p.obj(f"prepend pad {i}", [x, 560, 56, 22])
+        p.connect(pad, press)
+        p.connect(press, script)
+
+    # The step page tabs (steps 1-16 ... 49-64) and Follow, in the left column. Not stored:
+    # the script sets them ("page i", "follow 0/1" from outlet 5).
+    page = p.param("live.tab", [1500, 600, 54, 16], [6, PAGE_Y, 48, 16], "Step page", 2,
+                   enum=["1", "2", "3", "4"], outlets=3, outlettype=["", "", "float"], hidden=True)
+    setpage = p.obj("prepend set", [1500, 580, 70, 22])
+    p.connect(panel_out, setpage, 1)
+    p.connect(setpage, page)
+    topage = p.obj("prepend stepPageSelect", [1500, 640, 130, 22])
+    p.connect(page, topage)
+    p.connect(topage, script)
+    follow = p.param("live.text", [1640, 600, 48, 16], [6, FOLLOW_Y, 48, 16], "Follow", 2,
+                     enum=["off", "on"], initial=1, outlets=2, outlettype=["", ""], hidden=True,
+                     mode=1, text="Follow", texton="Follow")
+    setfollow = p.obj("prepend set", [1640, 580, 70, 22])
+    p.connect(panel_out, setfollow, 2)
+    p.connect(setfollow, follow)
+    tofollow = p.obj("prepend followSelect", [1640, 640, 120, 22])
+    p.connect(follow, tofollow)
+    p.connect(tofollow, script)
+
+    # Where the display goes (step 3): for now the instance, look-ahead and status.
+    p.box("panel", [1300, 20, 60, 40], None, 1, 0, None, [DISPLAY_X, 4, 470, 161],
+          bgcolor=[0.0, 0.0, 0.0, 0.25], border=0, rounded=4, background=1)
+    p.comment("Talea Sequencer", [600, 400, 150, 20], [DISPLAY_X + 10, 8, 200, 20])
+    instance_menu(p, trig, script, x=DISPLAY_X + 10, y=30)
+    p.comment("Look-ahead", [720, 600, 70, 20], [DISPLAY_X + 134, 30, 70, 20])
+    ahead = p.param("live.numbox", [720, 620, 44, 15], [DISPLAY_X + 204, 32, 44, 15], "Lookahead", 1,
                     mmin=4, mmax=16, initial=4, outlets=2, outlettype=["", "float"])
     ui(p, trig, script, ahead, "lookahead", 720)
-    status_box(p, script, [8, 60, 300, 22])
+    status_box(p, script, [DISPLAY_X + 10, 60, 450, 22])
 
     # "savelater" restarts a [delay]: the pattern is stored once the edits have paused for
     # SAVE_PAUSE_MS, so a dial turned through many values is one step in Live's undo;
@@ -364,32 +547,6 @@ def brain():
     p.connect(script, pattr, 4)
     p.connect(pattr, restore)
     p.connect(restore, script)
-
-    # Edits: a track menu and a dial per parameter. Each dial sends "param key value" for
-    # the menu's track; the script sets the dials to a track's values ("key value" from
-    # outlet 3) when the track changes.
-    p.comment("Edit track", [840, 600, 70, 20], [262, 30, 60, 20])
-    etrack = p.param("live.menu", [840, 620, 50, 15], [320, 32, 40, 15], "Edit track", 2,
-                     enum=[str(i) for i in range(1, TRACKS + 1)], outlets=3, outlettype=["", "", "float"])
-    ui(p, trig, script, etrack, "editTrackSelect", 840)
-    dials = [("pulses", "Pulses", 0, 64), ("rotate", "Rotate", 0, 63), ("repeats", "Repeats", 0, 49),
-             ("pace", "Pace", -100, 100), ("probability", "Prob", -100, 100),
-             ("sustain", "Sustain", 0, 100), ("timing", "Timing", -100, 100), ("delay", "Delay", -100, 100)]
-    route = p.obj("route " + " ".join(k for k, *_ in dials), [600, 700, 400, 22], 1, len(dials) + 1)
-    p.connect(script, route, 3)
-    for i, (key, name, lo, hi) in enumerate(dials):
-        x = 600 + i * 90
-        # Hidden: the values are the pattern's (saved with it); as stored parameters, the
-        # script setting them at load would mark the set changed, and each turn would be
-        # an undo step of its own besides the pattern's.
-        dial = p.param("live.dial", [x, 760, 44, 48], [8 + i * 46, 88, 44, 48], name, 1,
-                       mmin=lo, mmax=hi, initial=0, outlets=2, outlettype=["", "float"], hidden=True)
-        setter = p.obj("prepend set", [x, 730, 70, 22])
-        p.connect(route, setter, i)
-        p.connect(setter, dial)
-        prep = p.obj(f"prepend param {key}", [x, 820, 90, 22])
-        p.connect(dial, prep)
-        p.connect(prep, script)
     return p
 
 
@@ -411,6 +568,7 @@ def main(out):
         (out / f"{name}.amxd").write_bytes(amxd(text.encode("utf-8") + b"\n\x00"))
         print("wrote", out / f"{name}.amxd")
     for src, dst in ((HERE / SCRIPT, SCRIPT), (HERE / "jezric_talea_core.js", "jezric_talea_core.js"),
+                     (HERE / LABEL_SCRIPT, LABEL_SCRIPT),
                      (ENGINE, "jezric_talea_engine.js")):
         shutil.copyfile(src, out / dst)
         print("copied", out / dst)
