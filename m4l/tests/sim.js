@@ -90,6 +90,15 @@ World.prototype.device = function (role, trackNo, saved, restoreAfterInit, noTes
 				else if (a[0] === "page") d.page = a[1];
 				else if (a[0] === "follow") d.follow = a[1];
 				else if (a[0] === "mode") d.mode = a[1];
+				else if (a[0] === "apply") d.apply = a[1];
+			} else if (n === 6 && role === "brain") {
+				// the display: [thispatcher] shows and hides; the rest sets controls
+				d.shown = d.shown || {};
+				d.disp = d.disp || {};
+				if (a[0] === "script") d.shown[a[2]] = a[1] === "show";
+				else if (a[0] === "d_diagram" && a[1] === "play") d.play = a[2];
+				else if (a[0] === "d_diagram") d.diagram = a.slice(1);
+				else d.disp[a[0]] = a.length > 2 || /^dr_/.test(a[0]) ? a.slice(1) : a[1];
 			}
 		},
 		Math: Math, Date: FakeDate
@@ -793,13 +802,17 @@ function loadBankStopped(s, bank) {
 (function () {
 	var s = setup(), b = s.brain.ctx;
 	b.padModeSelect(1);
+	check("no staged mutes: Apply hidden (" + s.brain.apply + ")", s.brain.apply === 0);
 	press(s.brain, 1);
+	check("a staged mute: Apply shown (" + s.brain.apply + ")", s.brain.apply === 1);
 	b.padModeSelect(0);
+	check("left Mute mode: Apply hidden again (" + s.brain.apply + ")", s.brain.apply === 0);
 	b.padModeSelect(1);
 	b.applyMutes();
 	check("leaving Mute mode drops the staged change", b.stepper.perf().muted === 0);
 	press(s.brain, 3);
 	b.applyMutes();
+	check("applied: Apply hidden (" + s.brain.apply + ")", s.brain.apply === 0);
 	press(s.brain, 5, false, true);
 	check("stopped: Apply and Ctrl+click mute at once (" + b.stepper.perf().muted + ")", b.stepper.perf().muted === (8 | 32));
 	var t0 = s.w.now;
@@ -918,6 +931,408 @@ function loadBankStopped(s, bank) {
 	check("a format 1 set loads into pattern 1 (pulses " + r.brain.ctx.stepper.getParam(0, "pulses") + ")",
 		r.brain.ctx.stepper.getParam(0, "pulses") === 3 && r.brain.ctx.stepper.perf().current === 0);
 	done(r);
+})();
+
+// ---- the display ----
+
+function shownNames(d) {
+	return Object.keys(d.shown).filter(function (k) { return d.shown[k]; }).sort().join(" ");
+}
+
+// Pages: a page shows its rows (or the note for one not built yet), set from the edit
+// track; an edit while stopped is heard at Play.
+(function () {
+	var s = setup(), b = s.brain.ctx, d = s.brain;
+	check("at load the TRACK page: its info line and steps (" + shownNames(d) + ")", shownNames(d) === "d_board d_trackInfo");
+	b.displayPage(4); // SCALE
+	check("SCALE shows its rows and notes (" + shownNames(d) + ")", shownNames(d) === "d_diagram d_root d_scale dl_root dl_scale");
+	check("SCALE set from the edit track (root " + d.disp.d_root + ", scale " + d.disp.d_scale + ")", d.disp.d_root === 0 && d.disp.d_scale === 0);
+	b.disp("scale", 1);
+	b.disp("root", 2);
+	check("stopped: the edit is in the engine and shown (root " + b.stepper.getField(0, "root") + ")",
+		b.stepper.getField(0, "root") === 2 && b.stepper.getField(0, "scale") === 1 && d.disp.d_root === 2);
+	b.editTrackSelect(1);
+	check("another edit track: its own values (" + d.disp.d_root + ")", d.disp.d_root === 0);
+	var t0 = s.w.now;
+	s.w.play(range(0, 64));
+	var st = new core.Stepper(M, preset), want = emptyWant();
+	st.setField(0, "scale", 1);
+	st.setField(0, "root", 2);
+	range(0, 64).forEach(function (p, i) { addStep(want, st.step(p), i); });
+	st.destroy();
+	compare("a SCALE edit while stopped: Play plays it, pitches and all", s.rx, t0, 120, want, 0);
+	s.w.stop();
+	s.w.wait(SAVE_PAUSE_MS + 10);
+	var r = setup({ saved: s.brain.pattr });
+	check("the setting is saved with the set (root " + r.brain.ctx.stepper.getField(0, "root") + ")", r.brain.ctx.stepper.getField(0, "root") === 2);
+	done(r);
+	done(s);
+})();
+
+// Settings while playing: taken on the next 16th, heard from the next step.
+(function () {
+	var s = setup(), b = s.brain.ctx, steps = range(0, 96), t0 = s.w.now;
+	b.displayPage(6); // VOICING
+	b.editTrackSelect(4); // the chord track
+	s.w.play(steps, function (i) {
+		if (i === 20) b.disp("style", 2);
+		if (i === 40) b.disp("mono", 1);
+	});
+	var want = refRun(steps, {
+		20: function (st) { st.setField(4, "style", 2); },
+		40: function (st) { st.setField(4, "mono", 1); },
+	});
+	compare("VOICING edits while playing: from the next step, as the engine plays them", s.rx, t0, 120, want, 0);
+	check("VOICING edits: no hanging notes (" + hanging(s.rx) + ")", hanging(s.rx) === 0);
+	done(s);
+})();
+
+// GROOVE: BARS is dimmed for the percussion grooves, and reads LOOPS with SYNC on LOOP;
+// PHRASE: its list leaves out Rack's CV input, so USER is the engine's 9.
+(function () {
+	var s = setup(), b = s.brain.ctx, d = s.brain;
+	b.displayPage(7);
+	check("GROOVE: BARS dimmed for AGOGO (" + d.disp.da_grooveLength + ")", d.disp.da_grooveLength === 0);
+	b.disp("groove", 4);
+	check("GROOVE: BARS active for SAW (" + d.disp.da_grooveLength + ")", d.disp.da_grooveLength === 1);
+	b.disp("grooveLoop", 1);
+	check("GROOVE: SYNC LOOP relabels BARS as LOOPS (" + d.disp.dl_grooveLength + ")", d.disp.dl_grooveLength === "LOOPS");
+	b.displayPage(5);
+	b.disp("phrase", 8);
+	check("PHRASE: USER is the engine's 9, shown as the 9th choice (" + b.stepper.getField(0, "phrase") + ", " + d.disp.d_phrase + ")",
+		b.stepper.getField(0, "phrase") === 9 && d.disp.d_phrase === 8);
+	done(s);
+})();
+
+// Mute mode shows its settings over the page; APPLY at BAR lands staged mutes on the bar
+// line; a page tab leaves Mute mode, back to the mode before it.
+(function () {
+	var s = setup(), b = s.brain.ctx, d = s.brain, steps = range(0, 64), t0 = s.w.now;
+	b.displayPage(4);
+	b.padModeSelect(1);
+	check("Mute mode: the MUTE view (" + shownNames(d) + ")", shownNames(d) === "d_muteCuts d_muteTiming dl_muteCuts dl_muteTiming");
+	b.disp("muteTiming", 2);
+	s.w.play(steps, function (i) {
+		if (i === 5) { press(s.brain, 0); b.applyMutes(); }
+	});
+	var want = refRun(steps, {
+		0: function (st) { st.setSetting("muteTiming", 2); },
+		5: function (st) { st.commitMutes(1, 5 / 4 + 0.125); },
+	});
+	compare("APPLY at BAR: the mute lands on the next bar line", s.rx, t0, 120, want, 0);
+	var t1 = playedQuarters(s.rx[0], t0, 120);
+	check("track 1 plays to the bar line, then not (" + t1.filter(function (q) { return q >= 1.5 && q < 4; }).length + " notes before, " +
+		t1.filter(function (q) { return q >= 4.01; }).length + " after)", t1.filter(function (q) { return q >= 1.5 && q < 4; }).length > 0 &&
+		t1.filter(function (q) { return q >= 4.01; }).length === 0);
+	s.w.stop();
+	b.displayPage(9);
+	check("a page tab leaves Mute mode (mode " + d.mode + "), PATTERN shown (" + shownNames(d) + ")",
+		d.mode === 0 && shownNames(d) === "d_patternClear d_patternCopy d_patternPlay d_patternQuantize dl_patternClear dl_patternCopy dl_patternPlay dl_patternQuantize");
+	s.w.wait(SAVE_PAUSE_MS + 10);
+	var r = setup({ saved: s.brain.pattr });
+	check("the mute timing is saved with the set (" + r.brain.ctx.stepper.getSetting("muteTiming") + ")", r.brain.ctx.stepper.getSetting("muteTiming") === 2);
+	done(r);
+	done(s);
+})();
+
+// A dial turned shows its page; in Mute mode the Mute view stays.
+(function () {
+	var s = setup(), b = s.brain.ctx, d = s.brain;
+	turn(s.brain, 0, "pace", -20);
+	check("a Repeats dial shows SETUP, where Choke / Tail is (" + d.disp.d_pages + ", " + shownNames(d) + ")",
+		d.disp.d_pages === 11 && / d_repeatTail /.test(" " + shownNames(d) + " ") && / d_instance /.test(" " + shownNames(d) + " "));
+	turn(s.brain, 0, "pitch", 3);
+	check("Pitch shows SCALE (" + d.disp.d_pages + ")", d.disp.d_pages === 4);
+	b.padModeSelect(1);
+	turn(s.brain, 0, "voicing", 2);
+	check("in Mute mode the Mute view stays (" + shownNames(d) + "), the page moves under it (" + d.disp.d_pages + ")",
+		shownNames(d) === "d_muteCuts d_muteTiming dl_muteCuts dl_muteTiming" && d.disp.d_pages === 6);
+	b.padModeSelect(0);
+	check("leaving Mute mode: VOICING (" + shownNames(d) + ")", /d_style/.test(shownNames(d)));
+	done(s);
+})();
+
+// PATTERN: COPY TO and CLEAR; PLAY queues and shows the playing pattern.
+(function () {
+	var s = setup(), b = s.brain.ctx, d = s.brain;
+	b.displayPage(9);
+	s.w.wait(200); // a click comes a while after the page shows (and renames its choices)
+	b.disp("patternCopy", 3);
+	check("COPY TO 4: slot 4 holds the pattern (" + b.stepper.perf().used + ")", (b.stepper.perf().used & 8) !== 0);
+	b.disp("patternCopy", 5); // at once: the echo of the rename COPY TO 4 caused
+	check("an echo just after a rename is ignored (slot 6 " + ((b.stepper.perf().used & 32) ? "copied" : "untouched") + ")",
+		(b.stepper.perf().used & 32) === 0);
+	s.w.wait(200);
+	b.disp("patternPlay", 3);
+	check("PLAY 4 while stopped: playing at once, shown (" + b.stepper.perf().current + ", " + d.disp.d_patternPlay + ")",
+		b.stepper.perf().current === 3 && d.disp.d_patternPlay === 3 && b.stepper.getParam(0, "pulses") === 9);
+	check("filled slots marked in PLAY, COPY TO and CLEAR (" + d.disp.dr_patternPlay.slice(0, 5).join(" ") + ")",
+		d.disp.dr_patternPlay[0] === "1*" && d.disp.dr_patternPlay[3] === "4*" && d.disp.dr_patternPlay[1] === "2" &&
+		d.disp.dr_patternCopy[3] === "4*" && d.disp.dr_patternClear[0] === "1*");
+	s.w.wait(200);
+	b.disp("patternClear", 3);
+	check("CLEAR 4: the playing pattern back to the default (pulses " + b.stepper.getParam(0, "pulses") + "), dials follow",
+		b.stepper.getParam(0, "pulses") === 0 && (b.stepper.perf().used & 8) === 0);
+	check("cleared slot unmarked (" + d.disp.dr_patternPlay[3] + ")", d.disp.dr_patternPlay[3] === "4");
+	done(s);
+})();
+
+// The diagrams: GROOVE's accent shape with a playhead, PHRASE's notes or its User grid
+// (edited by clicking), VOICING's next notes.
+(function () {
+	var s = setup(), b = s.brain.ctx, d = s.brain;
+	b.displayPage(7);
+	check("GROOVE shows the diagram (" + shownNames(d) + ")", /d_diagram/.test(shownNames(d)));
+	check("GROOVE: the accent shape, 129 values, one bar repeated (" + d.diagram.slice(0, 3).join(" ") + ")",
+		d.diagram[0] === "groove" && d.diagram[1] === "1 BAR, REPEATED" && d.diagram.length === 3 + 129);
+	b.disp("groove", 4);
+	b.disp("grooveLength", 1);
+	check("GROOVE: SAW over 2 bars (" + d.diagram[1] + ")", d.diagram[1] === "2 BARS");
+	check("stopped: no playhead (" + d.play + ")", d.play === -1);
+	var seen = {};
+	s.w.play(range(0, 40), function (i) { if (i > 0) seen[d.play] = true; });
+	check("playing: the playhead moves (" + Object.keys(seen).length + " places)", Object.keys(seen).length > 30);
+	s.w.stop();
+	b.displayPage(6);
+	check("VOICING: the next 16 notes, as dashes (" + d.diagram.slice(0, 3).join(" ") + ")",
+		d.diagram[0] === "notes" && d.diagram[1] === "NEXT 16 NOTES" && d.diagram[2] === 1 && d.diagram.length === 3 + 16);
+	b.displayPage(5);
+	check("PHRASE: the phrase's notes (" + d.diagram.slice(0, 3).join(" ") + ", " + (d.diagram.length - 3) + ")",
+		d.diagram[0] === "notes" && d.diagram[1] === "4 BARS" && d.diagram.length === 3 + 64);
+	b.disp("phrase", 8); // USER
+	check("PHRASE USER: the grid (" + d.diagram.slice(0, 3).join(" ") + ")", d.diagram[0] === "grid" && d.diagram.length === 2 + 16);
+	b.phraseGrid(3, 11);
+	check("a click on the grid sets the column (" + d.diagram[2 + 3] + ")", d.diagram[2 + 3] === 11);
+	done(s);
+})();
+
+// The diagram's [v8ui] script, run against a fake mgraphics: it draws each kind, and a
+// click on the grid sends the column and level.
+(function () {
+	var calls = 0, sent = [];
+	var g = {
+		init: function () {}, redraw: function () {}, size: [454, 54],
+		select_font_face: function () {}, set_font_size: function () {}, text_measure: function () { return [40, 9]; },
+		set_source_rgba: function () { calls++; }, move_to: function () {}, line_to: function () {}, show_text: function () {},
+		stroke: function () {}, fill: function () {}, rectangle: function () {}, set_line_width: function () {}, ellipse: function () {}
+	};
+	var ctx = { mgraphics: g, outlet: function () { sent.push(Array.prototype.slice.call(arguments, 1)); }, box: { rect: [0, 0, 454, 54] }, Math: Math };
+	vm.createContext(ctx);
+	vm.runInContext(fs.readFileSync(path.join(DEVICE, "jezric_talea_diagram.js"), "utf8"), ctx);
+	var curve = []; for (var i = 0; i <= 128; i++) curve.push(Math.sin(i / 20));
+	ctx.groove.apply(null, ["2 BARS", 0.5].concat(curve));
+	ctx.messagename = "play"; ctx.anything(0.25);
+	ctx.messagename = "live_lcd_control_fg"; ctx.anything(1, 0.5, 0, 1);
+	ctx.paint();
+	ctx.notes.apply(null, ["NEXT 16 NOTES", 1, 60, 62, 64, 65]);
+	ctx.paint();
+	var levels = []; for (i = 0; i < 16; i++) levels.push(i % 12);
+	ctx.grid.apply(null, ["4 BARS"].concat(levels));
+	ctx.paint();
+	ctx.onclick(2 + 450 / 16 * 2.5, 12 + 40 * 0.5);
+	ctx.ondrag(2 + 450 / 16 * 2.5, 12 + 40 * 0.5, 1); // the same cell: not sent again
+	ctx.ondrag(2 + 450 / 16 * 5.5, 12 + 1, 1);
+	check("the diagram script draws every kind (" + calls + " colour changes)", calls > 20);
+	check("a click and drag on the grid send column and level (" + JSON.stringify(sent) + ")",
+		sent.length === 2 && sent[0].join() === "grid,2,5" && sent[1].join() === "grid,5,11");
+	// The board: steps and the keyboard; a key click sends the note, SCALE's the pitch class.
+	g.size = [454, 97];
+	ctx.messagename = "steps";
+	ctx.anything.apply(null, [20, 16, 3, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0]);
+	ctx.paint();
+	ctx.keys.apply(null, ["C2 - B5", 36, 4, 0xAB5, 0, 2, 48, 52, 1, 52]);
+	ctx.paint();
+	sent = [];
+	var ww = 450 / 28;
+	ctx.onclick(2 + ww * 7.5, 90);  // the 8th white key: C3 (48)
+	ctx.onclick(2 + ww * 1, 20);    // the first black key, between C2 and D2: C#2 (37)
+	ctx.scalekeys(0xAB5, 0);
+	g.size = [454, 57];
+	ctx.onclick(56 + 450 / 28 * 2.5, 50); // E: SCALE's keys are KEYS' size, from x 56
+	ctx.onclick(56 + 450 / 28 * 8, 50);   // past the octave: nothing
+	check("the board draws steps and keys; key clicks send notes (" + JSON.stringify(sent) + ")",
+		sent.length === 3 && sent[0].join() === "key,48" && sent[1].join() === "key,37" && sent[2].join() === "scale,4");
+})();
+
+// TRACK: the info line and the steps; KEYS: the pool keyboard, a click adds a note heard at
+// Play, the octave buttons move it; SCALE's notes: a click makes the scale the User one.
+(function () {
+	var s = setup(), b = s.brain.ctx, d = s.brain;
+	check("TRACK: the info line (" + d.disp.d_trackInfo + ")", /^TRACK 1  STEPS 16  PULSES 9  ROT 0  1\/16  LEN /.test(d.disp.d_trackInfo));
+	check("TRACK: the steps (" + d.disp.d_board.slice(0, 4).join(" ") + ")", d.disp.d_board[0] === "steps" && d.disp.d_board[1] === 16 && d.disp.d_board.length === 4 + 16);
+	b.editTrackSelect(1);
+	check("TRACK follows the edit track (" + d.disp.d_board[1] + " steps)", d.disp.d_board[1] === 12 && /^TRACK 2 /.test(d.disp.d_trackInfo));
+	b.editTrackSelect(0);
+	b.displayPage(3);
+	check("KEYS: octave buttons, help line, keyboard (" + shownNames(d) + ")", shownNames(d) === "d_board d_keysHelp d_keysOctave dl_keysOctave");
+	var pool0 = b.stepper.pool(0);
+	check("KEYS: from C2, the track's pool (" + d.disp.d_board.slice(0, 9).join(" ") + ")",
+		d.disp.d_board[0] === "keys" && d.disp.d_board[2] === 36 && d.disp.d_board[6] === pool0.length);
+	b.poolKey(64);
+	b.poolKey(67);
+	check("KEYS: clicks add pool notes (" + b.stepper.pool(0).join(" ") + ")", b.stepper.pool(0).join() === pool0.concat([64, 67]).sort(function (x, y) { return x - y; }).join());
+	b.poolKey(61); // C#: not in the scale (Chromatic is everything: make it Major first)
+	b.disp("keysOctave", 1);
+	check("KEYS: > moves the keyboard up an octave (" + d.disp.d_board[2] + ")", d.disp.d_board[2] === 48);
+	var t0 = s.w.now;
+	s.w.play(range(0, 64));
+	var st = new core.Stepper(M, preset), want = emptyWant();
+	st.poolKey(0, 64);
+	st.poolKey(0, 67);
+	st.poolKey(0, 61);
+	range(0, 64).forEach(function (p, i) { addStep(want, st.step(p), i); });
+	st.destroy();
+	compare("pool notes added while stopped: Play plays them", s.rx, t0, 120, want, 0);
+	s.w.stop();
+	b.displayPage(4);
+	b.disp("scale", 1); // Major
+	b.scaleKey(1);      // C#: into the scale, which becomes User
+	check("SCALE: a note click makes the User scale (" + b.stepper.getField(0, "scale") + ", notes " + b.stepper.scaleNotes(0).toString(2) + ")",
+		b.stepper.getField(0, "scale") === 23 && (b.stepper.scaleNotes(0) & 2) !== 0 && d.disp.d_scale === 23 && d.diagram[0] === "scalekeys");
+	done(s);
+})();
+
+// RANDOM: the amounts and their per cycle / per tick switches, Variance, Rate, Slew, Lock
+// and the sequence buttons, for the edit track; heard from the next step while playing,
+// saved with the set.
+(function () {
+	var s = setup(), b = s.brain.ctx, d = s.brain;
+	b.displayPage(8);
+	var shown = shownNames(d).split(" ");
+	check("RANDOM shows 15 amounts, their switches and the rest (" + shown.length + " controls)",
+		shown.length === 15 * 3 + 4 * 2 + 2 && shown.indexOf("d_rnd_pulses") >= 0 && shown.indexOf("d_rndc_pulses") >= 0 &&
+		shown.indexOf("dl_rndc_pulses") < 0 && shown.indexOf("d_rndSeq") >= 0);
+	check("RANDOM set from the engine (pulses " + d.disp.d_rnd_pulses + ", per cycle " + d.disp.d_rndc_pulses + ", rate " + d.disp.d_rndRate + ")",
+		d.disp.d_rnd_pulses === 0 && d.disp.d_rndc_pulses === 1 && d.disp.d_rndc_velocity === 0 && d.disp.d_rndRate === 9);
+	check("no random amounts: the RANDOM tab unmarked (" + d.shown.d_rndmark + ")", !d.shown.d_rndmark);
+	b.disp("rnd_velocity", -35);
+	check("a random amount: the RANDOM tab marked", d.shown.d_rndmark === true);
+	b.displayPage(4);
+	check("the mark stays on other pages", d.shown.d_rndmark === true);
+	b.displayPage(8);
+	b.disp("rndc_velocity", 1);
+	b.disp("rndVariance", 25);
+	check("stopped: amounts and settings in the engine (" + b.stepper.getRandom(0, "amount", "velocity") + ", " +
+		b.stepper.getRandom(0, "perCycle", "velocity") + ", " + b.stepper.getRandom(0, "variance") + ")",
+		b.stepper.getRandom(0, "amount", "velocity") === -35 && b.stepper.getRandom(0, "perCycle", "velocity") === 1 &&
+		b.stepper.getRandom(0, "variance") === 25 && d.disp.d_rnd_velocity === -35);
+	var steps = range(0, 128), t0 = s.w.now;
+	s.w.play(steps, function (i) {
+		if (i === 30) b.disp("rnd_pitch", 60);
+		if (i === 60) b.disp("rndSeq", 0); // REGEN
+		if (i === 90) b.disp("rndLock", 1);
+	});
+	var want = refRun(steps, {
+		0: function (st) { st.setRandom(0, "amount", "velocity", -35); st.setRandom(0, "perCycle", "velocity", 1); st.setRandom(0, "variance", null, 25); },
+		30: function (st) { st.setRandom(0, "amount", "pitch", 60); },
+		60: function (st) { st.randomAction(0, 0, 60 / 4 + 0.125); },
+		90: function (st) { st.randomAction(0, 1, 90 / 4 + 0.125); },
+	});
+	compare("random edits while playing: amounts, Regen and Lock, as the engine plays them", s.rx, t0, 120, want, 0);
+	var plain = refRun(steps, {});
+	check("the random edits change the notes", want.pitch[0].join() !== plain.pitch[0].join());
+	check("LOCK shown on (" + d.disp.d_rndLock + ")", d.disp.d_rndLock === 1 && b.stepper.getRandom(0, "locked") === 1);
+	s.w.stop();
+	b.disp("rndLock", 1); // the state it's in: nothing
+	check("LOCK clicked again on ON: still locked", b.stepper.getRandom(0, "locked") === 1);
+	s.w.wait(SAVE_PAUSE_MS + 10);
+	var r = setup({ saved: s.brain.pattr });
+	check("random settings saved with the set (" + r.brain.ctx.stepper.getRandom(0, "amount", "pitch") + ")",
+		r.brain.ctx.stepper.getRandom(0, "amount", "pitch") === 60 && r.brain.ctx.stepper.getRandom(0, "variance") === 25);
+	done(r);
+	b.disp("rndSeq", 5); // CLEAR ALL
+	check("CLEAR ALL: every amount 0 (" + b.stepper.getRandom(0, "amount", "pitch") + ", " + d.disp.d_rnd_velocity + "), tab unmarked",
+		b.stepper.getRandom(0, "amount", "pitch") === 0 && d.disp.d_rnd_velocity === 0 && d.shown.d_rndmark === false);
+	b.stepper.setRandom(0, "amount", "steps", 50); // no row for it; the engine refuses it too
+	check("Steps can't be randomised", b.stepper.getRandom(0, "amount", "steps") === 0);
+	done(s);
+})();
+
+// Cycles: the CYCLE page (COUNT, CYCLE, MUTE, CLEAR), Cycle edit (the dials and step pads
+// edit the selected cycle, which plays alone), the Cycle pads; Play plays the cycles in turn.
+(function () {
+	var s = setup(), b = s.brain.ctx, d = s.brain;
+	b.displayPage(2);
+	check("CYCLE shows its rows (" + shownNames(d) + ")",
+		shownNames(d) === "d_cycleClear d_cycleCount d_cycleEdit d_cycleMute d_cyclePlaying d_cycleSelect dl_cycleClear dl_cycleCount dl_cycleEdit dl_cycleMute dl_cycleSelect");
+	check("one cycle at first (" + d.disp.d_cycleCount + ", " + d.disp.dr_cycleClear.join(" ") + ")", d.disp.d_cycleCount === 0 && d.disp.dr_cycleClear.join() === "ALL,HITS");
+	s.w.wait(200);
+	b.disp("cycleCount", 1);
+	s.w.wait(200);
+	b.disp("cycleSelect", 1);
+	check("CYCLE tab unframed (" + d.shown.d_cycmark + ")", !d.shown.d_cycmark);
+	b.disp("cycleEdit", 1);
+	check("EDIT on: the CYCLE tab framed red, the line says so (" + d.disp.d_cyclePlaying + ")",
+		d.shown.d_cycmark === true && /^EDIT: CYCLE 2 PLAYS ALONE/.test(d.disp.d_cyclePlaying));
+	check("Cycle edit: the dials show cycle 2's values (pulses " + b.dialValue(0, "pulses") + ")", b.dialValue(0, "pulses") === 9);
+	turn(s.brain, 0, "pulses", 3);
+	check("Cycle edit: a dial overrides cycle 2 only (" + b.stepper.getCycleParam(0, 1, "pulses") + ", track " + b.stepper.getParam(0, "pulses") + ")",
+		b.stepper.getCycleParam(0, 1, "pulses") === 3 && b.stepper.getParam(0, "pulses") === 9 && b.stepper.getCycleParam(0, 0, "pulses") === 9);
+	b.displayPage(2);
+	check("cycle 2 marked as changed, CLEAR lists its override (" + d.disp.dr_cycleSelect.slice(0, 2).join(" ") + "; " + d.disp.dr_cycleClear.join(" ") + ")",
+		d.disp.dr_cycleSelect[1] === "2*" && d.disp.dr_cycleClear.join() === "ALL,HITS,PULSE");
+	b.pad(0, "bang"); // step 1, in cycle 2 only
+	check("Cycle edit: a step pad edits cycle 2 only (" + b.stepper.cycleHits(0, 1)[0] + " / track " + b.stepper.hits(0)[0] + ")",
+		b.stepper.cycleHits(0, 1)[0] !== b.stepper.cycleHits(0, 0)[0] && b.stepper.hits(0)[0] === b.stepper.cycleHits(0, 0)[0]);
+	// Playing in Cycle edit: cycle 2 alone.
+	var steps = range(0, 64), t0 = s.w.now;
+	s.w.play(steps);
+	var st = new core.Stepper(M, preset), want = emptyWant();
+	st.setCycleCount(0, 2);
+	st.setCycleParam(0, 1, "pulses", 3);
+	st.toggleCycleStep(0, 1, 0);
+	st.setSoloCycle(0, 1);
+	steps.forEach(function (p, i) { addStep(want, st.step(p), i); });
+	compare("Cycle edit while playing: the edited cycle plays alone", s.rx, t0, 120, want, 0);
+	s.w.stop();
+	b.displayPage(2);
+	b.disp("cycleEdit", 0);
+	check("EDIT off: the frame goes", d.shown.d_cycmark === false);
+	check("Cycle edit off: the dials show the track's values", b.dialValue(0, "pulses") === 9);
+	var t1;
+	st.setSoloCycle(0, -1);
+	st.forget();
+	want = emptyWant();
+	b.displayPage(2);
+	var bars = {};
+	s.w.play(range(0, 32), function (i) {
+		var on = Object.keys(d.shown).filter(function (k) { return /^d_cycleSelect_play/.test(k) && d.shown[k]; });
+		if (i > 0) bars[on.join()] = true;
+	});
+	check("playing: a bar under the playing cycle, moving at each loop (" + Object.keys(bars).join(" | ") + ")",
+		Object.keys(bars).sort().join(" | ") === "d_cycleSelect_play0 | d_cycleSelect_play1");
+	s.w.stop();
+	check("stopped: no bar", !Object.keys(d.shown).some(function (k) { return /^d_cycleSelect_play/.test(k) && d.shown[k]; }));
+	t1 = s.w.now;
+	s.w.play(steps);
+	steps.forEach(function (p, i) { addStep(want, st.step(p), i); });
+	st.destroy();
+	compare("Cycle edit off: the cycles play in turn", s.rx, t1, 120, want, 0);
+	var loop1 = playedQuarters(s.rx[0], t1, 120).filter(function (q) { return q >= 0 && q < 4; }).length;
+	var loop2 = playedQuarters(s.rx[0], t1, 120).filter(function (q) { return q >= 4 && q < 8; }).length;
+	check("the cycles differ (track 1: " + loop1 + " notes in cycle 1's loop, " + loop2 + " in cycle 2's)", loop1 === 9 && loop2 < 9 && loop2 > 0);
+	s.w.stop();
+	// CLEAR PULSE, then the Cycle pads.
+	b.displayPage(2);
+	s.w.wait(200);
+	check("CLEAR lists the step edits too (" + d.disp.dr_cycleClear.join(" ") + ")", d.disp.dr_cycleClear.join() === "ALL,HITS,PULSE");
+	b.disp("cycleClear", d.disp.dr_cycleClear.indexOf("PULSE"));
+	check("CLEAR PULSE: cycle 2 plays the track's Pulses again (" + b.stepper.getCycleParam(0, 1, "pulses") + ")", b.stepper.getCycleParam(0, 1, "pulses") === 9);
+	s.w.wait(200);
+	b.disp("cycleSelect", 3);
+	check("CYCLE 4 picked past the last: 4 cycles, 4 selected (" + b.stepper.cycleCount(0) + ", " + b.selCycle + ")",
+		b.stepper.cycleCount(0) === 4 && b.selCycle === 3 && d.disp.d_cycleCount === 3);
+	s.w.wait(200);
+	b.disp("cycleSelect", 2);
+	s.w.wait(200);
+	b.disp("cycleMute", 1);
+	check("MUTE: cycle 3 muted, marked (" + d.disp.dr_cycleSelect.slice(0, 4).join(" ") + ")",
+		b.stepper.cycleState(0, 2).muted && d.disp.dr_cycleSelect[2] === "(3)");
+	s.w.wait(SAVE_PAUSE_MS + 10);
+	var r = setup({ saved: s.brain.pattr });
+	check("cycles saved with the set (" + r.brain.ctx.stepper.cycleCount(0) + ")", r.brain.ctx.stepper.cycleCount(0) === 4 && r.brain.ctx.stepper.cycleState(0, 2).muted);
+	done(r);
+	done(s);
 })();
 
 // As in Live: no test pattern, so the engine's own default pattern, which is silent (no

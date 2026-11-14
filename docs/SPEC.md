@@ -473,6 +473,15 @@ random scale + root; Cycles CW skips next cycle / CCW repeats current.
 
 No open questions.
 
+### For the next Rack revision
+
+Changes made in the Max for Live version that the Rack module could take up. Not done in
+Rack yet; consider them when it's next revised.
+
+- **STYLE page → VOICING.** The page holds Style, Poly/Mono and Voice direction: the
+  settings of the Voicing knob, so the Live version names it after the knob (its Style row
+  keeps its name). (2026-11-13)
+
 ---
 
 ## 7. Data model notes

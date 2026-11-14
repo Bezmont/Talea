@@ -47,22 +47,50 @@ DIAL_ROWS = [
 ]
 # Panel layout (presentation px; the device is 169 tall). Each section is a shaded frame
 # with its name down its left side, turned counterclockwise (jezric_talea_label.js).
-LEFT_X = 60        # the sections' and pads' column, right of the transport column
+LEFT_X = 88        # the sections' and pads' column, right of the transport column
+COL_X = 6          # the transport column: its controls' left edge and width (room for
+COL_W = LEFT_X - 12  # two narrow buttons side by side)
+APPLY_W = 18       # the "A" (Apply) button, right of the pad mode menu
 DIAL_STEP = 47     # dial to dial
 SECTION_GAP = 8    # between sections in a row
 FRAME_PAD = 3      # frame edge to dials
 LABEL_W = 13       # the name's strip down the frame's left side
 TRACKS_Y = 2       # track select, like tabs over the sections, TRACKS to its left
 ROW_Y = [24, 82]   # the two rows' frames (live.dial: 44 x 48); the pads go under them
-ON_Y = 24          # the On button, at the top of the transport column
+ON_W = 30          # the On button, left of the TRACKS label in the top row
 TRACKS_H = 18
 PADS_Y = 142       # the step pads, under the sections, the size of the track buttons
 PAGE_Y = 104       # the step page tabs and Follow, in the left column
 FOLLOW_Y = 122
-APPLY_Y = 84       # Mute mode's Apply, above them; the pad mode menu is beside the pads
 LABEL_SCRIPT = "jezric_talea_label.js"
+DISPLAY_SCRIPT = "jezric_talea_display.js"  # the display's pages and rows, read by the script too
+DIAGRAM_SCRIPT = "jezric_talea_diagram.js"  # [v8ui]: the display's diagrams
 CELL = 29          # a track select button's width
-DISPLAY_X = 560    # the display's place
+DISPLAY_X = 560    # the display's place: 8 px right of the sections and tabs
+DISPLAY_W = 470
+DISPLAY_Y = TRACKS_Y + TRACKS_H + 2  # the display's top: its page tabs sit above it, level with
+                                      # the track select tabs and styled as they are
+DISPLAY_ROW_Y = DISPLAY_Y + 4  # the display's first row
+DISPLAY_ROW_H = 19   # row to row
+DISPLAY_LABEL_W = 56  # a row's label, then its control
+DIAGRAM_Y = 104      # the diagram band, under the rows (pages have at most 4 rows with one)
+
+
+def display_spec():
+    """The display's pages and rows (jezric_talea_display.js: JSON after module.exports),
+    with "@scales" filled in from the engine's scale list."""
+    text = (HERE / DISPLAY_SCRIPT).read_text(encoding="utf-8")
+    spec = json.loads(text[text.rindex("module.exports =") + len("module.exports ="):].strip().rstrip(";"))
+    tonal = (CORE / "Tonal.hpp").read_text(encoding="utf-8")
+    scales = re.findall(r'\{"([^"]+)", "[^"]+", ', tonal.split("kScales[] = {", 1)[1].split("};", 1)[0])
+    values = (CORE / "Values.hpp").read_text(encoding="utf-8")
+    rates = re.findall(r'\{"([^"]*)",', values.split("kRandomRates[] = {", 1)[1].split("};", 1)[0])
+    named = {"@scales": scales, "@randomRates": rates}
+    for rows in spec["views"].values():
+        for row in rows:
+            if isinstance(row.get("items"), str):
+                row["items"] = named[row["items"]]
+    return spec
 
 
 def engine_params():
@@ -84,6 +112,11 @@ def engine_params():
         ev = lambda x: eval(x, {"__builtins__": {}}, env)  # noqa: E731 (constants and countOf only)
         out[key] = (ev(lo), ev(hi), ev(de), unit, snap == "true", lists[lst] if lst else None)
     return out
+
+
+# Live controls that draw a focus frame once clicked.
+FOCUS_FRAMED = {"live.tab", "live.text", "live.menu", "live.numbox", "live.dial", "live.toggle",
+                "live.button", "live.slider"}
 
 
 class Patch:
@@ -110,6 +143,9 @@ class Patch:
         if present is not None:
             b["presentation"] = 1
             b["presentation_rect"] = [float(v) for v in present]
+        if maxclass in FOCUS_FRAMED:
+            # No frame round a clicked control (it keeps the keyboard focus, unframed).
+            b["focusbordercolor"] = [0.0, 0.0, 0.0, 0.0]
         b.update(extra)
         self.boxes.append({"box": b})
         return bid
@@ -231,7 +267,7 @@ def common(p, role):
     pack = p.obj("pack 0 0 0", [120, 220, 80, 22], 3, 1)
     prep = p.obj("prepend tick", [120, 260, 80, 22])
     bus = p.obj(f"r {BUS}", [340, 260, 120, 22], 0, 1)
-    script = p.obj(f"v8 {SCRIPT} {role}", [20, 320, 200, 22], 1, 6)
+    script = p.obj(f"v8 {SCRIPT} {role}", [20, 320, 200, 22], 1, 7)
     midiin = p.obj("midiin", [500, 20, 50, 22], 1, 1, ["int"])
     midiout = p.obj("midiout", [500, 420, 60, 22], 1, 0)
 
@@ -396,14 +432,14 @@ def brain():
     # like any other; the script starts it at Live's next launch-quantization boundary.
     # Not banged at load like the others: a bang toggles a live.text. The script reads its
     # value at init instead, by its scripting name "On".
-    on = p.param("live.text", [840, 440, 44, 20], [6, ON_Y, 48, 20], "On", 2, enum=["off", "on"],
+    on = p.param("live.text", [840, 440, 44, 20], [COL_X, TRACKS_Y, ON_W, TRACKS_H], "On", 2, enum=["off", "on"],
                  initial=1, outlets=2, outlettype=["", ""], mode=1, text="On", texton="On")
     prep = p.obj("prepend enable", [840, 520, 110, 22])
     p.connect(on, prep)
     p.connect(prep, script)
 
     # Track select: the track the dials edit, along the top, named in the left column.
-    p.box("live.comment", [840, 570, 60, 18], "TRACKS", 1, 0, None, [4, TRACKS_Y + 2, 54, TRACKS_H],
+    p.box("live.comment", [840, 570, 60, 18], "TRACKS", 1, 0, None, [COL_X + ON_W + 2, TRACKS_Y + 2, COL_W - ON_W - 2, TRACKS_H],
           fontsize=9.0, fontface=1, textjustification=2)
     etrack = p.param("live.tab", [840, 600, 448, 18], [LEFT_X, TRACKS_Y, CELL * TRACKS, TRACKS_H], "Edit track", 2,
                      enum=[str(i) for i in range(1, TRACKS + 1)], outlets=3, outlettype=["", "", "float"])
@@ -472,7 +508,7 @@ def brain():
     # sends "pad i bang", after "padMods shift ctrl" from [modifiers] (polled by the press:
     # [t l b] fires right to left, and [modifiers] its outlets too, so [pack]'s hot inlet,
     # Shift, comes last).
-    panel_out = p.obj("route pad page follow mode", [1500, 400, 170, 22], 1, 5)
+    panel_out = p.obj("route pad page follow mode apply", [1500, 400, 200, 22], 1, 6)
     press_t = p.obj("t l b", [1500, 600, 40, 22], 1, 2)
     mods = p.obj("modifiers", [1560, 630, 70, 22], 1, 5, ["int", "int", "int", "int", "int"])
     modpack = p.obj("pack 0 0", [1560, 660, 60, 22], 2, 1)
@@ -500,22 +536,43 @@ def brain():
         p.connect(press, press_t)
 
     # The pad mode menu, beside the pads: Step, Mute, Pattern. Not stored: the script sets
-    # it ("mode i" from outlet 5). Choosing Mute again applies the staged mutes, as Apply
-    # does.
-    mode = p.param("live.menu", [1500, 760, 60, 15], [6, PADS_Y + 1, 48, 16], "Pad mode", 2,
-                   enum=["Step", "Mute", "Pattern"], outlets=3, outlettype=["", "", "float"], hidden=True)
+    # it ("mode i" from outlet 5). Choosing Mute again applies the staged mutes, as the "A"
+    # (Apply) button does: shown at the menu's right end while there are staged mutes, the
+    # menu taking the whole width otherwise.
+    mode = p.param("live.menu", [1500, 760, 60, 15], [COL_X, PADS_Y + 1, COL_W, 16], "Pad mode", 2,
+                   enum=["Step", "Mute", "Pattern"], outlets=3, outlettype=["", "", "float"], hidden=True,
+                   varname="PadMode")
     setmode = p.obj("prepend set", [1500, 730, 70, 22])
     p.connect(panel_out, setmode, 3)
     p.connect(setmode, mode)
     tomode = p.obj("prepend padModeSelect", [1500, 790, 130, 22])
     p.connect(mode, tomode)
     p.connect(tomode, script)
-    apply = p.box("live.text", [1640, 760, 48, 16], None, 1, 2, ["", ""], [6, APPLY_Y, 48, 16],
-                  parameter_enable=0, mode=0, texton="Apply")
-    p.boxes[-1]["box"]["text"] = "Apply"
+    # Apply: shown only while there are staged mutes ("apply 0/1" from outlet 5 shows or
+    # hides it and narrows or widens the menu, by their scripting names, through
+    # [thispatcher], on the main thread).
+    apply = p.box("live.text", [1640, 760, 24, 16], None, 1, 2, ["", ""],
+                  [COL_X + COL_W - APPLY_W, PADS_Y + 1, APPLY_W, 16],
+                  parameter_enable=0, mode=0, texton="A", varname="Apply", hidden=1,
+                  hint="Apply the staged mutes")
+    p.boxes[-1]["box"]["text"] = "A"
     toapply = p.obj("prepend applyMutes", [1640, 790, 110, 22])
     p.connect(apply, toapply)
     p.connect(toapply, script)
+    showapply = p.obj("sel 0 1", [1640, 820, 50, 22], 1, 3)
+    p.connect(panel_out, showapply, 4)
+    menu_at = f"{COL_X} {PADS_Y + 1}"
+    hide = p.msg(f"script hide Apply, script sendbox PadMode presentation_rect {menu_at} {COL_W} 16",
+                 [1640, 850, 110, 22])
+    show = p.msg(f"script show Apply, script sendbox PadMode presentation_rect {menu_at} {COL_W - APPLY_W - 2} 16",
+                 [1760, 850, 110, 22])
+    p.connect(showapply, hide, 0)
+    p.connect(showapply, show, 1)
+    applydefer = p.obj("deferlow", [1640, 880, 60, 22])
+    p.connect(hide, applydefer)
+    p.connect(show, applydefer)
+    thispatcher = p.obj("thispatcher", [1640, 910, 80, 22], 1, 2)
+    p.connect(applydefer, thispatcher)
     # Blinking: staged mutes, committed ones and a queued pattern.
     blinker = p.obj("metro 125 @active 1", [1760, 760, 120, 22], 2, 1, ["bang"])
     blinkmsg = p.msg("blink", [1760, 790, 50, 22])
@@ -524,7 +581,7 @@ def brain():
 
     # The step page tabs (steps 1-16 ... 49-64) and Follow, in the left column. Not stored:
     # the script sets them ("page i", "follow 0/1" from outlet 5).
-    page = p.param("live.tab", [1500, 600, 54, 16], [6, PAGE_Y, 48, 16], "Step page", 2,
+    page = p.param("live.tab", [1500, 600, 54, 16], [COL_X, PAGE_Y, COL_W, 16], "Step page", 2,
                    enum=["1", "2", "3", "4"], outlets=3, outlettype=["", "", "float"], hidden=True)
     setpage = p.obj("prepend set", [1500, 580, 70, 22])
     p.connect(panel_out, setpage, 1)
@@ -532,7 +589,7 @@ def brain():
     topage = p.obj("prepend stepPageSelect", [1500, 640, 130, 22])
     p.connect(page, topage)
     p.connect(topage, script)
-    follow = p.param("live.text", [1640, 600, 48, 16], [6, FOLLOW_Y, 48, 16], "Follow", 2,
+    follow = p.param("live.text", [1640, 600, 48, 16], [COL_X, FOLLOW_Y, COL_W, 16], "Follow", 2,
                      enum=["off", "on"], initial=1, outlets=2, outlettype=["", ""], hidden=True,
                      mode=1, text="Follow", texton="Follow")
     setfollow = p.obj("prepend set", [1640, 580, 70, 22])
@@ -542,16 +599,7 @@ def brain():
     p.connect(follow, tofollow)
     p.connect(tofollow, script)
 
-    # Where the display goes (step 3): for now the instance, look-ahead and status.
-    p.box("panel", [1300, 20, 60, 40], None, 1, 0, None, [DISPLAY_X, 4, 470, 161],
-          bgcolor=[0.0, 0.0, 0.0, 0.25], border=0, rounded=4, background=1)
-    p.comment("Talea Sequencer", [600, 400, 150, 20], [DISPLAY_X + 10, 8, 200, 20])
-    instance_menu(p, trig, script, x=DISPLAY_X + 10, y=30)
-    p.comment("Look-ahead", [720, 600, 70, 20], [DISPLAY_X + 134, 30, 70, 20])
-    ahead = p.param("live.numbox", [720, 620, 44, 15], [DISPLAY_X + 204, 32, 44, 15], "Lookahead", 1,
-                    mmin=4, mmax=16, initial=4, outlets=2, outlettype=["", "float"])
-    ui(p, trig, script, ahead, "lookahead", 720)
-    status_box(p, script, [DISPLAY_X + 10, 60, 450, 22])
+    display(p, trig, script)
 
     # "savelater" restarts a [delay]: the pattern is stored once the edits have paused for
     # SAVE_PAUSE_MS, so a dial turned through many values is one step in Live's undo;
@@ -586,6 +634,192 @@ def brain():
     return p
 
 
+def display(p, trig, script):
+    """The display: dark, in Live's LCD colours, with the page tabs along its top and each
+    page's rows (jezric_talea_display.js) under them, all LCD-style live.* controls. Every
+    row starts hidden; the script shows the page's ("script show d_<name>" from outlet 6,
+    through [thispatcher]), sets the controls ("d_<name> value"), relabels ("dl_<name>
+    text"), renames their choices ("dr_<name> ...") and dims them ("da_<name> 0/1"); a
+    control sends "disp <name> value"."""
+    spec = display_spec()
+    lcd = lambda key: {"expression": f"themecolor.{key}"}  # noqa: E731
+    p.box("panel", [1300, 20, 60, 40], None, 1, 0, None, [DISPLAY_X, DISPLAY_Y, DISPLAY_W, 165 - DISPLAY_Y],
+          bgcolor=[0.08, 0.08, 0.09, 1.0], bordercolor=[0.3, 0.3, 0.3, 1.0], border=1, rounded=4, background=1,
+          saved_attribute_attributes={"bgcolor": lcd("live_lcd_bg"), "bordercolor": lcd("live_lcd_frame")})
+    out = p.obj("route script", [2000, 20, 80, 22], 1, 2)
+    p.connect(script, out, 6)
+    defer = p.obj("deferlow", [2000, 50, 60, 22])
+    patcher = p.obj("thispatcher", [2000, 80, 80, 22], 1, 2)
+    to_script = p.obj("prepend script", [2100, 50, 90, 22])
+    p.connect(out, to_script, 0)
+    p.connect(to_script, defer)
+    p.connect(defer, patcher)
+    names, targets = [], []  # the [route]'s selectors and where each goes
+
+    def label(name, text, rect, x):
+        bid = p.box("live.comment", [x, 200, 60, 18], text, 1, 0, None, rect, varname="dl_" + name, hidden=1,
+                    fontsize=9.0, textcolor=[0.7, 0.7, 0.7, 1.0],
+                    saved_attribute_attributes={"textcolor": lcd("live_lcd_title")})
+        setl = p.obj("prepend set", [x, 170, 60, 22])
+        p.connect(setl, bid)
+        names.append("dl_" + name)
+        targets.append(setl)
+        return bid
+
+    # The page tabs: not stored (the script sets them).
+    pages = p.param("live.tab", [2000, 120, 400, 16], [DISPLAY_X, TRACKS_Y, DISPLAY_W, TRACKS_H], "Display page", 2,
+                    enum=spec["pages"], outlets=3, outlettype=["", "", "float"], hidden=True,
+                    fontsize=8.0, varname="d_pages")
+    setpages = p.obj("prepend set", [2000, 100, 70, 22])
+    p.connect(setpages, pages)
+    names.append("d_pages")
+    targets.append(setpages)
+    # A blue frame over the RANDOM tab while the edit track has a random amount (the
+    # dials' value arc colour); clicks go through to the tab. Shown by the script.
+    tab_w = DISPLAY_W / len(spec["pages"])
+    p.box("panel", [2200, 120, 40, 18], None, 1, 0, None,
+          [DISPLAY_X + spec["pages"].index("RANDOM") * tab_w, TRACKS_Y, tab_w, TRACKS_H],
+          varname="d_rndmark", hidden=1, ignoreclick=1, background=0, border=1, rounded=0,
+          bgcolor=[0.0, 0.0, 0.0, 0.0], bordercolor=[0.3, 0.6, 1.0, 1.0],
+          saved_attribute_attributes={"bordercolor": lcd("live_value_arc")})
+    # A red frame over the CYCLE tab while Cycle edit is on (the dials and step pads edit a
+    # cycle), as Rack lights CYC EDIT red.
+    p.box("panel", [2250, 120, 40, 18], None, 1, 0, None,
+          [DISPLAY_X + spec["pages"].index("CYCLE") * tab_w, TRACKS_Y, tab_w, TRACKS_H],
+          varname="d_cycmark", hidden=1, ignoreclick=1, background=0, border=1, rounded=0,
+          bgcolor=[0.0, 0.0, 0.0, 0.0], bordercolor=[1.0, 0.25, 0.2, 1.0])
+    topage = p.obj("prepend displayPage", [2000, 150, 120, 22])
+    p.connect(pages, topage)
+    p.connect(topage, script)
+    # A page not built yet.
+    p.box("live.comment", [2100, 120, 100, 18], "Not in this version yet", 1, 0, None,
+          [DISPLAY_X + 10, DISPLAY_ROW_Y, 200, 18], varname="d_soon", hidden=1, fontsize=9.0,
+          textcolor=[0.7, 0.7, 0.7, 1.0], saved_attribute_attributes={"textcolor": lcd("live_lcd_title")})
+
+    n = 0
+    cx = DISPLAY_X + 8 + DISPLAY_LABEL_W
+    full = DISPLAY_X + DISPLAY_W - 8 - cx
+    for view, rows in spec["views"].items():
+        for r, row in enumerate(rows):
+            x = 2000 + n * 90
+            # Where it goes: the next row at the left, or the spec's x (from the display's
+            # left edge) and row; the label, if any, then the control.
+            name, y = row["name"], DISPLAY_ROW_Y + row.get("row", r) * DISPLAY_ROW_H
+            lx = DISPLAY_X + 8 + row.get("x", 0)
+            lw = row.get("labelW", DISPLAY_LABEL_W)
+            if row.get("label"):
+                label(name, row["label"], [lx, y, max(lw - 4, 10), 16], x)
+            rx = lx + lw
+            rect = [rx, y, row.get("width", DISPLAY_X + DISPLAY_W - 8 - rx), 16]
+            kind = row["kind"]
+            pname = f"{view.title()} {row['label'].title()}" if row.get("label") else f"{view.title()} {name}"
+            common = dict(hidden=True, varname="d_" + name, appearance=1)
+            if kind == "text":  # a line the script writes ("d_<name> text")
+                ctl = p.box("live.comment", [x, 260, 200, 18], "", 1, 0, None, rect, varname="d_" + name,
+                            fontsize=9.0, textcolor=[0.85, 0.85, 0.85, 1.0],
+                            saved_attribute_attributes={"textcolor": lcd("live_lcd_control_fg")})
+                p.boxes[-1]["box"]["hidden"] = 1
+                setc = p.obj("prepend set", [x, 230, 70, 22])
+                p.connect(setc, ctl)
+                names.append("d_" + name)
+                targets.append(setc)
+                n += 1
+                continue
+            if kind in ("tab", "buttons"):
+                extra = {"button": 1} if kind == "buttons" else {}
+                ctl = p.param("live.tab", [x, 260, 80, 16], rect, pname, 2, enum=row["items"], outlets=3,
+                              outlettype=["", "", "float"], fontsize=float(row.get("fontsize", 8)), **common, **extra)
+            elif kind == "menu":
+                ctl = p.param("live.menu", [x, 260, 80, 16], rect, pname, 2, enum=row["items"], outlets=3,
+                              outlettype=["", "", "float"], **common)
+            else:
+                unit = {"unitstyle": 5} if row.get("unit") == "%" else {}
+                ctl = p.param("live.numbox", [x, 260, 44, 16], rect, pname, 1, mmin=row["min"], mmax=row["max"],
+                              outlets=2, outlettype=["", "float"], **common, **unit)
+            p.boxes[-1]["box"]["hidden"] = 1  # shown with its page (hidden= above: a Hidden parameter)
+            if row.get("playBars"):
+                # A bar under each choice; the script shows the playing one's.
+                bw = rect[2] / len(row["items"])
+                for i in range(len(row["items"])):
+                    p.box("panel", [x + i * 6, 380, 5, 2], None, 1, 0, None,
+                          [rect[0] + i * bw + 3, rect[1] + rect[3] - 2, bw - 6, 2],
+                          varname=f"d_{name}_play{i}", hidden=1, ignoreclick=1, background=0, border=0,
+                          bgcolor=[0.85, 0.85, 0.85, 1.0], saved_attribute_attributes={"bgcolor": lcd("live_lcd_control_fg")})
+            setc = p.obj("prepend set", [x, 230, 70, 22])
+            p.connect(setc, ctl)
+            names.append("d_" + name)
+            targets.append(setc)
+            act = p.obj("prepend active", [x, 290, 80, 22])
+            p.connect(act, ctl)
+            names.append("da_" + name)
+            targets.append(act)
+            if row.get("marks"):  # relabelled choices: "dr_<name> 1 2* 3 ..."
+                rng = p.obj("prepend _parameter_range", [x, 350, 90, 22])
+                p.connect(rng, ctl)
+                names.append("dr_" + name)
+                targets.append(rng)
+            toscript = p.obj(f"prepend disp {name}", [x, 320, 90, 22])
+            p.connect(ctl, toscript)
+            p.connect(toscript, script)
+            n += 1
+
+    # The diagram band (GROOVE, PHRASE, STYLE): one [v8ui] drawing whichever the page has
+    # ("d_diagram groove ...", "d_diagram play x"), in Live's LCD colours; on PHRASE's User
+    # shape a click or drag sends "phraseGrid col level".
+    diagram = p.box("v8ui", [2000, 470, 200, 54], None, 1, 1, [""],
+                    [DISPLAY_X + 8, DIAGRAM_Y, DISPLAY_W - 16, 165 - 4 - DIAGRAM_Y],
+                    filename=DIAGRAM_SCRIPT, border=0, parameter_enable=0, varname="d_diagram", hidden=1)
+    names.append("d_diagram")
+    targets.append(diagram)
+    # The board (TRACK's steps, KEYS' keyboard): the same script, under the first row.
+    board = p.box("v8ui", [2000, 580, 200, 80], None, 1, 1, [""],
+                  [DISPLAY_X + 8, DISPLAY_ROW_Y + DISPLAY_ROW_H, DISPLAY_W - 16, 165 - 4 - DISPLAY_ROW_Y - DISPLAY_ROW_H],
+                  filename=DIAGRAM_SCRIPT, border=0, parameter_enable=0, varname="d_board", hidden=1)
+    names.append("d_board")
+    targets.append(board)
+    # Their clicks: "grid col level", "key note", "scale pc".
+    clicks = p.obj("route grid key scale", [2000, 530, 130, 22], 1, 4)
+    p.connect(diagram, clicks)
+    p.connect(board, clicks)
+    for i, sel in enumerate(["phraseGrid", "poolKey", "scaleKey"]):
+        to = p.obj(f"prepend {sel}", [2000 + i * 110, 560, 100, 22])
+        p.connect(clicks, to, i)
+        p.connect(to, script)
+    dcolors = p.obj("live.colors", [2220, 470, 80, 22], 1, 2)
+    dask = p.msg("live_lcd_control_fg, live_lcd_title", [2220, 440, 200, 22])
+    p.connect(trig, dask, 2)
+    p.connect(dcolors, dask, 1)
+    p.connect(dask, dcolors)
+    p.connect(dcolors, diagram)
+    p.connect(dcolors, board)
+
+    # SETUP's other rows: the device's own controls, after the page's (the script shows
+    # them with SETUP: spec "extras").
+    base = DISPLAY_ROW_Y + len(spec["views"]["SETUP"]) * DISPLAY_ROW_H + 8
+    label("instance", "INSTANCE", [DISPLAY_X + 8, base, DISPLAY_LABEL_W - 4, 16], 1300)
+    inst = p.param("live.menu", [600, 440, 60, 15], [cx, base, 50, 16], "Instance", 2,
+                   enum=["A", "B", "C", "D"], outlets=3, outlettype=["", "", "float"],
+                   varname="d_instance", appearance=1, hidden=False)
+    p.boxes[-1]["box"]["hidden"] = 1
+    ui(p, trig, script, inst, "instanceSelect", 600)
+    label("lookahead", "AHEAD", [DISPLAY_X + 8, base + DISPLAY_ROW_H, DISPLAY_LABEL_W - 4, 16], 1400)
+    ahead = p.param("live.numbox", [720, 620, 44, 15], [cx, base + DISPLAY_ROW_H, 44, 16], "Lookahead", 1,
+                    mmin=4, mmax=16, initial=4, outlets=2, outlettype=["", "float"], varname="d_lookahead",
+                    appearance=1)
+    p.boxes[-1]["box"]["hidden"] = 1
+    ui(p, trig, script, ahead, "lookahead", 720)
+    status = p.msg("", [20, 380, 300, 22], [cx, base + 2 * DISPLAY_ROW_H, full, 18])
+    b = p.boxes[-1]["box"]
+    b.update(varname="d_status", hidden=1, fontsize=9.0, bgcolor=[0.08, 0.08, 0.09, 1.0], textcolor=[0.7, 0.7, 0.7, 1.0],
+             saved_attribute_attributes={"bgcolor": lcd("live_lcd_bg"), "textcolor": lcd("live_lcd_control_fg")})
+    p.connect(script, status, 1)
+
+    route = p.obj("route " + " ".join(names), [2000, 400, 900, 22], 1, len(names) + 1)
+    p.connect(out, route, 1)
+    for i, t in enumerate(targets):
+        p.connect(route, t, i)
+
+
 def amxd(data: bytes) -> bytes:
     """A Max MIDI Effect device file: a small header around the patch JSON."""
     return (b"ampf" + struct.pack("<I", 4) + b"mmmm"
@@ -604,7 +838,8 @@ def main(out):
         (out / f"{name}.amxd").write_bytes(amxd(text.encode("utf-8") + b"\n\x00"))
         print("wrote", out / f"{name}.amxd")
     for src, dst in ((HERE / SCRIPT, SCRIPT), (HERE / "jezric_talea_core.js", "jezric_talea_core.js"),
-                     (HERE / LABEL_SCRIPT, LABEL_SCRIPT),
+                     (HERE / LABEL_SCRIPT, LABEL_SCRIPT), (HERE / DISPLAY_SCRIPT, DISPLAY_SCRIPT),
+                     (HERE / DIAGRAM_SCRIPT, DIAGRAM_SCRIPT),
                      (ENGINE, "jezric_talea_engine.js")):
         shutil.copyfile(src, out / dst)
         print("copied", out / dst)

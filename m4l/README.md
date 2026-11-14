@@ -84,8 +84,9 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
     doesn't take); **Follow** moves the page with the playing step, and choosing a page
     turns it off, as on Rack.
   - **Mute**: a pad per track. A click stages a change (the pad blinks slowly);
-    **Apply** in the left column, or choosing Mute again in the menu, commits the staged
-    changes for the next mute boundary (blinking fast until then). Ctrl+click mutes or
+    the **A** (Apply) button right of the menu, shown only while changes are staged, or
+    choosing Mute again in the menu, commits them for the next mute boundary (blinking
+    fast until then). The script shows and hides it through `[thispatcher]`. Ctrl+click mutes or
     unmutes at once. Leaving Mute mode drops what's staged. Orange plays (white on a note),
     blue-grey is muted. Stopped, Apply and Ctrl+click both mute at once.
   - **Pattern**: a pad per pattern slot. A click queues the pattern for the next pattern
@@ -96,8 +97,62 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
   - The mute timing and the pattern quantization are the engine's defaults for now
     (mutes Immediately, so on the next step; patterns at the end of the pattern). Their
     settings come with the display.
-- The right half is where the display goes; for now it has Instance, Look-ahead and the
-  status line.
+- **The display**, the right half: dark, in Live's LCD colours (the controls in their LCD
+  appearance, `appearance 1`; the background, frame and labels take the theme's
+  `live_lcd_bg`, `live_lcd_frame` and `live_lcd_title`). Page tabs along the top, as on
+  the Rack module's display; each page's rows under them. The pages and rows are listed
+  once, in `device/jezric_talea_display.js`: `build.py` builds the controls from it (all
+  hidden), and the script shows the page's through `[thispatcher]`, sets them from the
+  edit track and takes their edits on the next 16th, like a dial's. Built so far:
+  - **TRACK**: the info line (steps, pulses, rotate, division, length; how many steps play
+    when Length cuts the loop) and the track's steps, 16 to a row, lit as the pads are.
+    Rack's clock and tempo aren't here.
+  - **CYCLE**: all of the cycles' controls (Rack's Cycle pad mode and CYC EDIT button
+    are here instead): COUNT (1-8), CYCLE (the selected one, one past the last adds
+    cycles; "3*" has changes, "(3)" is muted), EDIT, MUTE (the selected cycle), CLEAR (ALL
+    of its changes, HITS its step edits, or one override, listed by name), and a line
+    saying which cycle plays. While playing, a bar under the CYCLE row marks the playing
+    cycle (a panel per choice, shown by the script). **EDIT** on: the dials and the step pads edit the selected
+    cycle (a dial overrides its value there; a step pad gives it step edits of its own),
+    that cycle plays alone, TRACK shows it, and the CYCLE tab is framed red on every page.
+    The other pages still edit the track: a cycle's own scale, pool, random amounts and
+    locks aren't here yet, nor Rack's lanes of every cycle on TRACK.
+  - **KEYS**: the note pool on a 4-octave keyboard (OCTAVE < > moves it, from C2 at first):
+    a click adds a note or takes it out, keys outside the scale are greyed (a pool note
+    stays clickable), the root is marked, a note lights as it starts.
+  - **SCALE**: scale (a menu) and root, and the scale's notes on one octave: a click adds
+    or removes one, making the scale the User scale (as on Rack).
+  - **PHRASE**: shape, bars or loops, sync. Rack's CV input shape isn't here.
+  - **VOICING** (Rack's STYLE page, named for the dial it goes with): style, poly or mono,
+    voicing direction. (No REPEAT page: Choke or Tail is on SETUP.)
+  - **GROOVE**: shape, bars or loops (dimmed for the one-bar percussion grooves), swing
+    subdivision, sync.
+  - **RANDOM**: the edit track's randomisation, set on the page (no Rnd assign mode: the
+    dials always show values). Each of the 15 parameters that can be randomised (not
+    Steps, Division, Length) has its amount (-100..100 %) and R/C: a new value per Random
+    Rate tick or per cycle loop. Then Variance, Rate, Slew, Lock (locks the sequences where
+    they are now), and REGEN, PHASE -/+, PROB -/+ and CLEAR ALL.
+  - **PATTERN**: Play (queues, as a pattern pad), Copy to, Clear, Switch timing. A slot
+    holding a pattern reads "3*" in all three rows: the script renames the choices
+    (`_parameter_range`), and ignores what a row sends within 100 ms of a rename, in case
+    Live echoes it as a click.
+  - **SETUP**: Type (note or CC), CC number (dimmed for a note track), Repeats (Choke or
+    Tail: a new pulse cuts the repeats before it, or they overlap), and the device's
+    own Instance, Look-ahead and status line. Rack's MIDI channel and clock aren't here:
+    each receiver picks its track.
+  - **Mute mode** shows its settings over any page, as on Rack: Apply timing (Now, Beat,
+    Bar, Pattern) and On mute (Finish or Cut). A page tab leaves Mute mode.
+  - **Diagrams**, in a band under the rows, and the TRACK and KEYS boards (`jezric_talea_diagram.js`, a `[v8ui]` in the
+    theme's LCD colours, from `[live.colors]`), as on Rack's display: GROOVE's accent
+    shape over its span (dim the full shape, bright scaled by Accent) with a playhead;
+    PHRASE's notes over the phrase, or for the User shape its grid, which a click or drag
+    edits; VOICING's next 16 notes. The engine works out the points (`talea_diagram`); the
+    script sends them when they change and the playhead on each 16th.
+  - The other pages say they aren't built yet.
+  - Turning a dial shows its page, as Rack's "display follows knobs": the shape dials
+    TRACK, the repeat dials SETUP (Choke / Tail), the groove dials GROOVE, Pitch SCALE, Voicing VOICING,
+    Range PHRASE (`dialPages` in the spec). In Mute mode the Mute view stays.
+  The mute and switch timings are saved in the bank, as Rack saves them.
 
 ## Edits
 

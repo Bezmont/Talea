@@ -20,12 +20,14 @@
 
 autowatch = 1;
 inlets = 1;
-outlets = 6; // 0: MIDI now, "pitch velocity"   1: status text
+outlets = 7; // 0: MIDI now, "pitch velocity"   1: status text
              // receiver: 2: to [coll]: "store step entries...", "remove step", "clear"
              //           3: to [pipe]
              // brain: 2: "savelater" to a [delay] -> [deferlow] -> "savepattern" back
              //        3: the dials   4: to [pattr] (the pattern)
              //        5: the pads: "pad i r g b a", "page i", "follow 0/1", "mode i"
+             //        6: the display: "script show|hide name", "d_<row> value",
+             //           "dl_<row> label", "dr_<row> choices...", "da_<row> 0/1" (active)
 
 var ROLE = (typeof jsarguments !== "undefined" && jsarguments.length > 1) ? String(jsarguments[1]) : "receiver";
 var BRAIN = ROLE === "brain";
@@ -68,11 +70,24 @@ var padKeys = []; // the colour each pad shows, to send only changes
 // Pad modes, as on the Rack module: Step (the edit track's steps), Mute (a pad per track),
 // Pattern (a pad per pattern slot).
 var MODE_STEP = 0, MODE_MUTE = 1, MODE_PATTERN = 2, MODE_NAMES = ["Step", "Mute", "Pattern"];
+// Cycles (the CYCLE page): the one selected, and Cycle edit (the dials and step pads edit
+// it, and it plays alone).
+var selCycle = 0;
+var cycleEdit = false;
 var padMode = MODE_STEP;
 var staged = 0; // Mute mode: tracks clicked, to change when Apply commits them (bits)
 var mods = { shift: false, ctrl: false }; // modifier keys at the latest pad press
 var blinks = 0; // [metro] ticks, for the staged and queued pads' blinking
 var shownPattern = -1; // the pattern slot playing, as last shown (a switch: dials follow)
+var preMuteMode = MODE_STEP; // the pad mode before Mute (a display page tab goes back to it)
+// The display (jezric_talea_display.js): the page chosen, the view shown (a page, or MUTE
+// in Mute mode) and what each row's control shows, to send only changes.
+var DISPLAY = null;
+var dispPage = 0;
+var shownView = null;
+var dispShown = {};
+var relabelled = {}; // row -> when its choices were renamed (ms), to ignore an echo
+var keysOctave = 2; // KEYS: the keyboard's lowest octave (0: from C0; 4 octaves shown)
 var newLoop = null; // a loop change waiting for the next tick
 var editTrack = 0; // the track the brain's dials edit
 // The track parameters the dials edit: all of them (Params.hpp), from the engine at init.
@@ -177,6 +192,7 @@ function init() {
 	if (BRAIN) {
 		try {
 			stepper = new (require("jezric_talea_core").Stepper)(require("jezric_talea_engine"), TEST_PATTERN);
+			DISPLAY = require("jezric_talea_display");
 		} catch (e) {
 			warn("can't start the engine: " + e);
 			stepper = null;
@@ -204,6 +220,10 @@ function init() {
 		showEdits();
 		padKeys = [];
 		outlet(5, "mode", padMode);
+		outlet(5, "apply", 0);
+		outlet(6, "d_pages", dispPage);
+		shownView = null;
+		showView();
 		outlet(5, "follow", follow ? 1 : 0);
 		outlet(5, "page", stepPage);
 		showPads();
@@ -317,10 +337,16 @@ function sendStep(p) {
 	send.apply(null, a);
 	sent[p] = a;
 	delete sent[p - 64];
-	var gates = 0;
-	for (t = 0; t < out.length; t++)
-		for (i = 0; i < out[t].length; i++) if (out[t][i][1] !== -1 && out[t][i][4] > 0) gates |= 1 << t;
-	ahead.push({ step: p, id: silent ? -1 : stepper.id, perf: silent ? stepper.perf() : stepper.perfNow, gates: gates });
+	var gates = 0, notes = [];
+	for (t = 0; t < out.length; t++) {
+		notes.push([]);
+		for (i = 0; i < out[t].length; i++)
+			if (out[t][i][1] !== -1 && out[t][i][4] > 0) {
+				gates |= 1 << t;
+				notes[t].push(out[t][i][3]);
+			}
+	}
+	ahead.push({ step: p, id: silent ? -1 : stepper.id, perf: silent ? stepper.perf() : stepper.perfNow, gates: gates, notes: notes });
 }
 
 // Starts a new run of the engine at step s: a new epoch.
@@ -475,8 +501,11 @@ function takeOn(s, jump) {
 function param(key, value) {
 	if (!BRAIN || EDIT_KEYS.indexOf(String(key)) < 0 || !stepper) return;
 	value = Number(value);
-	if (stepper.getParam(editTrack, String(key)) === value && edits[editTrack + " " + key] === undefined) return;
-	edits[editTrack + " " + key] = value;
+	// In Cycle edit the dial overrides the value in the selected cycle: "track key cycle".
+	var k = editTrack + " " + key + (cycleEdit ? " " + selCycle : "");
+	if (dialValue(editTrack, String(key)) === value && edits[k] === undefined) return;
+	edits[k] = value;
+	followDial(String(key));
 	if (lastStep < 0) takeEdits(-1); // stopped: no tick to wait for
 }
 
@@ -484,8 +513,407 @@ function param(key, value) {
 function editTrackSelect(i) {
 	if (!BRAIN) return;
 	editTrack = Math.max(0, Math.min(TRACKS - 1, Math.round(i)));
+	selCycle = Math.min(selCycle, stepper ? stepper.cycleCount(editTrack) - 1 : 0);
+	if (cycleEdit) soloChanged();
 	showEdits();
 	showPads();
+}
+
+// ---- cycles (brain) --------------------------------------------------------------------
+
+// What a dial shows: the edited cycle's value in Cycle edit, else the track's.
+function dialValue(t, key) {
+	return cycleEdit ? stepper.getCycleParam(t, selCycle, key) : stepper.getParam(t, key);
+}
+
+// The step pads' view of the edit track: the edited cycle's in Cycle edit.
+function stepsOf(t) {
+	return cycleEdit ? stepper.cycleSteps(t, selCycle) : stepper.steps(t);
+}
+
+function playedOf(t) {
+	return cycleEdit ? stepper.cyclePlayedSteps(t, selCycle) : stepper.playedSteps(t);
+}
+
+function hitsOf(t) {
+	return cycleEdit ? stepper.cycleHits(t, selCycle) : stepper.hits(t);
+}
+
+// CYCLE page EDIT: "cycleEditSelect 0/1". While on, the CYCLE tab is framed red.
+function cycleEditSelect(v) {
+	if (!BRAIN || !stepper) return;
+	cycleEdit = Number(v) !== 0;
+	log("cycle edit " + (cycleEdit ? "on, cycle " + (selCycle + 1) : "off"));
+	soloChanged();
+	showEdits();
+	showPads();
+}
+
+// Picks a cycle (the CYCLE page); one past the last adds cycles, as on Rack.
+function selectCycle(c) {
+	c = Math.max(0, Math.min(7, Math.round(c)));
+	var t = editTrack;
+	selCycle = c;
+	if (c >= stepper.cycleCount(t)) {
+		ops.push({ desc: "track " + (t + 1) + " now " + (c + 1) + " cycles", store: true, fn: function () {
+			if (stepper.cycleCount(t) < c + 1) stepper.setCycleCount(t, c + 1);
+		} });
+	}
+	if (cycleEdit) soloChanged();
+	if (ops.length && lastStep < 0) takeEdits(-1);
+	showEdits();
+	showPads();
+}
+
+// In Cycle edit the edited cycle plays alone (the edit track's), as on Rack.
+function soloChanged() {
+	var c = cycleEdit ? selCycle : -1, t = editTrack;
+	ops.push({ desc: c < 0 ? "every cycle plays" : "track " + (t + 1) + " cycle " + (c + 1) + " plays alone", store: false,
+		fn: function () { for (var i = 0; i < TRACKS; i++) stepper.setSoloCycle(i, i === t ? c : -1); } });
+	if (lastStep < 0) takeEdits(-1);
+}
+
+
+// ---- the display (brain) -------------------------------------------------------------
+
+// The view shown: Mute mode's settings over any page, as on Rack, else the page chosen.
+function currentView() {
+	return padMode === MODE_MUTE ? "MUTE" : DISPLAY.pages[dispPage];
+}
+
+// The controls a view shows: its rows' (each a label and a control), or the note for a
+// page not built yet; SETUP also the device's own controls.
+function viewItems(view) {
+	var rows = DISPLAY.views[view], out = [];
+	if (!rows) return ["d_soon"];
+	rows.forEach(function (r) {
+		if (r.label) out.push("dl_" + r.name);
+		out.push("d_" + r.name);
+	});
+	if (view === "SETUP") out.push("dl_instance", "d_instance", "dl_lookahead", "d_lookahead", "d_status");
+	if (DISPLAY.diagrams && DISPLAY.diagrams[view]) out.push("d_diagram");
+	if (DISPLAY.boards && DISPLAY.boards[view]) out.push("d_board");
+	return out;
+}
+
+// Shows the current view's controls, hiding the last view's, and sets them.
+function showView() {
+	if (!BRAIN || !DISPLAY) return;
+	var view = currentView();
+	if (view !== shownView) {
+		if (shownView !== null) viewItems(shownView).forEach(function (n) { outlet(6, "script", "hide", n); });
+		viewItems(view).forEach(function (n) { outlet(6, "script", "show", n); });
+		shownView = view;
+		dispShown = { rndmark: dispShown.rndmark, cycmark: dispShown.cycmark, playbar: dispShown.playbar };
+	}
+	showDisplay();
+}
+
+// The page tabs: "displayPage i". A tab while in Mute mode leaves it, back to the pad mode
+// before it (staged mutes dropped), as on Rack.
+function displayPage(i) {
+	if (!BRAIN || !DISPLAY) return;
+	dispPage = Math.max(0, Math.min(DISPLAY.pages.length - 1, Math.round(i)));
+	if (padMode === MODE_MUTE) {
+		padModeSelect(preMuteMode);
+		outlet(5, "mode", padMode);
+	}
+	showView();
+}
+
+// A dial turned: the display shows its page (Rack's "display follows knobs"). In Mute mode
+// the Mute view stays; the page is there once Mute mode is left.
+function followDial(key) {
+	if (!DISPLAY || !DISPLAY.dialPages) return;
+	var i = DISPLAY.pages.indexOf(DISPLAY.dialPages[key]);
+	if (i < 0 || i === dispPage) return;
+	dispPage = i;
+	outlet(6, "d_pages", i);
+	showView();
+}
+
+function rowOf(name) {
+	var rows = DISPLAY ? DISPLAY.views[currentView()] : null;
+	for (var i = 0; rows && i < rows.length; i++) if (rows[i].name === name) return rows[i];
+	return null;
+}
+
+// What a row's control shows: the edit track's setting, a sequencer setting, the playing
+// pattern (PLAY); null for buttons.
+function rowValue(row) {
+	var v;
+	if (row.field) v = stepper.getField(editTrack, row.field);
+	else if (row.setting) v = stepper.getSetting(row.setting);
+	else if (row.random) v = Math.round(stepper.getRandom(editTrack, row.random, row.param));
+	else if (row.action === "queue") v = perfShown().current;
+	else if (row.action === "cycleCount") v = stepper.cycleCount(editTrack) - 1;
+	else if (row.action === "cycleSelect") v = selCycle;
+	else if (row.action === "cycleMute") v = stepper.cycleState(editTrack, selCycle).muted ? 1 : 0;
+	else if (row.action === "cycleEdit") v = cycleEdit ? 1 : 0;
+	else return null;
+	if (row.values) v = Math.max(0, row.values.indexOf(v));
+	return v;
+}
+
+// Sets the current view's controls from the engine: only what changed.
+function showDisplay() {
+	if (!BRAIN || !DISPLAY || !stepper) return;
+	var rows = DISPLAY.views[currentView()] || [], used = null;
+	rows.forEach(function (row) {
+		if (row.kind === "text") {
+			var line = textOf(row);
+			if (dispShown["d_" + row.name] !== line) {
+				dispShown["d_" + row.name] = line;
+				outlet(6, "d_" + row.name, line);
+			}
+			return;
+		}
+		if (row.marks) {
+			// Renamed choices: pattern slots holding a pattern read "3*", cycles with
+			// changes "3*" and muted ones "(3)", CLEAR lists what the cycle changes.
+			// Renaming may reset what the control shows: it's set again below.
+			var names;
+			if (row.marks === "used") {
+				if (used === null) used = perfShown().used;
+				names = row.items.map(function (n, k) { return used & (1 << k) ? n + "*" : n; });
+			} else if (row.marks === "cycles") {
+				names = row.items.map(function (n, k) {
+					var st = stepper.cycleState(editTrack, k), m = st.modified ? n + "*" : n;
+					return st.muted ? "(" + m + ")" : m;
+				});
+			} else names = cycleClearEntries().map(function (e) { return e.name; });
+			if (dispShown["dr_" + row.name] !== names.join(" ")) {
+				dispShown["dr_" + row.name] = names.join(" ");
+				delete dispShown["d_" + row.name];
+				relabelled[row.name] = Date.now();
+				outlet(6, ["dr_" + row.name].concat(names));
+			}
+		}
+		var v = rowValue(row), key = "d_" + row.name;
+		if (v !== null && dispShown[key] !== v) {
+			dispShown[key] = v;
+			outlet(6, key, v);
+		}
+		if (row.alt) {
+			var text = stepper.getField(editTrack, row.altWhen) ? row.alt : row.label;
+			if (dispShown["dl_" + row.name] !== text) {
+				dispShown["dl_" + row.name] = text;
+				outlet(6, "dl_" + row.name, text);
+			}
+		}
+		if (row.activeWhen) {
+			var on = row.activeWhen["in"].indexOf(stepper.getField(editTrack, row.activeWhen.field)) >= 0 ? 1 : 0;
+			if (dispShown["da_" + row.name] !== on) {
+				dispShown["da_" + row.name] = on;
+				outlet(6, "da_" + row.name, on);
+			}
+		}
+	});
+	showDiagram();
+	showBoard();
+	showRandomMark();
+}
+
+// The diagram under the rows, as Rack's display draws it: sent when it changes, its
+// playhead on each 16th while playing.
+function showDiagram() {
+	var which = DISPLAY.diagrams ? DISPLAY.diagrams[currentView()] : null;
+	if (!which) return;
+	var t = editTrack, msg, kind = 0;
+	if (which === "groove") {
+		var percussion = stepper.getField(t, "groove") < 4, loops = stepper.getField(t, "grooveLoop");
+		var count = percussion ? 1 : [1, 2, 4, 8, 16, 32, 64][stepper.getField(t, "grooveLength")];
+		var label = percussion ? (loops ? "1 BAR, FROM EACH LOOP START" : "1 BAR, REPEATED") : axisLabel(count, loops);
+		msg = ["d_diagram", "groove", label, stepper.getParam(t, "accent") / 100].concat(rounded(stepper.diagram(t, 0)));
+	} else if (which === "phrase") {
+		var pc = [1, 2, 4, 8, 16, 32, 64][stepper.getField(t, "phraseLength")], pl = stepper.getField(t, "phraseLoop");
+		kind = 1;
+		if (stepper.getField(t, "phrase") === 9) msg = ["d_diagram", "grid", axisLabel(pc, pl)].concat(stepper.diagram(t, 3));
+		else msg = ["d_diagram", "notes", axisLabel(pc, pl), 0].concat(stepper.diagram(t, 1));
+	} else if (which === "scale") {
+		kind = -1;
+		msg = ["d_diagram", "scalekeys", stepper.scaleNotes(t), stepper.getField(t, "root")];
+	} else {
+		kind = -1;
+		msg = ["d_diagram", "notes", "NEXT 16 NOTES", 1].concat(stepper.diagram(t, 2));
+	}
+	var key = msg.join(" ");
+	if (dispShown.d_diagram !== key) {
+		dispShown.d_diagram = key;
+		outlet(6, msg);
+	}
+	var x = kind < 0 || lastStep < 0 ? -1 : Math.round(stepper.diagramPhase(t, kind, lastStep / 4 + 1e-6) * 400) / 400;
+	if (dispShown.d_play !== x) {
+		dispShown.d_play = x;
+		outlet(6, "d_diagram", "play", x);
+	}
+}
+
+// The bar under the playing cycle on CYCLE's CYCLE row: shown while playing, on that page.
+function showPlayBars() {
+	var row = rowOf("cycleSelect"), want = null;
+	if (row && currentView() === "CYCLE" && lastStep >= 0 && on && onIn === 0)
+		want = "d_cycleSelect_play" + stepper.cycleAt(editTrack, lastStep / 4 + 1e-6);
+	if (dispShown.playbar === want) return;
+	if (dispShown.playbar) outlet(6, "script", "hide", dispShown.playbar);
+	if (want) outlet(6, "script", "show", want);
+	dispShown.playbar = want;
+}
+
+// The blue frame over the RANDOM tab: shown while the edit track has a random amount.
+function showRandomMark() {
+	var on = false, rows = DISPLAY.views.RANDOM || [];
+	for (var i = 0; i < rows.length && !on; i++)
+		if (rows[i].random === "amount" && stepper.getRandom(editTrack, "amount", rows[i].param) !== 0) on = true;
+	if (dispShown.rndmark !== on) {
+		dispShown.rndmark = on;
+		outlet(6, "script", on ? "show" : "hide", "d_rndmark");
+	}
+	showPlayBars();
+	if (dispShown.cycmark !== cycleEdit) {
+		dispShown.cycmark = cycleEdit;
+		outlet(6, "script", cycleEdit ? "show" : "hide", "d_cycmark");
+	}
+}
+
+// CYCLE page CLEAR: ALL (every change to the selected cycle), HITS (its step edits), then a
+// name per override; Rack's short names. ALL and HITS are always there (HITS does nothing
+// without step edits): a live.tab with one choice shows numbers instead.
+var PARAM_SHORT = { steps: "STEPS", pulses: "PULSE", rotate: "ROT", division: "DIV", length: "LEN", repeats: "REP",
+	ramp: "RAMP", repeatTime: "TIME", pace: "PACE", velocity: "VEL", probability: "PROB", sustain: "SUS", accent: "ACC",
+	timing: "TIM", delay: "DLY", pitch: "PITCH", voicing: "VOIC", range: "RANGE" };
+function cycleClearEntries() {
+	var st = stepper.cycleState(editTrack, selCycle), out = [{ name: "ALL", what: 0 }, { name: "HITS", what: 1 }];
+	st.overrides.forEach(function (k) { out.push({ name: PARAM_SHORT[k] || k, what: 2, key: k }); });
+	return out;
+}
+
+// A text row's line.
+function textOf(row) {
+	if (row.text === "trackInfo") return cycleEdit ? stepper.cycleInfo(editTrack, selCycle) : stepper.trackInfo(editTrack);
+	if (row.text === "keysHelp") return "CLICK = ADD / REMOVE A POOL NOTE";
+	if (row.text === "cyclePlaying") {
+		var n = stepper.cycleCount(editTrack);
+		if (cycleEdit) return "EDIT: CYCLE " + (selCycle + 1) + " PLAYS ALONE; THE DIALS AND STEP PADS EDIT IT";
+		if (lastStep >= 0 && on && onIn === 0) return "PLAYING: CYCLE " + (stepper.cycleAt(editTrack, lastStep / 4 + 1e-6) + 1) + " OF " + n;
+		return n === 1 ? "1 CYCLE" : n + " CYCLES, A LOOP EACH IN TURN";
+	}
+	return "";
+}
+
+// The board under TRACK's and KEYS' first row: the steps, or the keyboard.
+function showBoard() {
+	var which = DISPLAY.boards ? DISPLAY.boards[currentView()] : null;
+	if (!which) return;
+	var t = editTrack, msg;
+	if (which === "steps") {
+		var n = stepsOf(t), hits = hitsOf(t).slice(0, n).map(function (h) { return h ? 1 : 0; });
+		msg = ["d_board", "steps", n, playedOf(t), playingStep()].concat(hits);
+	} else {
+		var first = 12 + 12 * keysOctave, pool = stepper.pool(t);
+		var lit = lastStep >= 0 && playing && playing.notes ? playing.notes[t] : [];
+		msg = ["d_board", "keys", NOTE_NAMES[0] + (first / 12 - 1) + " - B" + (first / 12 + 2), first, 4,
+			stepper.scaleNotes(t), stepper.getField(t, "root"), pool.length].concat(pool, [lit.length], lit);
+	}
+	var key = msg.join(" ");
+	if (dispShown.d_board !== key) {
+		dispShown.d_board = key;
+		outlet(6, msg);
+	}
+}
+
+var NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+// KEYS: a key click, "poolKey note"; SCALE's notes: "scaleKey pc". Taken on the next 16th.
+function poolKey(note) {
+	if (!BRAIN || !stepper) return;
+	var t = editTrack;
+	note = Math.round(note);
+	ops.push({ desc: "track " + (t + 1) + " pool note " + note, store: true, fn: function () { stepper.poolKey(t, note); } });
+	if (lastStep < 0) takeEdits(-1);
+}
+
+function scaleKey(pc) {
+	if (!BRAIN || !stepper) return;
+	var t = editTrack;
+	pc = Math.round(pc);
+	ops.push({ desc: "track " + (t + 1) + " scale note " + NOTE_NAMES[pc], store: true, fn: function () { stepper.scaleKey(t, pc); } });
+	if (lastStep < 0) takeEdits(-1);
+}
+
+function axisLabel(count, loops) {
+	return count + " " + (loops ? "LOOP" : "BAR") + (count === 1 ? "" : "S");
+}
+
+function rounded(values) {
+	return values.map(function (v) { return Math.round(v * 1000) / 1000; });
+}
+
+// PHRASE's User shape: a click or drag on the grid, "phraseGrid col level". Taken on the
+// next 16th like a dial.
+function phraseGrid(col, level) {
+	if (!BRAIN || !stepper) return;
+	var t = editTrack;
+	col = Math.round(col);
+	level = Math.round(level);
+	ops.push({ desc: "track " + (t + 1) + " phrase column " + (col + 1) + " at " + level, store: true,
+		fn: function () { stepper.setPhraseLevel(t, col, level); } });
+	if (lastStep < 0) takeEdits(-1);
+}
+
+// A display control: "disp name value". Settings are taken on the next 16th like a dial,
+// and stored with the set.
+function disp(name, value) {
+	if (!BRAIN || !stepper) return;
+	var row = rowOf(String(name)), v = Math.round(Number(value));
+	if (!row || isNaN(v)) return;
+	// Just renamed (marks): what comes back now is the control's echo, not a click.
+	if (relabelled[row.name] !== undefined && Date.now() - relabelled[row.name] < 100) return;
+	if (row.values) v = row.values[Math.max(0, Math.min(row.values.length - 1, v))];
+	var t = editTrack, op = null;
+	if (row.field) op = { desc: "track " + (t + 1) + " " + row.field + " " + v, fn: function () { stepper.setField(t, row.field, v); } };
+	else if (row.random === "locked") {
+		// LOCK: a click on the state it's in does nothing; otherwise lock where the sequences
+		// are now (or unlock).
+		if (v === Math.round(stepper.getRandom(t, "locked"))) return;
+		op = { desc: "track " + (t + 1) + " random " + (v ? "locked" : "unlocked"),
+			fn: function () { stepper.randomAction(t, 1, Math.max(0, changeTime(false))); } };
+	}
+	else if (row.random) op = { desc: "track " + (t + 1) + " random " + row.random + (row.param ? " " + row.param : "") + " " + v,
+		fn: function () { stepper.setRandom(t, row.random, row.param, v); } };
+	else if (row.randomAction) {
+		var a = row.randomAction[Math.max(0, Math.min(row.randomAction.length - 1, v))];
+		op = { desc: "track " + (t + 1) + " random " + row.items[row.randomAction.indexOf(a)],
+			fn: function () { stepper.randomAction(t, a, Math.max(0, changeTime(false))); } };
+	}
+	else if (row.setting) op = { desc: row.setting + " " + v, fn: function () { stepper.setSetting(row.setting, v); } };
+	else if (row.action === "queue") return patternPad(v, false, false);
+	else if (row.action === "cycleCount") {
+		var n = v + 1;
+		selCycle = Math.min(selCycle, n - 1);
+		op = { desc: "track " + (t + 1) + " " + n + " cycles", fn: function () { stepper.setCycleCount(t, n); } };
+	}
+	else if (row.action === "cycleSelect") return selectCycle(v);
+	else if (row.action === "cycleEdit") return cycleEditSelect(v);
+	else if (row.action === "cycleMute") {
+		var mc = selCycle;
+		op = { desc: "track " + (t + 1) + " cycle " + (mc + 1) + (v ? " muted" : " unmuted"), fn: function () { stepper.setCycleMuted(t, mc, v); } };
+	}
+	else if (row.action === "cycleClear") {
+		var e = cycleClearEntries()[v], cc = selCycle;
+		if (!e) return;
+		op = { desc: "track " + (t + 1) + " cycle " + (cc + 1) + " cleared: " + e.name, fn: function () { stepper.cycleClear(t, cc, e.what, e.key); } };
+	}
+	else if (row.action === "octave") {
+		keysOctave = Math.max(0, Math.min(5, keysOctave + (v === 0 ? -1 : 1)));
+		return showDisplay();
+	}
+	else if (row.action === "copy") op = { desc: "pattern copied to " + (v + 1), fn: function () { stepper.copyPattern(v); } };
+	else if (row.action === "clear") op = { desc: "pattern " + (v + 1) + " cleared", fn: function () { stepper.clearPattern(v); } };
+	if (!op) return;
+	op.store = true;
+	ops.push(op);
+	if (lastStep < 0) takeEdits(-1);
 }
 
 // ---- the step pads (brain) -----------------------------------------------------------
@@ -503,11 +931,11 @@ function pad(i, v) {
 	if (i < 0 || i >= 16) return;
 	if (padMode === MODE_MUTE) return mutePad(i, ctrl);
 	if (padMode === MODE_PATTERN) return patternPad(i, shift, ctrl);
-	var t = editTrack, step = stepPage * 16 + i;
-	log("pad " + (Math.round(i) + 1) + " pressed (" + v + "): track " + (t + 1) + " step " + (step + 1) + " of " + stepper.steps(t));
-	if (step < 0 || step >= stepper.steps(t)) return;
-	ops.push({ desc: "track " + (t + 1) + " step " + (step + 1) + " toggled", store: true,
-		fn: function () { stepper.toggleStep(t, step); } });
+	var t = editTrack, step = stepPage * 16 + i, c = cycleEdit ? selCycle : -1;
+	log("pad " + (Math.round(i) + 1) + " pressed (" + v + "): track " + (t + 1) + " step " + (step + 1) + " of " + stepsOf(t));
+	if (step < 0 || step >= stepsOf(t)) return;
+	ops.push({ desc: "track " + (t + 1) + (c >= 0 ? " cycle " + (c + 1) : "") + " step " + (step + 1) + " toggled", store: true,
+		fn: function () { if (c >= 0) stepper.toggleCycleStep(t, c, step); else stepper.toggleStep(t, step); } });
 	if (lastStep < 0) takeEdits(-1);
 }
 
@@ -533,10 +961,12 @@ function padModeSelect(i) {
 	if (i === MODE_MUTE && padMode === MODE_MUTE) return applyMutes();
 	if (padMode === MODE_MUTE && staged) {
 		log("left Mute mode: staged changes dropped");
-		staged = 0;
+		setStaged(0);
 	}
+	if (i === MODE_MUTE) preMuteMode = padMode;
 	padMode = i;
 	log("pad mode " + MODE_NAMES[i]);
+	showView();
 	showPads();
 }
 
@@ -544,12 +974,12 @@ function padModeSelect(i) {
 // unmutes it at once.
 function mutePad(t, ctrl) {
 	if (!ctrl) {
-		staged ^= 1 << t;
+		setStaged(staged ^ (1 << t));
 		log("track " + (t + 1) + (staged & (1 << t) ? " staged" : " unstaged"));
 		showPads();
 		return;
 	}
-	staged &= ~(1 << t);
+	setStaged(staged & ~(1 << t));
 	ops.push({ desc: "track " + (t + 1) + " muted or unmuted at once", store: true, fn: function () {
 		var muted = (stepper.perf().muted & (1 << t)) !== 0;
 		stepper.setMuted(t, !muted, Math.max(0, changeTime(true)));
@@ -562,7 +992,7 @@ function mutePad(t, ctrl) {
 function applyMutes() {
 	if (!BRAIN || !stepper || !staged) return;
 	var toggle = staged;
-	staged = 0;
+	setStaged(0);
 	ops.push({ desc: "mute changes committed (tracks " + bitList(toggle) + ")", store: true, fn: function () {
 		if (lastStep < 0) {
 			var m = stepper.perf().muted;
@@ -571,6 +1001,15 @@ function applyMutes() {
 	} });
 	if (lastStep < 0) takeEdits(-1);
 	else showPads();
+}
+
+// The staged mutes, and the "A" (Apply) button: shown only while there are some.
+var applyShown = false;
+function setStaged(bits) {
+	staged = bits;
+	if (applyShown === (staged !== 0)) return;
+	applyShown = staged !== 0;
+	outlet(5, "apply", applyShown ? 1 : 0);
 }
 
 function bitList(bits) {
@@ -607,6 +1046,7 @@ function checkPattern(perf) {
 	shownPattern = perf.current;
 	if (first) return;
 	log("pattern " + (perf.current + 1) + " playing");
+	selCycle = Math.min(selCycle, stepper.cycleCount(editTrack) - 1);
 	showEdits();
 	queueSave();
 }
@@ -619,7 +1059,7 @@ function blink() {
 }
 
 function pageCount() {
-	return stepper ? Math.max(1, Math.ceil(stepper.steps(editTrack) / 16)) : 1;
+	return stepper ? Math.max(1, Math.ceil(stepsOf(editTrack) / 16)) : 1;
 }
 
 // The step page tabs (0-3): pages past the track's Steps don't take. Choosing one turns
@@ -664,10 +1104,11 @@ function showPads() {
 	if (!BRAIN || !stepper) return;
 	var perf = perfShown();
 	checkPattern(perf);
+	showDisplay();
 	if (padMode === MODE_MUTE) return showMutePads(perf);
 	if (padMode === MODE_PATTERN) return showPatternPads(perf);
-	var t = editTrack, n = stepper.steps(t), played = stepper.playedSteps(t);
-	var hits = stepper.hits(t), now = playingStep();
+	var t = editTrack, n = stepsOf(t), played = playedOf(t);
+	var hits = hitsOf(t), now = playingStep();
 	var pages = pageCount();
 	if (follow && now >= 0 && Math.floor(now / 16) !== stepPage) {
 		stepPage = Math.floor(now / 16);
@@ -726,7 +1167,7 @@ function showPatternPads(perf) {
 function showEdits() {
 	if (!stepper) return;
 	for (var i = 0; i < EDIT_KEYS.length; i++)
-		outlet(3, EDIT_KEYS[i], stepper.getParam(editTrack, EDIT_KEYS[i]));
+		outlet(3, EDIT_KEYS[i], dialValue(editTrack, EDIT_KEYS[i]));
 }
 
 // Applies waiting edits. s: this tick's step while playing (the steps already sent are
@@ -741,8 +1182,9 @@ function takeEdits(s) {
 	var done = [], store = keys.length > 0;
 	for (var i = 0; i < keys.length; i++) {
 		var tk = keys[i].split(" "), v = edits[keys[i]];
-		stepper.setParamByKey(Number(tk[0]), tk[1], v);
-		done.push("track " + (Number(tk[0]) + 1) + " " + tk[1] + " " + v);
+		if (tk.length > 2) stepper.setCycleParam(Number(tk[0]), Number(tk[2]), tk[1], v);
+		else stepper.setParamByKey(Number(tk[0]), tk[1], v);
+		done.push("track " + (Number(tk[0]) + 1) + (tk.length > 2 ? " cycle " + (Number(tk[2]) + 1) : "") + " " + tk[1] + " " + v);
 	}
 	edits = {};
 	var todo = ops;
@@ -1083,7 +1525,7 @@ function guarded(name, fn) {
 	["init", "instanceSelect", "trackSelect", "lookahead", "tick", "hello", "ev", "cue",
 		"loopinfo", "look", "announce", "anything", "status", "reset", "param",
 		"editTrackSelect", "debug", "savepattern", "restore", "enable", "pad", "stepPageSelect", "followSelect", "padMods", "padModeSelect",
-		"applyMutes", "blink"].forEach(function (n) {
+		"applyMutes", "blink", "displayPage", "disp", "phraseGrid", "poolKey", "scaleKey", "cycleEditSelect"].forEach(function (n) {
 		if (typeof g[n] !== "function") return;
 		var f = guarded(n, g[n]);
 		if (g[n].immediate) f.immediate = g[n].immediate; // keep scheduler-thread handlers there

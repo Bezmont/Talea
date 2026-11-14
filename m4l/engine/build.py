@@ -30,6 +30,13 @@ EXPORTS = [
     "event_chord_size", "event_chord_note", "event_cc", "event_glide",
     "toggle_step", "steps", "played_steps", "hits_low", "hits_high", "step_at",
     "jump", "commit_mutes", "select_pattern", "perf", "save_bank", "load_bank",
+    "get_field", "set_field", "get_setting", "set_setting", "copy_pattern", "clear_pattern",
+    "diagram", "diagram_value", "diagram_phase", "set_phrase_level",
+    "get_random", "set_random", "random_action",
+    "track_info", "pool_size", "pool_note", "scale_notes", "pool_key", "scale_key",
+    "cycle_count", "set_cycle_count", "cycle_flags", "set_cycle_muted", "cycle_overrides",
+    "get_cycle_param", "set_cycle_param", "cycle_clear", "toggle_cycle_step", "cycle_hits_low",
+    "cycle_hits_high", "cycle_steps", "cycle_played_steps", "set_solo_cycle", "cycle_at", "cycle_info",
 ]
 
 
