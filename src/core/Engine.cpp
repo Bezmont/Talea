@@ -224,7 +224,8 @@ void Engine::process(double from, double to, EventList& out) {
 		double songTime = nextSongEvent(from);
 		double songAt = songTime - kMuteLead <= to ? std::max(from, songTime - kMuteLead) : INFINITY;
 		double split = std::min(std::min(std::min(muteAt, switchAt), songAt), to);
-		processTracks(from, split, out);
+		if (!songOver())
+			processTracks(from, split, out);
 		// At one boundary: mutes, then a switch of the player's (it overrides the song), then
 		// the song's.
 		if (muteAt <= switchAt && muteAt <= songAt && muteAt < INFINITY)
@@ -451,6 +452,9 @@ void Engine::jump(double t) {
 	if (scheduled_)
 		scheduledTime_ = nextBoundary(muteTiming, t - kMuteLead);
 	clearBursts();
+	// A timeline song goes where the timeline is (an override stays until resumed).
+	if (songTimeline && songOn_ && (!overridden_ || jumpPending_))
+		songSeek(t, t, nullptr);
 }
 
 void Engine::endTemp(bool keep) {
@@ -788,6 +792,7 @@ void Engine::savePlayback(Playback& p) const {
 	p.jumpEntry = jumpEntry_;
 	p.jumpBar = jumpBar_;
 	p.songEnded = songEnded_;
+	p.songOver = songOver_;
 	p.restarts = restarts_;
 }
 
@@ -825,6 +830,7 @@ void Engine::loadPlayback(const Playback& p) {
 	jumpEntry_ = p.jumpEntry;
 	jumpBar_ = p.jumpBar;
 	songEnded_ = p.songEnded;
+	songOver_ = p.songOver;
 	restarts_ = p.restarts;
 }
 
@@ -992,6 +998,7 @@ void Engine::setSongOn(bool on, double now, EventList& out) {
 	songPos_ = -1;
 	overridden_ = false;
 	jumpPending_ = false;
+	songOver_ = false;
 	if (on)
 		startSong(now, out);
 }
@@ -1005,7 +1012,10 @@ void Engine::startSong(double now, EventList& out) {
 	if (song.count == 0)
 		return;
 	if (now <= 0.0) {
-		startEntry(0, 0, 0.0, now, out);
+		if (songTimeline)
+			songSeek(0.0, now, &out);
+		else
+			startEntry(0, 0, 0.0, now, out);
 		return;
 	}
 	jumpPending_ = true;
@@ -1029,6 +1039,13 @@ void Engine::resumeSong(double now) {
 void Engine::songOverride(double at) {
 	if (!songOn_)
 		return;
+	if (songOver_) {
+		// Past a timeline song's end: the player's pattern plays until the song resumes.
+		songOver_ = false;
+		jumpPending_ = false;
+		overridden_ = true;
+		return;
+	}
 	if (jumpPending_) {
 		// A start or resume was waiting: it is where the song picks up later.
 		jumpPending_ = false;
@@ -1087,6 +1104,10 @@ void Engine::startEntry(int e, int bar, double at, double cut, EventList& out) {
 }
 
 bool Engine::songEvent(double at, double cut, EventList& out) {
+	if (jumpPending_ && songTimeline) {
+		songSeek(at, cut, &out);
+		return true;
+	}
 	if (jumpPending_) {
 		int e = jumpEntry_, bar = jumpBar_;
 		jumpPending_ = false;
@@ -1118,6 +1139,13 @@ bool Engine::songEvent(double at, double cut, EventList& out) {
 	}
 	int next = songPos_ + 1;
 	if (next >= song.count) {
+		if (!song.loop && songTimeline) {
+			// Past the end: silent until the timeline goes back into the song.
+			allNotesOff(cut, out);
+			songPos_ = -1;
+			songOver_ = true;
+			return true;
+		}
 		if (!song.loop) {
 			songPos_ = -1;
 			songEnded_ = true;
@@ -1182,6 +1210,58 @@ void Engine::songClear() {
 	songPos_ = -1;
 	overridden_ = false;
 	jumpPending_ = false;
+	songOver_ = false;
+}
+
+void Engine::songEdited(double now) {
+	if (!songTimeline || !songOn_ || (overridden_ && !jumpPending_))
+		return;
+	jumpPending_ = true;
+	jumpTime_ = nextBar(now);
+	jumpEntry_ = jumpBar_ = 0;
+}
+
+int Engine::timelineEntry(double t, int& e, int& bar) const {
+	int total = song.totalBars();
+	if (song.count == 0 || total <= 0)
+		return 0;
+	long b = t <= 0.0 ? 0 : long(std::floor(t / 4.0 + 1e-4));
+	if (b >= total) {
+		if (!song.loop)
+			return -1;
+		b %= total;
+	}
+	for (e = 0; e < song.count; e++) {
+		if (b < song.entries[e].bars) {
+			bar = int(b);
+			return 1;
+		}
+		b -= song.entries[e].bars;
+	}
+	return -1;
+}
+
+void Engine::songSeek(double at, double cut, EventList* out) {
+	bool placed = songPos_ >= 0 && songPos_ < song.count && !overridden_;
+	jumpPending_ = false;
+	overridden_ = false;
+	int e = 0, bar = 0, found = timelineEntry(at, e, bar);
+	if (found <= 0) {
+		if (found < 0 && !songOver_ && out)
+			allNotesOff(cut, *out);
+		songPos_ = -1;
+		songOver_ = found < 0;
+		return;
+	}
+	songOver_ = false;
+	// From the bar line (the pattern where it would be had the song played from the start).
+	double line = at <= 0.0 ? 0.0 : std::floor(at / 4.0 + 1e-4) * 4.0;
+	double start = line - 4.0 * bar;
+	if (placed && songPos_ == e && current_ == song.entries[e].slot && std::fabs(entryStart_ - start) < 1e-6)
+		return; // already there
+	static EventList none; // after a jump nothing is sounding (the host ended it)
+	none.clear();
+	startEntry(e, bar, line, cut, out ? *out : none);
 }
 
 double Engine::patternQuarters() const {

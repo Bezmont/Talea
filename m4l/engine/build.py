@@ -39,6 +39,14 @@ EXPORTS = [
     "cycle_hits_high", "cycle_steps", "cycle_played_steps", "set_solo_cycle", "cycle_at", "cycle_info",
     "unrotated", "lock_get", "lock_set", "lock_clear", "locks_used", "locks_at", "lockable",
     "seq_mode", "set_seq_mode", "seq_step", "seq_toggle_note", "seq_copy_chord", "seq_clear", "seq_set",
+    "snap_note", "rec_overdub", "rec_release", "rec_set_cursor", "rec_cursor", "rec_live_on", "rec_live_off",
+    "rec_step_on", "rec_step_off",
+    "song", "song_entry_start", "song_default_bars", "song_set_on", "song_resume", "song_set_loop",
+    "song_insert", "song_remove", "song_set", "song_clear",
+    "clip_copy_track", "clip_paste_track", "clip_clear_track", "clip_copy_cycle", "clip_paste_cycle",
+    "clip_clear_cycle", "clip_paste_cycle_param", "clip_copy_pattern", "clip_paste_pattern",
+    "clip_copy_step", "clip_paste_step", "clip_clear_step",
+    "clip_paste_tracks_to_slot", "track_used",
 ]
 
 

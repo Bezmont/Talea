@@ -137,6 +137,10 @@ struct Track {
 	host sends it as a CV lane and as MIDI CC `ccNumber`. */
 	bool cc = false;
 	int ccNumber = kDefaultCc;
+	/** MIDI channel the host sends the track on (0-15), or -1: the track's own number (track n
+	on channel n). Several tracks can share a channel, e.g. one drum instrument on different
+	notes. Live's devices use it (a receiver plays a channel); Rack keeps its own setting. */
+	int channel = -1;
 	/** Sequencer mode (SETUP page): false = EUCLID (Steps / Pulses / Rotate and the step edits
 	make the hits, the pitch settings make the notes); true = SEQ, a manual sequence
 	(Pattern::seqs / a cycle's own): steps with notes are the hits, Pulses and Rotate don't

@@ -111,6 +111,8 @@ std::string patternToJson(const Pattern& pattern) {
 		jt["repeatTail"] = t.repeatTail;
 		jt["cc"] = t.cc;
 		jt["ccNumber"] = t.ccNumber;
+		if (t.channel >= 0)
+			jt["channel"] = t.channel;
 		jt["groove"] = t.groove;
 		jt["grooveLength"] = t.grooveLength;
 		jt["swingSubdivision"] = t.swingSubdivision;
@@ -292,6 +294,8 @@ bool patternFromJson(const std::string& text, Pattern& pattern) {
 		readIndex("phraseLength", t.phraseLength, countOf(kGrooveBars));
 		readPhraseColumns(jt, "userPhrase", t.userPhrase);
 		readIndex("ccNumber", t.ccNumber, kNumCcNumbers);
+		auto channel = jt.find("channel");
+		t.channel = channel != jt.end() && channel->is_number_integer() ? std::clamp(channel->get<int>(), 0, 15) : -1;
 		auto cc = jt.find("cc");
 		if (cc != jt.end() && cc->is_boolean())
 			t.cc = cc->get<bool>();

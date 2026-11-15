@@ -187,3 +187,142 @@ TEST_CASE(song_round_trips) {
 	CHECK_EQ(b.count, 1);
 	CHECK_EQ(b.entries[0].bars, kMaxSongBars);
 }
+
+// ---- the song on the host's timeline (Live) ----
+
+namespace {
+
+/** Entries {slot 0, 2 bars}, {slot 1, 1 bar}, {slot 2, 1 bar}: patterns of 4, 2 and 1 pulses. */
+void timelineSong(Engine& e) {
+	e.storePattern(0, pulses(4));
+	e.storePattern(1, pulses(2));
+	e.storePattern(2, pulses(1));
+	e.song.insert(0, {0, 2});
+	e.song.insert(1, {1, 1});
+	e.song.insert(2, {2, 1});
+	e.songTimeline = true;
+}
+
+} // namespace
+
+TEST_CASE(song_timeline_plays_what_the_song_has_there) {
+	Engine e;
+	timelineSong(e);
+	startAtZero(e);
+	CHECK_EQ(e.songEntry(), 0);
+	// Play from bar 3 (time 8): entry 2, as if the song had played from the start.
+	e.jump(8.0 - 1e-9);
+	CHECK_EQ(e.songEntry(), 1);
+	CHECK_EQ(e.currentPattern(), 1);
+	CHECK(near(e.songEntryStart(), 8.0));
+	std::vector<double> v = onTimes(e, 8.0 - 1e-9, 12.0 - 1e-6);
+	CHECK_EQ(v.size(), size_t(2));
+	CHECK(near(v[0], 8.0) && near(v[1], 10.0));
+	// Mid-bar, back into entry 1's second bar: the pattern where it would be.
+	e.jump(5.0 - 1e-9);
+	CHECK_EQ(e.songEntry(), 0);
+	CHECK_EQ(e.currentPattern(), 0);
+	CHECK(near(e.songEntryStart(), 0.0));
+	v = onTimes(e, 5.0 - 1e-9, 8.0 - 1e-6);
+	CHECK_EQ(v.size(), size_t(3));
+	CHECK(near(v[0], 5.0));
+	// Past the end (bar 5 on), no Loop: silent, and the host isn't told to stop.
+	e.jump(16.0 - 1e-9);
+	CHECK(e.songOver());
+	CHECK(onTimes(e, 16.0 - 1e-9, 24.0).empty());
+	CHECK(!e.takeSongEnd());
+	// Playing into the end: notes up to it, then nothing.
+	e.jump(9.0 - 1e-9);
+	v = onTimes(e, 9.0 - 1e-9, 20.0);
+	CHECK_EQ(v.size(), size_t(2)); // 10 (entry 2), 12 (entry 3), then the end at 16
+	CHECK(e.songOver());
+}
+
+TEST_CASE(song_timeline_loops_and_turns_on_at_the_bar_line) {
+	Engine e;
+	timelineSong(e);
+	e.song.loop = true;
+	EventList out;
+	onTimes(e, -1e-9, 5.0);
+	e.setSongOn(true, 5.0, out); // mid-bar 2: the timeline's bar 3 (entry 2) at 8
+	CHECK(e.songPending());
+	CHECK(near(e.songPendingTime(), 8.0));
+	onTimes(e, 5.0, 8.5);
+	CHECK_EQ(e.songEntry(), 1);
+	CHECK_EQ(e.currentPattern(), 1);
+	// Looping: bar 5 (time 16) is entry 1 again, bar 7 (24) entry 2.
+	onTimes(e, 8.5, 16.5);
+	CHECK_EQ(e.songEntry(), 0);
+	CHECK(near(e.songEntryStart(), 16.0));
+	e.jump(25.0 - 1e-9);
+	CHECK_EQ(e.songEntry(), 1);
+	CHECK(near(e.songEntryStart(), 24.0));
+}
+
+TEST_CASE(song_timeline_override_stays_until_resumed) {
+	Engine e;
+	timelineSong(e);
+	e.storePattern(3, pulses(8));
+	startAtZero(e);
+	onTimes(e, -1e-9, 1.0);
+	EventList out;
+	e.queuePattern(3, 1.0, out, true);
+	CHECK(e.songOverridden());
+	e.jump(8.0 - 1e-9); // the transport moves: the player's pattern stays
+	CHECK(e.songOverridden());
+	CHECK_EQ(e.currentPattern(), 3);
+	onTimes(e, 8.0 - 1e-9, 9.5);
+	e.resumeSong(9.5); // back to the song: the timeline's bar 4 (entry 3) at 12
+	CHECK(near(e.songPendingTime(), 12.0));
+	onTimes(e, 9.5, 12.5);
+	CHECK(!e.songOverridden());
+	CHECK_EQ(e.songEntry(), 2);
+	CHECK_EQ(e.currentPattern(), 2);
+	// A resume waiting when the transport jumps: there at once.
+	e.queuePattern(3, 12.5, out, true);
+	e.resumeSong(12.5);
+	e.jump(4.0 - 1e-9);
+	CHECK_EQ(e.songEntry(), 0);
+	CHECK(near(e.songEntryStart(), 0.0));
+}
+
+TEST_CASE(song_timeline_edits_land_on_the_next_bar_line) {
+	Engine e;
+	timelineSong(e);
+	startAtZero(e);
+	onTimes(e, -1e-9, 1.0);
+	// A later entry's bars: entry 1 is still where it was; no switch, nothing cut.
+	uint32_t switches = e.patternSwitches();
+	e.song.entries[2].bars = 4;
+	e.songEdited(1.0);
+	CHECK(e.songPending());
+	std::vector<double> v = onTimes(e, 1.0, 4.5);
+	CHECK_EQ(v.size(), size_t(3)); // 2, 3, 4
+	CHECK_EQ(e.songEntry(), 0);
+	CHECK(e.patternSwitches() == switches);
+	// The first entry shortened to 1 bar: bar 3 is now entry 3's, from the next bar line.
+	e.song.entries[0].bars = 1;
+	e.songEdited(4.5);
+	onTimes(e, 4.5, 7.5);
+	CHECK_EQ(e.currentPattern(), 0);
+	onTimes(e, 7.5, 8.5);
+	CHECK_EQ(e.songEntry(), 2);
+	CHECK_EQ(e.currentPattern(), 2);
+	CHECK(near(e.songEntryStart(), 8.0));
+}
+
+TEST_CASE(song_timeline_override_past_the_end) {
+	Engine e;
+	timelineSong(e);
+	e.storePattern(3, pulses(4));
+	startAtZero(e);
+	e.jump(20.0 - 1e-9);
+	CHECK(e.songOver());
+	EventList out;
+	e.queuePattern(3, 20.0 - 1e-9, out, true);
+	CHECK(!e.songOver());
+	CHECK(e.songOverridden());
+	CHECK_EQ(int(onTimes(e, 20.0 - 1e-9, 24.0 - 1e-6).size()), 4);
+	e.setSongOn(false, 24.0, out);
+	CHECK(!e.songOver());
+}

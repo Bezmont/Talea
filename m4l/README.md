@@ -4,8 +4,10 @@ Talea in Ableton Live, as two Max MIDI Effects:
 
 - **Talea Sequencer**: one per set, on any MIDI track. Runs Talea's engine (the same
   C++ as the Rack module, compiled to WebAssembly) and holds the pattern.
-- **Talea Track Receiver**: one per instrument track, before the instrument. Plays one
-  Talea track (**Track** 1-16) as MIDI.
+- **Talea Track Receiver**: one per instrument track, before the instrument. Plays a
+  **Channel** (1-16) as MIDI: every Talea track on that channel. Each track's channel is
+  on the sequencer's SETUP page (track n on channel n unless set), so one instrument can
+  play several tracks, e.g. a drum instrument with each track on its own notes.
 
 Sequencer and receivers find each other by **Instance** (A-D), so a set can have up to four
 independent sequencers.
@@ -40,9 +42,11 @@ Any recent Node runs the simulation; Emscripten has one (`emsdk/node/<version>/n
 ## How it plays on time
 
 A receiver's script never plays a note itself. For each 16th step the sequencer sends every
-track's MIDI entries (offset within the step, a note to end, a note to start and its
-velocity; or a CC value with its glide), look-ahead steps early (**Look-ahead**, default
-4, minimum 4). The receiver writes its track's entries into a native `[coll]` keyed by
+channel's MIDI entries, of all the tracks on it (offset within the step, a note to end, a
+note to start and its velocity; or a CC value with its glide), look-ahead steps early
+(**Look-ahead**, default 4, minimum 4). A note ends on the channel it started on, even if
+its track has moved to another since (CHANNEL changed, a pattern with other channels
+switched in). The receiver writes its channel's entries into a native `[coll]` keyed by
 step. On each 16th the patch looks the step up and hands each entry to `[pipe]`, delayed
 by its offset at Live's current tempo, all on Max's high-priority scheduler. So the
 script, which Live's interface can hold up, may fall behind by up to look-ahead steps
@@ -74,7 +78,17 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
   are read from the engine's tables (`src/core/Params.hpp`, `Values.hpp`) when the device
   is built. Rack's Harmony knob, and the Random knobs (for the display's RANDOM page),
   aren't here yet.
-- **Track select** (1-16) along the top, like tabs over the sections: the track the dials edit.
+- **Track buttons** (1-16) along the top, over the sections: a click selects the track the
+  dials and display pages edit. **Groups**, as on Rack: Ctrl+click adds a track to the
+  group or takes it out, Shift+click adds the range from the edit track, a plain click ends
+  the group. A plain dial turn moves every grouped track by the same amount, each clamped to
+  its range; a display page setting (SCALE, KEYS' pool, PHRASE, VOICING, GROOVE, RANDOM,
+  SETUP) goes to every grouped track. Step pads, locks, the CYCLE page and Cycle edit stay
+  on the edit track. Plain buttons like the pads (not a Live tab, which can only show one
+  choice), lit as on Rack: red the edit track, dim red the group, white on a note,
+  blue-grey muted, dim orange holding something other than defaults. The edit track and
+  group are saved with the bank (read back when the set loads), not as parameters: a track
+  click isn't an undo step.
 - **Pads** under the sections, in the mode chosen in the **Pad mode** menu beside them.
   They are plain buttons, not Live parameters, and light as on the Rack module. Shift and
   Ctrl (Cmd on the Mac) are read with `[modifiers]`, polled by each press.
@@ -102,6 +116,30 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
   - The mute timing and the pattern quantization are the engine's defaults for now
     (mutes Immediately, so on the next step; patterns at the end of the pattern). Their
     settings come with the display.
+- **COPY, PASTE, CLEAR** (stacked under REC and OVD), as on Rack: one is armed at a time
+  (lit; what each does, and its targets, is in Live's Info View), and the next click on
+  a target acts on the clipboard: a **track button** (the whole track: values, steps, pool,
+  scale, channel, cycles, random, locks, sequence, mute; a grouped track stands for its
+  group, so COPY takes the group and CLEAR clears it; the edit track stays), a pad in
+  **Mute** mode (the same, by track), a pad in **Step** mode
+  (the step: on or off, its locks and pool, in SEQ mode its notes; the edited cycle's in
+  Cycle edit), a pad in **Pattern** mode (the slot as it plays; copied tracks paste into
+  the slot on their own track numbers, its other tracks staying), a cell of CYCLE's **CYCLE**
+  row (the cycle's overrides, step edits, locks and mute; the selection stays; pasting past
+  the last adds cycles), or a **dial** (COPY: the value it shows, the selected steps' lock or
+  the edited cycle's; CLEAR: the default and no random amount, or the cycle's override, or
+  that lock on the selected steps). COPY and CLEAR disarm after one target (Ctrl+click CLEAR:
+  it stays armed until clicked again); PASTE pastes on the next matching target and disarms
+  too, and a Ctrl+click on the target pastes and keeps it armed for more, until PASTE is
+  clicked again (dimmed while there's nothing to paste). CYCLE's cells read the modifier
+  keys for this as the pads do.
+  Copied tracks paste from the track clicked on, keeping their spacing (tracks 1, 2 and 4
+  pasted on track 5: 5, 6 and 8). A dial's value pastes on track buttons (a group: all of
+  it), Mute pads and cycles. A dial clicked while armed
+  doesn't turn: a live.dial reports turns, not clicks, so `[mousestate]` gives the click's
+  place ("leftClick", "dialGeometry" from the patch), as for the pads' right-click. The
+  clipboard is outside the patterns, so it pastes across them; edits are taken on the next
+  16th like a dial's.
 - **The display**, the right half: dark, in Live's LCD colours (the controls in their LCD
   appearance, `appearance 1`; the background, frame and labels take the theme's
   `live_lcd_bg`, `live_lcd_frame` and `live_lcd_title`). Page tabs along the top, as on
@@ -152,11 +190,16 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
     holding a pattern reads "3*" in all three rows: the script renames the choices
     (`_parameter_range`), and ignores what a row sends within 100 ms of a rename, in case
     Live echoes it as a click.
-  - **SETUP**: Type (note or CC), CC number (dimmed for a note track), Repeats (Choke or
-    Tail: a new pulse cuts the repeats before it, or they overlap), MODE (EUCLID or SEQ;
-    CYC MODE in Cycle edit: the edited cycle's own), and the device's
-    own Instance, Look-ahead and status line. Rack's MIDI channel and clock aren't here:
-    each receiver picks its track.
+  - **SETUP**: Type (note or CC), CHANNEL (1-16: the receivers of that channel play the
+    track; several tracks can share one), CC number (dimmed for a note track), Repeats
+    (Choke or Tail: a new pulse cuts the repeats before it, or they overlap), MODE (EUCLID
+    or SEQ; CYC MODE in Cycle edit: the edited cycle's own), and the device's own Instance,
+    Look-ahead and status line. The channel is a track property, saved in the pattern
+    (`Track::channel`; a track on its own number is stored as "its own", so a copy of it
+    on another track plays on that track's channel). Rack keeps a MIDI channel per track on
+    the module instead, and its MIDI clock isn't here. Off is Mute: a track's mute is saved
+    in the pattern too. Two tracks on one channel playing the same pitch can end each
+    other's note, as on Rack.
   - **Mute mode** shows its settings over any page, as on Rack: Apply timing (Now, Beat,
     Bar, Pattern) and On mute (Finish or Cut). A page tab leaves Mute mode.
   - **Diagrams**, in a band under the rows, and the TRACK and KEYS boards (`jezric_talea_diagram.js`, a `[v8ui]` in the
@@ -176,9 +219,41 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
     (keys in the scale; REST makes them rests); LOCKS' first lanes are N.VEL and GATE (1-16
     steps; Ctrl+click puts the default back). Pulses, Rotate, Voicing and Range dim, and so
     do the PHRASE and VOICING rows. A scale, root or scale-note change moves the stored
-    notes onto the new scale (destructive, one undo step), as on Rack. Recording comes
-    next.
-  - The other pages say they aren't built yet.
+    notes onto the new scale (destructive, one undo step), as on Rack.
+  - **REC and OVD** (the top of the left column): the notes played into the sequencer's
+    track (arm it, or set its Monitor to In) go into the edit track's sequence (the edited
+    cycle's in Cycle edit), as Rack's SEQ recording. REC only turns on in SEQ mode, and
+    goes off when the edit track leaves it. Playing: each note goes to the nearest step
+    (quantized to the Division; past the loop's last step, the next loop's first), its
+    length rounded to whole steps; a step played again is replaced, or with OVD the notes
+    join it. Stopped: step recording, each chord at the cursor (the blinking red pad: the
+    first selected step when REC goes on, a pad click moves it), which moves on when every
+    key is up. Off-scale notes snap to the scale first. A take (REC on to off) is stored
+    once: one undo step. Each note's song time comes from a `[transport]` of its own, banged
+    by the note.
+  - **Monitoring**: in SEQ mode the keys played sound at once on the edit track's receiver
+    ("mon" on the bus), REC on or off, snapped as recorded; not on a CC track. (The MIDI
+    also still passes through the sequencer's own track.)
+  - **SONG** (Talea's song mode, Rack's SONG page): a list of up to 64 entries, each a
+    pattern slot played for a number of bars, laid on Live's timeline: the song's bar 1 is
+    Live's bar 1, so wherever Live plays (Play from a cue, the loop brace wrapping, a jump)
+    the song plays what it has there, as if it had played from the start. Rows: SONG
+    on/off, LOOP (after the last entry, back to the first; off, the sequencer is silent past
+    the end, as an arrangement clip ends, rather than stopping Live as Rack stops), the
+    entries, 16 across: two tabs one over the other, each entry's pattern on top ("P3") and
+    its bars under it ("x4"), both showing the selected entry ("+" after the last adds the
+    playing pattern; pages 1-16 ... 49-64 once there are more), PATTERN and BARS of the selected entry (a
+    number, or 1 2 4 8 16 32, or PAT: the pattern's own length; a new pattern brings its
+    length), EDIT (ADD the playing pattern, INSERT a copy before the selected entry, DELETE,
+    CLEAR SONG) and an info line (entry, pattern, bar). A blue bar between an entry's two
+    rows marks the one playing. In Pattern pad mode with SONG shown, a pattern pad adds its pattern to the
+    song. Turning the song on, and every edit, takes effect on the next bar line; stopped,
+    at once. A pattern switch of the player's (a pad, PATTERN's PLAY) takes over, as
+    launching a clip takes over from Live's arrangement: **BACK TO SONG** appears, and
+    returns the song, where the timeline is, on the next bar line. The engine does this with
+    `Engine::songTimeline` (Rack keeps its own way: the song starts where it's turned on and
+    resumes at the bar it left). The song and SONG on are saved in the bank, as Rack saves
+    them with the module.
   - Turning a dial shows its page, as Rack's "display follows knobs": the shape dials
     TRACK, the repeat dials SETUP (Choke / Tail), the groove dials GROOVE, Pitch SCALE, Voicing VOICING,
     Range PHRASE (`dialPages` in the spec). In Mute mode the Mute view stays.

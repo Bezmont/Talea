@@ -15,9 +15,12 @@
 //   field    a track setting (jezric_talea_core.js FIELDS), for the edit track
 //   setting  one of the sequencer's own settings (jezric_talea_core.js SETTINGS)
 //   action   what a click does ("queue", "copy", "clear": pattern slots)
+//   mods     the modifier keys are read before a click ("padMods", as for a pad press):
+//            CYCLE's cells, where Ctrl+click on a PASTE target keeps PASTE armed
 //   min, max a numbox's range
 //   width    the control's width in px (default: the whole row)
-//   activeWhen  dimmed unless that field's value is in the list
+//   activeWhen  dimmed unless that field's value is in the list ("@songEntry": unless a
+//            song entry is selected)
 //   random   one of the edit track's random settings (jezric_talea_core.js RANDOM), of
 //            parameter "param" for "amount" and "perCycle"; "randomAction": a buttons
 //            row's RANDOM button numbers (talea_random_action)
@@ -26,14 +29,22 @@
 //   unit     "%": a numbox shows its value in percent
 //   fontsize a tab row's font size (default 8)
 //   showWhen shown only while the script says so ("lanePages": more than 6 lanes,
-//            "stepPages": more than 16 steps, "seqStep": SEQ mode with steps selected)
+//            "stepPages": more than 16 steps, "seqStep": SEQ mode with steps selected,
+//            "songOverridden": a pattern switch took over from the song, "songPages":
+//            more than 16 song entries)
 //   seqUnused dimmed while the edit track is in SEQ mode (it doesn't use it)
 //   altWhen  "@cycleEdit": the alt label in Cycle edit
 //   playBars a tab row with a bar under each choice, shown under the one playing
-//            ("d_<name>_play<i>": CYCLE's playing cycle)
+//            ("d_<name>_play<i>": CYCLE's playing cycle); "above": a thicker blue bar in
+//            the gap above the row instead (SONG's playing entry, between its rows)
+//   lines    a tab row's choices on that many lines
+//   dy       moves the row up or down (px): SONG's bars row sits right under its patterns
 //   marks    "used": a pattern slot's choice reads "3*" while the slot holds a pattern;
 //            "cycles": a cycle's "3*" with changes, "(3)" muted; "cycleClear": the choices
-//            are what the selected cycle changes (ALL, HITS, the overridden parameters)
+//            are what the selected cycle changes (ALL, HITS, the overridden parameters);
+//            "songEntries" / "songCounts": SONG's entries, two tabs one over the other: each
+//            entry's pattern on top ("P3"), its bars under it ("x4"), "+" after the last;
+//            "songPages": as many SONG pages as there are entries for
 //
 // "dialPages": the page a dial's turn shows (Rack's "display follows knobs").
 // "diagrams": the pages with a diagram in the band under their rows
@@ -72,7 +83,7 @@ module.exports = {
 		],
 		"CYCLE": [
 			{"name": "cycleCount", "label": "COUNT", "kind": "tab", "items": ["1", "2", "3", "4", "5", "6", "7", "8"], "action": "cycleCount"},
-			{"name": "cycleSelect", "label": "CYCLE", "kind": "tab", "items": ["1", "2", "3", "4", "5", "6", "7", "8"], "action": "cycleSelect", "marks": "cycles", "playBars": true},
+			{"name": "cycleSelect", "label": "CYCLE", "kind": "tab", "items": ["1", "2", "3", "4", "5", "6", "7", "8"], "action": "cycleSelect", "mods": true, "marks": "cycles", "playBars": true},
 			{"name": "cycleEdit", "label": "EDIT", "kind": "tab", "items": ["OFF", "ON"], "action": "cycleEdit", "width": 60},
 			{"name": "cycleMute", "label": "MUTE", "kind": "tab", "items": ["OFF", "ON"], "action": "cycleMute", "width": 60},
 			{"name": "cycleClear", "label": "CLEAR", "kind": "buttons", "items": ["ALL", "HITS"], "action": "cycleClear", "marks": "cycleClear"},
@@ -150,12 +161,32 @@ module.exports = {
 			{"name": "patternClear", "label": "CLEAR", "kind": "buttons", "items": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"], "action": "clear", "marks": "used"},
 			{"name": "patternQuantize", "label": "SWITCH", "kind": "tab", "items": ["NOW", "BEAT", "BAR", "PATTERN"], "setting": "patternQuantize", "width": 200}
 		],
+		"SONG": [
+			{"name": "songOn", "label": "SONG", "kind": "tab", "items": ["OFF", "ON"], "action": "songOn", "width": 60},
+			{"name": "songLoop", "label": "LOOP", "kind": "tab", "items": ["OFF", "ON"], "action": "songLoop", "x": 128, "row": 0, "labelW": 30, "width": 60},
+			{"name": "songResume", "kind": "button", "text": "BACK TO SONG", "action": "songResume", "x": 226, "row": 0, "labelW": 0, "width": 92,
+				"showWhen": "songOverridden"},
+			{"name": "songPage", "kind": "tab", "items": ["1-16", "17-32", "33-48", "49-64"], "action": "songPage", "x": 326, "row": 0, "labelW": 0, "width": 128,
+				"marks": "songPages", "showWhen": "songPages"},
+			{"name": "songSelect", "label": "ENTRIES", "kind": "tab", "items": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"],
+				"action": "songSelect", "marks": "songEntries", "row": 1},
+			{"name": "songCount", "kind": "tab", "items": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"],
+				"action": "songSelect", "marks": "songCounts", "playBars": "above", "row": 2},
+			{"name": "songSlot", "label": "PATTERN", "kind": "tab", "items": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"],
+				"action": "songSlot", "marks": "used", "activeWhen": "@songEntry", "row": 3},
+			{"name": "songBars", "label": "BARS", "kind": "num", "min": 1, "max": 999, "action": "songBars", "activeWhen": "@songEntry", "width": 44, "row": 4},
+			{"name": "songBarsSet", "kind": "buttons", "items": ["1", "2", "4", "8", "16", "32", "PAT"], "action": "songBarsSet", "activeWhen": "@songEntry",
+				"x": 112, "row": 4, "labelW": 0, "width": 220},
+			{"name": "songEdit", "label": "EDIT", "kind": "buttons", "items": ["ADD", "INSERT", "DELETE", "CLEAR SONG"], "action": "songEdit", "width": 260, "row": 5},
+			{"name": "songInfo", "label": "STATUS", "kind": "text", "text": "songInfo", "row": 6}
+		],
 		"SETUP": [
 			{"name": "cc", "label": "TYPE", "kind": "tab", "items": ["NOTE", "CC"], "field": "cc", "width": 100},
 			{"name": "ccNumber", "label": "CC", "kind": "num", "min": 0, "max": 119, "field": "ccNumber", "width": 44,
 				"activeWhen": {"field": "cc", "in": [1]}},
 			{"name": "repeatTail", "label": "REPEATS", "kind": "tab", "items": ["CHOKE", "TAIL"], "field": "repeatTail", "width": 100},
-			{"name": "seqMode", "label": "MODE", "alt": "CYC MODE", "altWhen": "@cycleEdit", "kind": "tab", "items": ["EUCLID", "SEQ"], "action": "seqMode", "width": 100}
+			{"name": "seqMode", "label": "MODE", "alt": "CYC MODE", "altWhen": "@cycleEdit", "kind": "tab", "items": ["EUCLID", "SEQ"], "action": "seqMode", "width": 100},
+			{"name": "channel", "label": "CHANNEL", "kind": "num", "min": 1, "max": 16, "field": "channel", "x": 180, "row": 0, "width": 44}
 		],
 		"MUTE": [
 			{"name": "muteTiming", "label": "APPLY", "kind": "tab", "items": ["NOW", "BEAT", "BAR", "PATTERN"], "setting": "muteTiming", "width": 200},

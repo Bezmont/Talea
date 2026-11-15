@@ -92,6 +92,9 @@ World.prototype.device = function (role, trackNo, saved, restoreAfterInit, noTes
 				else if (a[0] === "follow") d.follow = a[1];
 				else if (a[0] === "mode") d.mode = a[1];
 				else if (a[0] === "apply") d.apply = a[1];
+				else if (a[0] === "rec") d.rec = a[1];
+				else if (/^(copy|paste|clear|pasteactive)$/.test(a[0])) (d.clipBtn = d.clipBtn || {})[a[0]] = a[1];
+				else if (a[0] === "trk") (d.trk = d.trk || [])[a[1]] = a.slice(2, 5).join(" ");
 			} else if (n === 6 && role === "brain") {
 				// the display: [thispatcher] shows and hides; the rest sets controls
 				d.shown = d.shown || {};
@@ -111,7 +114,7 @@ World.prototype.device = function (role, trackNo, saved, restoreAfterInit, noTes
 	if (saved && !restoreAfterInit) ctx.restore.apply(null, saved);
 	ctx.init();
 	if (saved && restoreAfterInit) ctx.restore.apply(null, saved);
-	if (role === "receiver") ctx.trackSelect(trackNo);
+	if (role === "receiver") ctx.channelSelect(trackNo);
 	return d;
 };
 
@@ -734,6 +737,12 @@ function turn(brain, track, key, v) {
 })();
 
 // ---- Mute and Pattern pad modes ----
+
+// A track button press as the patch sends it: the modifier keys, then the press.
+function trackPress(b, i, shift, ctrl) {
+	b.ctx.padMods(shift ? 1 : 0, ctrl ? 1 : 0, 0);
+	b.ctx.trackButton(i);
+}
 
 // A pad press as the patch sends it: the modifier keys first, then the press.
 function press(b, i, shift, ctrl, alt) {
@@ -1529,6 +1538,348 @@ function shownNames(d) {
 	s.w.wait(SAVE_PAUSE_MS + 10);
 	var r = setup({ saved: s.brain.pattr });
 	check("the sequence is saved with the set", r.brain.ctx.stepper.seqStep(0, -1, 0) !== null);
+	done(r);
+	done(s);
+})();
+
+// Recording (REC, OVD): the notes played into the sequencer go into the edit track's
+// sequence, step by step while stopped (at the cursor), live while playing (the nearest
+// step); in SEQ mode they also sound at once on the edit track's receiver (monitoring).
+function playNote(b, pitch, vel, step) {
+	if (step !== undefined) b.ctx.noteTime(Math.floor(step / 16) + 1, Math.floor((step % 16) / 4) + 1, (step % 4) * 120 + 30);
+	b.ctx.noteIn(pitch, vel);
+}
+(function () {
+	var s = setup(), b = s.brain.ctx, d = s.brain;
+	b.recSelect(1);
+	check("REC refused outside SEQ mode (" + b.rec + ", button " + d.rec + ")", b.rec === false && d.rec === 0);
+	b.displayPage(11);
+	b.disp("seqMode", 1);
+	s.w.wait(SAVE_PAUSE_MS + 10); // the mode change stored before the take
+	press(s.brain, 0); // step 1 selected: step recording starts there
+	b.recSelect(1);
+	check("REC on in SEQ mode", b.rec === true);
+	var before = s.rx[0].played.length;
+	playNote(s.brain, 61, 100); // C#: in the Chromatic scale, as played
+	playNote(s.brain, 64, 90);
+	check("monitoring: the notes sound at once on the edit track's receiver (" + s.rx[0].played.slice(before).map(function (n) { return n[1]; }).join(" ") + ")",
+		s.rx[0].played.slice(before).map(function (n) { return n[1]; }).join() === "61,64" && s.rx[1].played.length === 0);
+	playNote(s.brain, 61, 0);
+	playNote(s.brain, 64, 0);
+	check("monitoring: the notes end with the keys", !s.rx[0].sounding[61] && !s.rx[0].sounding[64]);
+	var st1 = b.stepper.seqStep(0, -1, 0);
+	check("step recording: the chord at the cursor (" + JSON.stringify(st1) + "), the cursor on (" + b.stepper.recCursor() + ")",
+		st1 && st1.notes.join() === "61,64" && st1.velocity === 100 && b.stepper.recCursor() === 1);
+	playNote(s.brain, 67, 80);
+	playNote(s.brain, 67, 0);
+	check("the next chord at the next step (" + JSON.stringify(b.stepper.seqStep(0, -1, 1)) + ")", b.stepper.seqStep(0, -1, 1).notes.join() === "67");
+	b.ovdSelect(1);
+	b.stepper.recSetCursor(0);
+	playNote(s.brain, 72, 70);
+	playNote(s.brain, 72, 0);
+	check("OVD: a note joins the step's notes (" + b.stepper.seqStep(0, -1, 0).notes.join(" ") + ")", b.stepper.seqStep(0, -1, 0).notes.join() === "61,64,72");
+	b.ovdSelect(0);
+	var saves = d.saves || 0;
+	s.w.wait(SAVE_PAUSE_MS + 10);
+	check("nothing stored during the take (" + ((d.saves || 0) - saves) + ")", (d.saves || 0) === saves);
+	b.recSelect(0);
+	s.w.wait(SAVE_PAUSE_MS + 10);
+	check("REC off: the take stored once (" + ((d.saves || 0) - saves) + ")", (d.saves || 0) === saves + 1);
+	// Live: a note at step 20 (step 5 of the 16-step loop) held two steps, heard from the next loop.
+	b.recSelect(1);
+	var t0 = s.w.now;
+	s.w.play(range(0, 64), function (i) {
+		if (i === 20) playNote(s.brain, 74, 110, 20);
+		if (i === 22) playNote(s.brain, 74, 0, 22);
+	});
+	var st5 = b.stepper.seqStep(0, -1, 4);
+	check("live recording: the note at the nearest step, its length in steps (" + JSON.stringify(st5) + ")",
+		st5 && st5.notes.indexOf(74) >= 0 && st5.velocity === 110 && st5.gate === 2);
+	var heard = s.rx[0].played.filter(function (n) { return n[1] === 74; }).map(function (n) { return +((n[0] - t0) / 500).toFixed(3); });
+	check("heard as played (monitoring) and then from the next loop (quarters " + heard.join(" ") + ")",
+		heard.length >= 3 && heard.indexOf(9) >= 0 && heard.indexOf(13) >= 0);
+	check("recording: no misses (" + misses(s.rx) + "), no hanging notes (" + hanging(s.rx) + ")", misses(s.rx) === 0 && hanging(s.rx) === 0);
+	s.w.stop();
+	b.displayPage(11);
+	b.disp("seqMode", 0);
+	check("leaving SEQ mode: REC off (" + b.rec + ", " + d.rec + ")", b.rec === false && d.rec === 0);
+	var n = s.rx[0].played.length;
+	playNote(s.brain, 60, 100);
+	check("EUCLID mode: no monitoring", s.rx[0].played.length === n);
+	done(s);
+})();
+
+// SONG's entry cells: the patterns' row over the bars' row, as "P1 x1" ("+ +", "- -").
+function songCells(d) {
+	return d.disp.dr_songSelect.map(function (n, k) { return n + " " + d.disp.dr_songCount[k]; });
+}
+
+// The song (SONG page): on Live's timeline, bar 1 is Live's bar 1. Pattern 1 for a bar,
+// pattern 2 for two, then silence (no LOOP), or pattern 1 again (LOOP); a pattern switch of
+// the player's takes over until BACK TO SONG; saved with the set.
+(function () {
+	var s = setup(), b = s.brain.ctx, d = s.brain;
+	b.displayPage(9); // PATTERN: pattern 1 copied to slot 2
+	b.disp("patternCopy", 1);
+	b.displayPage(10);
+	check("SONG shows its rows (" + shownNames(d) + ")", / d_songSelect /.test(" " + shownNames(d) + " ") &&
+		/ d_songInfo /.test(" " + shownNames(d) + " ") && !d.shown.d_soon && !d.shown.d_songResume && !d.shown.d_songPage);
+	check("an empty song: a + cell, PATTERN and BARS dimmed (" + songCells(d).slice(0, 3).join(" ") + ")",
+		songCells(d)[0] === "+ +" && songCells(d)[1] === "- -" && d.disp.da_songSlot === 0 && d.disp.da_songBars === 0);
+	b.disp("songEdit", 0); // ADD: the playing pattern (1)
+	b.disp("songBars", 1);
+	b.padModeSelect(2);
+	press(s.brain, 1); // Pattern mode on SONG: pad 2 adds pattern 2
+	check("ADD and a pattern pad add entries, the new one selected (" + songCells(d).slice(0, 3).join(" ") + ", " + d.disp.d_songSelect + ")",
+		songCells(d)[0] === "P1 x1" && /^P2 x/.test(songCells(d)[1]) && songCells(d)[2] === "+ +" &&
+		d.disp.d_songSelect === 1 && b.stepper.perf().current === 0);
+	b.disp("songBarsSet", 1); // 2 bars
+	b.disp("songOn", 1);
+	check("entry 2 two bars, the song on (" + songCells(d)[1] + ", " + d.disp.d_songOn + ")", songCells(d)[1] === "P2 x2" && d.disp.d_songOn === 1);
+	var cur = [], info = [], atEnd = 0;
+	function bar(i) { return Math.floor(i / 16); }
+	function notes() { var n = 0; s.rx.forEach(function (r) { n += r.played.length; }); return n; }
+	s.w.play(range(0, 80), function (i) {
+		if (i % 16 === 8) {
+			cur[bar(i)] = b.perfShown().current;
+			info[bar(i)] = d.disp.d_songInfo;
+		}
+		if (i === 48) atEnd = notes();
+	});
+	check("notes in the song (" + atEnd + "), none past its end (" + (notes() - atEnd) + ")", atEnd > 0 && notes() === atEnd);
+	check("playing: pattern 1, then 2 for two bars (" + cur.slice(0, 3).join(" ") + ")", cur[0] === 0 && cur[1] === 1 && cur[2] === 1);
+	check("the info line follows (" + info[1] + ")", /^ENTRY 2\/2 {3}P2 {3}BAR 1\/2/.test(info[1]));
+	check("past the end: silent (" + info[3] + ")", /PAST THE SONG'S END/.test(info[3]));
+	s.w.stop();
+	var before = [];
+	s.rx.forEach(function (r) { before.push(r.played.length); });
+	// LOOP: bar 4 is entry 1 again; Play from bar 4 (a jump) goes there at once.
+	b.disp("songLoop", 1);
+	s.w.setSong("start_time", 12);
+	cur = [];
+	var quiet = true;
+	s.w.play(range(48, 80), function (i) {
+		var st = 48 + i;
+		if (st % 16 === 8) cur[bar(st)] = b.perfShown().current;
+		if (st === 52) quiet = d.shown.d_songCount_play0 === true;
+	});
+	check("LOOP: from bar 4, entry 1 again, then entry 2 (" + cur.slice(3, 5).join(" ") + "), its bar shown", cur[3] === 0 && cur[4] === 1 && quiet);
+	var heardLoop = 0;
+	s.rx.forEach(function (r, k) { heardLoop += r.played.length - before[k]; });
+	check("LOOP: notes past the old end (" + heardLoop + ")", heardLoop > 0);
+	// A pattern click takes over: BACK TO SONG appears; clicked, the song is back on the bar line.
+	s.w.stop();
+	b.displayPage(9);
+	s.w.wait(200); // (a click right after its choices are renamed is taken as their echo)
+	b.disp("patternPlay", 1); // stopped: pattern 2 at once
+	b.displayPage(10);
+	check("an override shows BACK TO SONG (" + d.disp.d_songInfo + ")", d.shown.d_songResume === true && /TOOK OVER/.test(d.disp.d_songInfo));
+	b.disp("songResume", "bang");
+	check("BACK TO SONG: gone, the song back (" + d.disp.d_songInfo + ")", d.shown.d_songResume === false && !/TOOK OVER/.test(d.disp.d_songInfo));
+	// DELETE, INSERT; saved with the set.
+	s.w.wait(200);
+	b.disp("songSelect", 0);
+	b.disp("songEdit", 1); // INSERT a copy of entry 1
+	s.w.wait(200);
+	b.disp("songSelect", 2);
+	b.disp("songSlot", 2); // entry 3 plays pattern 3
+	check("INSERT and PATTERN (" + songCells(d).slice(0, 4).join(" ") + ")",
+		songCells(d).slice(0, 3).join() === "P1 x1,P1 x1,P3 x1" && songCells(d)[3] === "+ +");
+	b.disp("songEdit", 2); // DELETE entry 3
+	check("DELETE: the selection on the last entry (" + songCells(d).slice(0, 3).join(" ") + ", " + d.disp.d_songSelect + ")",
+		songCells(d).slice(0, 3).join() === "P1 x1,P1 x1,+ +" && d.disp.d_songSelect === 1);
+	s.w.wait(SAVE_PAUSE_MS + 10);
+	var r = setup({ saved: d.pattr }), rs = r.brain.ctx.stepper.song();
+	check("the song saved with the set (" + JSON.stringify(rs.entries) + ", on " + rs.on + ", loop " + rs.loop + ")",
+		rs.count === 2 && rs.entries[1].slot === 0 && rs.entries[0].slot === 0 && rs.on && rs.loop);
+	b.disp("songEdit", 3);
+	check("CLEAR SONG (" + songCells(d)[0] + ")", songCells(d)[0] === "+ +" && b.stepper.song().count === 0);
+	done(r);
+	done(s);
+})();
+
+// COPY / PASTE / CLEAR: a track (track tabs, Mute pads), a dial's value, a step, a cycle and
+// a pattern; PASTE stays armed, COPY and CLEAR disarm (Ctrl+click CLEAR: stays armed).
+(function () {
+	var s = setup(), b = s.brain.ctx, d = s.brain, st = b.stepper;
+	b.dialGeometry("pulses", 104, 27, 44, 48, "velocity", 104, 85, 44, 48);
+	check("nothing to paste: PASTE dimmed, nothing armed", d.clipBtn.pasteactive === 0 && b.armed === null);
+	turn(d, 0, "pulses", 5);
+	b.clipSelect(0, 1);
+	check("COPY armed: lit, what it does (" + b.clipInfo() + ")", d.clipBtn.copy === 1 && b.armed !== null && /^COPY: /.test(b.clipInfo()));
+	trackPress(d, 0);
+	check("a track button copies the track and disarms", d.clipBtn.copy === 0 && d.clipBtn.pasteactive === 1 && b.armed === null);
+	b.clipSelect(1, 1);
+	check("PASTE armed (" + b.clipInfo() + ")", d.clipBtn.paste === 1 && /^PASTE TRACK 1: /.test(b.clipInfo()));
+	trackPress(d, 3, false, true); // Ctrl+click: pastes and stays armed
+	trackPress(d, 5, false, true);
+	b.padModeSelect(1);
+	press(d, 7, false, true); // a Mute pad: track 8
+	check("PASTE: tracks 4, 6 and 8 take it, PASTE still armed (" + [3, 5, 7].map(function (t) { return st.getParam(t, "pulses"); }) + ")",
+		st.getParam(3, "pulses") === 5 && st.getParam(5, "pulses") === 5 && st.getParam(7, "pulses") === 5 && d.clipBtn.paste === 1 && b.padMode === 1);
+	b.clipSelect(1, 0);
+	b.padModeSelect(0);
+	check("PASTE again: disarmed", d.clipBtn.paste === 0 && b.armed === null);
+	// A dial: COPY takes its value, a turn just then doesn't count; pasted on a track tab.
+	b.editTrackSelect(0);
+	b.clipSelect(0, 1);
+	b.leftClick(120, 50); // the Pulses dial
+	b.param("pulses", 9);
+	check("COPY on a dial: its value (" + b.clipInfo() + "), the dial doesn't turn (" + st.getParam(0, "pulses") + ")",
+		st.getParam(0, "pulses") === 5 && d.dials.pulses === 5 && d.clipBtn.copy === 0);
+	s.w.wait(500);
+	turn(d, 2, "pulses", 3);
+	b.clipSelect(1, 1);
+	check("PASTE PULSE 5 (" + b.clipInfo() + ")", /^PASTE PULSE 5: /.test(b.clipInfo()));
+	trackPress(d, 2);
+	check("a plain click pastes once, PASTE disarmed (" + st.getParam(2, "pulses") + ")", st.getParam(2, "pulses") === 5 && d.clipBtn.paste === 0);
+	// CLEAR on a dial: the default.
+	b.clipSelect(2, 1);
+	b.leftClick(120, 50);
+	check("CLEAR on a dial: the default (" + st.getParam(2, "pulses") + "), disarmed", st.getParam(2, "pulses") === st.paramDefault("pulses") && d.clipBtn.clear === 0);
+	s.w.wait(500);
+	// A step: its hit and locks.
+	b.editTrackSelect(0);
+	var hits = st.hits(0), on = hits.indexOf(true), off = hits.indexOf(false);
+	st.lockSet(0, -1, st.unrotated(0, -1, on), "velocity", 30);
+	b.clipSelect(0, 1);
+	press(d, on);
+	b.clipSelect(1, 1);
+	press(d, off);
+	var posOff = st.unrotated(0, -1, off);
+	check("a step pasted: its hit and lock (" + st.hits(0)[off] + ", " + st.lockGet(0, -1, posOff, "velocity") + ")",
+		st.hits(0)[off] === true && st.lockGet(0, -1, posOff, "velocity") === 30);
+	b.clipSelect(2, 1);
+	press(d, off);
+	check("CLEAR on the step: lock and manual hit gone (" + st.hits(0)[off] + ", " + st.lockGet(0, -1, posOff, "velocity") + ")",
+		st.hits(0)[off] === false && st.lockGet(0, -1, posOff, "velocity") === null);
+	// A cycle (CYCLE page): pasting past the last adds cycles; the selection stays.
+	b.displayPage(b.DISPLAY.pages.indexOf("CYCLE"));
+	st.setCycleCount(0, 2);
+	st.setCycleParam(0, 1, "pulses", 7);
+	s.w.wait(150); // past the echo of the CYCLE row's renaming
+	b.clipSelect(0, 1);
+	b.disp("cycleSelect", 1);
+	s.w.wait(150);
+	b.clipSelect(1, 1);
+	b.padMods(0, 1, 0); // Ctrl+click on the cell: PASTE stays armed
+	b.disp("cycleSelect", 3);
+	check("Ctrl+click on a cycle: PASTE still armed", d.clipBtn.paste === 1);
+	b.clipSelect(1, 0);
+	check("a cycle pasted past the last: 4 cycles, cycle 4 pulses 7, cycle 1 still selected (" + st.cycleCount(0) + ", " +
+		st.getCycleParam(0, 3, "pulses") + ", " + d.disp.d_cycleSelect + ")",
+		st.cycleCount(0) === 4 && st.getCycleParam(0, 3, "pulses") === 7 && b.selCycle === 0 && d.disp.d_cycleSelect === 0);
+	// A pattern: Pattern pads; Ctrl+click CLEAR stays armed.
+	b.padModeSelect(2);
+	b.clipSelect(0, 1);
+	press(d, 0);
+	b.clipSelect(1, 1);
+	press(d, 5, false, true);
+	press(d, 6);
+	check("pattern 1 pasted on 6 (Ctrl+click) and 7, then disarmed", (st.perf().used & 96) === 96 && d.clipBtn.paste === 0);
+	b.padMods(0, 1, 0);
+	b.clipSelect(2, 1);
+	check("Ctrl+click CLEAR: stays armed (" + b.clipInfo() + ")", /STAYS ARMED/.test(b.clipInfo()));
+	press(d, 5);
+	press(d, 6);
+	check("both cleared, CLEAR still armed", (st.perf().used & 96) === 0 && d.clipBtn.clear === 1);
+	b.clipSelect(2, 0);
+	check("a plain click: disarmed", d.clipBtn.clear === 0 && b.armed === null);
+	done(s);
+})();
+
+// Channels: a receiver plays every track on its channel (SETUP CHANNEL; track n on channel n
+// unless set), so one instrument can play several tracks. A note ends on the channel it
+// started on when its track moves; the channel is saved with the pattern.
+(function () {
+	var base = setup();
+	base.w.play(range(0, 64));
+	var n1 = base.rx[0].played.length, n2 = base.rx[1].played.length;
+	done(base);
+	var s = setup(), b = s.brain.ctx, d = s.brain;
+	b.displayPage(b.DISPLAY.pages.indexOf("SETUP"));
+	b.editTrackSelect(1);
+	check("track 2's CHANNEL: 2 at first (" + d.disp.d_channel + ")", d.disp.d_channel === 2);
+	b.disp("channel", 1);
+	check("track 2 on channel 1 (" + b.stepper.channelOf(1) + ")", b.stepper.channelOf(1) === 0 && d.disp.d_channel === 1);
+	var still = true;
+	s.w.play(range(0, 64), function (i) {
+		if (i === 22) {
+			// Track 5 (chords at Sustain 100: always sounding) moves to channel 3 mid-note.
+			b.editTrackSelect(4);
+			b.disp("channel", 3);
+		}
+		if (i === 60) still = Object.keys(s.rx[4].sounding).every(function (k) { return !s.rx[4].sounding[k]; });
+	});
+	check("channel 1's receiver plays tracks 1 and 2 (" + s.rx[0].played.length + " = " + n1 + " + " + n2 + "), channel 2's nothing (" + s.rx[1].played.length + ")",
+		s.rx[0].played.length === n1 + n2 && s.rx[1].played.length === 0);
+	check("track 5 moved: its notes end on channel 5 (nothing left sounding: " + still + "), and go on on channel 3 (" + s.rx[2].played.length + " > " + base.rx[2].played.length + ")",
+		still && s.rx[2].played.length > base.rx[2].played.length);
+	s.w.stop();
+	s.w.wait(SAVE_PAUSE_MS + 10);
+	var r = setup({ saved: d.pattr });
+	check("channels saved with the pattern (" + r.brain.ctx.stepper.channelOf(1) + ", " + r.brain.ctx.stepper.channelOf(4) + ", " + r.brain.ctx.stepper.channelOf(3) + ")",
+		r.brain.ctx.stepper.channelOf(1) === 0 && r.brain.ctx.stepper.channelOf(4) === 2 && r.brain.ctx.stepper.channelOf(3) === 3);
+	b.editTrackSelect(1);
+	b.disp("channel", 2);
+	check("back on its own number (" + b.stepper.channelOf(1) + ")", b.stepper.channelOf(1) === 1);
+	done(r);
+	done(s);
+})();
+
+// Groups: Ctrl+click adds a track button's track, Shift+click the range from the edit track,
+// a plain click ends the group. A plain dial turn moves every grouped track by the same
+// amount; a page setting goes to all of them; COPY on a grouped track copies the group,
+// which pastes from the track clicked on, or into a pattern slot on its own tracks. The edit
+// track and group are saved with the set.
+(function () {
+	var s = setup(), b = s.brain.ctx, d = s.brain, st = b.stepper, C = b.TRACK_COLOURS;
+	trackPress(d, 0);
+	trackPress(d, 2, false, true);
+	check("Ctrl+click: track 3 grouped, track 1 still edited (" + b.group + ", " + b.editTrack + "), lit dim red (" + d.trk[2] + ")",
+		b.group === 4 && b.editTrack === 0 && d.trk[2] === C.group.join(" ") && d.trk[0] === C.edit.join(" "));
+	trackPress(d, 4, true);
+	check("Shift+click: tracks 2-5 grouped (" + b.group + ")", b.group === 30);
+	trackPress(d, 2, false, true);
+	check("Ctrl+click again: track 3 out (" + b.group + ")", b.group === 26);
+	trackPress(d, 3);
+	check("a plain click: track 4 edited, no group (" + b.editTrack + ", " + b.group + ")", b.editTrack === 3 && b.group === 0);
+	trackPress(d, 0);
+	trackPress(d, 1, false, true);
+	var p0 = st.getParam(0, "pulses"), p1 = st.getParam(1, "pulses");
+	b.param("pulses", p0 + 2);
+	check("a dial turn moves the group by the same amount (" + st.getParam(0, "pulses") + ", " + st.getParam(1, "pulses") + ")",
+		st.getParam(0, "pulses") === p0 + 2 && st.getParam(1, "pulses") === p1 + 2 && st.getParam(2, "pulses") === 4);
+	b.displayPage(b.DISPLAY.pages.indexOf("SETUP"));
+	b.disp("channel", 3);
+	check("a page setting goes to the group (" + st.channelOf(0) + ", " + st.channelOf(1) + ", " + st.channelOf(2) + ")",
+		st.channelOf(0) === 2 && st.channelOf(1) === 2 && st.channelOf(2) === 2);
+	b.disp("channel", 1);
+	check("both to channel 1 (" + st.channelOf(0) + ", " + st.channelOf(1) + ")", st.channelOf(0) === 0 && st.channelOf(1) === 0);
+	// COPY on a grouped track: the group; pasted from track 9; into pattern 4.
+	b.clipSelect(0, 1);
+	trackPress(d, 1);
+	b.clipSelect(1, 1);
+	check("COPY on a grouped track copies the group (" + b.clipInfo() + ")", /^PASTE TRACKS 1 2: /.test(b.clipInfo()));
+	trackPress(d, 8);
+	check("pasted from track 9: tracks 9 and 10 (" + st.getParam(8, "pulses") + ", " + st.getParam(9, "pulses") + "), the edit track stays (" + b.editTrack + ")",
+		st.getParam(8, "pulses") === p0 + 2 && st.getParam(9, "pulses") === p1 + 2 && b.editTrack === 0);
+	b.padModeSelect(2);
+	b.clipSelect(1, 1); // the plain paste disarmed it
+	press(d, 3);
+	check("pasted into pattern 4 (" + (st.perf().used & 8) + ")", (st.perf().used & 8) !== 0 && st.perf().current === 0);
+	press(d, 3); // stopped: pattern 4 at once
+	check("pattern 4: tracks 1 and 2 pasted, track 3 as it was there (" + st.getParam(0, "pulses") + ", " + st.getParam(1, "pulses") + ", " + st.getParam(2, "pulses") + ")",
+		st.perf().current === 3 && st.getParam(0, "pulses") === p0 + 2 && st.getParam(1, "pulses") === p1 + 2 && st.getParam(2, "pulses") === st.paramDefault("pulses"));
+	// Saved with the set.
+	b.padModeSelect(0);
+	trackPress(d, 4);
+	trackPress(d, 6, false, true);
+	b.param("pulses", 3);
+	s.w.wait(SAVE_PAUSE_MS + 10);
+	var r = setup({ saved: d.pattr });
+	check("the edit track and group saved with the set (" + r.brain.ctx.editTrack + ", " + r.brain.ctx.group + "), lit (" + r.brain.trk[6] + ")",
+		r.brain.ctx.editTrack === 4 && r.brain.ctx.group === 64 && r.brain.trk[6] === C.group.join(" "));
 	done(r);
 	done(s);
 })();

@@ -85,3 +85,16 @@ TEST_CASE(cc_state_round_trip) {
 	CHECK(a == b);
 	CHECK(a.trackUsed(5));
 }
+
+TEST_CASE(channel_state_round_trip) {
+	Pattern a;
+	a.tracks[2].channel = 0; // track 3 on channel 1, with track 1
+	Pattern b;
+	b.tracks[4].channel = 9; // overwritten: an unsaved channel is the track's own
+	CHECK(patternFromJson(patternToJson(a), b));
+	CHECK_EQ(b.tracks[2].channel, 0);
+	CHECK_EQ(b.tracks[4].channel, -1);
+	CHECK(a == b);
+	CHECK(a.trackUsed(2));
+	CHECK(!a.trackUsed(4));
+}

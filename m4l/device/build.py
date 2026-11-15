@@ -62,6 +62,9 @@ TRACKS_H = 18
 PADS_Y = 142       # the step pads, under the sections, the size of the track buttons
 PAGE_Y = 104       # the step page tabs and Follow, in the left column
 FOLLOW_Y = 122
+REC_Y = 24         # REC and OVD, at the top of the left column
+CLIP_Y = 44        # COPY, PASTE and CLEAR, stacked under them
+CLIP_STEP = 19
 LABEL_SCRIPT = "jezric_talea_label.js"
 DISPLAY_SCRIPT = "jezric_talea_display.js"  # the display's pages and rows, read by the script too
 DIAGRAM_SCRIPT = "jezric_talea_diagram.js"  # [v8ui]: the display's diagrams
@@ -285,6 +288,25 @@ def common(p, role):
     p.connect(prep, script)
     p.connect(bus, script)
     p.connect(midiin, midiout)
+    if role == "brain":
+        # The notes played into the sequencer's track (it must be armed, or monitoring In):
+        # each as "noteTime bars beats units" (from a [transport] of its own, banged by the
+        # note) then "noteIn pitch velocity", for SEQ recording and monitoring.
+        parse = p.obj("midiparse", [500, 60, 70, 22], 1, 8)
+        p.connect(midiin, parse)
+        note_t = p.obj("t l b", [500, 90, 40, 22], 1, 2)
+        p.connect(parse, note_t, 0)
+        now = p.obj("transport", [560, 120, 80, 22], 2, 9)
+        p.connect(note_t, now, 1)
+        nowpack = p.obj("pack 0 0 0", [560, 150, 80, 22], 3, 1)
+        for i in range(3):
+            p.connect(now, nowpack, i, i)
+        tonow = p.obj("prepend noteTime", [560, 180, 100, 22])
+        p.connect(nowpack, tonow)
+        p.connect(tonow, script)
+        tonote = p.obj("prepend noteIn", [500, 210, 90, 22])
+        p.connect(note_t, tonote, 0)
+        p.connect(tonote, script)
 
     # Debug lines in the Max Console: a toggle in the patch only (not on the panel).
     dbg = p.box("toggle", [240, 20, 20, 20], None, 1, 1, ["int"])
@@ -409,10 +431,12 @@ def receiver():
 
     p.comment("Talea receiver", [600, 400, 150, 20], [8, 4, 200, 20])
     instance_menu(p, trig, script)
-    p.comment("Track", [700, 420, 60, 20], [140, 30, 50, 20])
-    trk = p.param("live.numbox", [700, 440, 44, 15], [190, 32, 44, 15], "Track", 1,
-                  mmin=1, mmax=TRACKS, initial=1, outlets=2, outlettype=["", "float"])
-    ui(p, trig, script, trk, "trackSelect", 720)
+    # The channel it plays: every Talea track on it (SETUP's CHANNEL; track n on channel n
+    # unless set), so one instrument can play several tracks, e.g. drums on different notes.
+    p.comment("Channel", [700, 420, 60, 20], [130, 30, 60, 20])
+    trk = p.param("live.numbox", [700, 440, 44, 15], [190, 32, 44, 15], "Channel", 1,
+                  mmin=1, mmax=16, initial=1, outlets=2, outlettype=["", "float"])
+    ui(p, trig, script, trk, "channelSelect", 720)
     status_box(p, script, [8, 60, 300, 22])
     reset = p.msg("reset", [240, 420, 50, 22], [8, 92, 50, 22])
     p.connect(reset, script)
@@ -441,9 +465,6 @@ def brain():
     # Track select: the track the dials edit, along the top, named in the left column.
     p.box("live.comment", [840, 570, 60, 18], "TRACKS", 1, 0, None, [COL_X + ON_W + 2, TRACKS_Y + 2, COL_W - ON_W - 2, TRACKS_H],
           fontsize=9.0, fontface=1, textjustification=2)
-    etrack = p.param("live.tab", [840, 600, 448, 18], [LEFT_X, TRACKS_Y, CELL * TRACKS, TRACKS_H], "Edit track", 2,
-                     enum=[str(i) for i in range(1, TRACKS + 1)], outlets=3, outlettype=["", "", "float"])
-    ui(p, trig, script, etrack, "editTrackSelect", 840)
 
     # The dials, one per track parameter. Each sends "param key value" for the edit
     # track; the script sets them to a track's values ("key value" from outlet 3) when the
@@ -513,7 +534,7 @@ def brain():
     # sends "pad i bang", after "padMods shift ctrl alt" from [modifiers] (polled by the press:
     # [t l b] fires right to left, and [modifiers] its outlets too, so [pack]'s hot inlet,
     # Shift, comes last).
-    panel_out = p.obj("route pad page follow mode apply", [1500, 400, 200, 22], 1, 6)
+    panel_out = p.obj("route pad page follow mode apply rec ovd copy paste clear pasteactive trk", [1500, 400, 380, 22], 1, 13)
     press_t = p.obj("t l b", [1500, 600, 40, 22], 1, 2)
     mods = p.obj("modifiers", [1560, 630, 70, 22], 1, 5, ["int", "int", "int", "int", "int"])
     modpack = p.obj("pack 0 0 0", [1560, 660, 70, 22], 3, 1)
@@ -540,6 +561,27 @@ def brain():
     torc = p.obj("prepend rightClick", [1700, 720, 110, 22])
     p.connect(msreg, torc)
     p.connect(torc, script)
+    # A left-button press: "leftClick x y" (COPY / CLEAR on a dial, which reports turns only).
+    ldown = p.obj("sel 1", [1840, 660, 40, 22], 1, 2)
+    p.connect(ms, ldown, 0)
+    lreg = p.obj("zl reg", [1840, 690, 50, 22], 2, 2)
+    p.connect(mspos, lreg, 0, 1)
+    p.connect(ldown, lreg, 0, 0)
+    tolc = p.obj("prepend leftClick", [1840, 720, 110, 22])
+    p.connect(lreg, tolc)
+    p.connect(tolc, script)
+    # The dials' places, for the script to find the dial under a left click.
+    dials = []
+    for r, row in enumerate(DIAL_ROWS):
+        x0 = LEFT_X
+        for title, section in row:
+            fx = x0 + LABEL_W + FRAME_PAD
+            for i, (key, _) in enumerate(section):
+                dials += [key, fx + i * DIAL_STEP, ROW_Y[r] + FRAME_PAD, 44, 48]
+            x0 += LABEL_W + (len(section) - 1) * DIAL_STEP + 44 + 2 * FRAME_PAD + SECTION_GAP
+    dgeom = p.msg("dialGeometry " + " ".join(str(v) for v in dials), [1830, 570, 300, 22])
+    p.connect(trig, dgeom, 2)
+    p.connect(dgeom, script)
     # The pads' place on the panel, for the script to find the pad under a right-click.
     geom = p.msg(f"padGeometry {LEFT_X} {PADS_Y} {CELL} {TRACKS_H}", [1830, 600, 170, 22])
     p.connect(trig, geom, 2)
@@ -561,6 +603,24 @@ def brain():
         p.connect(colour, pad)
         press = p.obj(f"prepend pad {i}", [x, 560, 56, 22])
         p.connect(pad, press)
+        p.connect(press, press_t)
+    # The track buttons along the top (the edit track; Ctrl / Shift+click: the group), plain
+    # buttons like the pads, numbered: the script colours them ("trk i r g b a" from outlet 5)
+    # as Rack lights its track buttons, and a press goes through [modifiers] as a pad's does:
+    # "trackButton i".
+    twhich = p.obj("route " + " ".join(str(i) for i in range(TRACKS)), [2400, 440, 300, 22], 1, TRACKS + 1)
+    p.connect(panel_out, twhich, 11)
+    for i in range(TRACKS):
+        x = 2400 + i * 60
+        btn = p.box("live.text", [x, 520, 24, 18], None, 1, 2, ["", ""],
+                    [LEFT_X + i * CELL + 1, TRACKS_Y, CELL - 2, TRACKS_H],
+                    parameter_enable=0, mode=0, texton=str(i + 1), varname=f"trk{i}", fontsize=9.0)
+        p.boxes[-1]["box"]["text"] = str(i + 1)
+        colour = p.obj("prepend activebgcolor", [x, 480, 90, 22])
+        p.connect(twhich, colour, i)
+        p.connect(colour, btn)
+        press = p.obj(f"prepend trackButton {i}", [x, 560, 56, 22])
+        p.connect(btn, press)
         p.connect(press, press_t)
     # A light-blue bar along the bottom of a pad whose step has locks (a live.text can't draw
     # one): over the pads, clicks going through; the script shows them ("script show
@@ -590,7 +650,7 @@ def brain():
     apply = p.box("live.text", [1640, 760, 24, 16], None, 1, 2, ["", ""],
                   [COL_X + COL_W - APPLY_W, PADS_Y + 1, APPLY_W, 16],
                   parameter_enable=0, mode=0, texton="A", varname="Apply", hidden=1,
-                  hint="Apply the staged mutes")
+                  annotation_name="Apply", annotation="Applies the staged mutes, at the next mute boundary.")
     p.boxes[-1]["box"]["text"] = "A"
     toapply = p.obj("prepend applyMutes", [1640, 790, 110, 22])
     p.connect(apply, toapply)
@@ -609,6 +669,54 @@ def brain():
     p.connect(show, applydefer)
     thispatcher = p.obj("thispatcher", [1640, 910, 80, 22], 1, 2)
     p.connect(applydefer, thispatcher)
+    # REC and OVD, side by side at the top of the left column: SEQ mode recording of the notes
+    # played into the sequencer's track. Not stored; the script sets them ("rec 0/1",
+    # "ovd 0/1": REC goes off when the edit track isn't in SEQ mode).
+    for k, (name, label, sel, out) in enumerate((("Rec", "REC", "recSelect", 5), ("Overdub", "OVD", "ovdSelect", 6))):
+        w = (COL_W - 2) / 2
+        btn = p.param("live.text", [1900 + k * 60, 760, 50, 16], [COL_X + k * (w + 2), REC_Y, w, 16], name, 2,
+                      enum=["off", "on"], initial=0, outlets=2, outlettype=["", ""], hidden=True,
+                      mode=1, text=label, texton=label)
+        if label == "REC":  # red while on, in Live's record colour (the theme's live_record)
+            b = p.boxes[-1]["box"]
+            b["activebgoncolor"] = [0.9, 0.25, 0.2, 1.0]
+            b["saved_attribute_attributes"]["activebgoncolor"] = {"expression": "themecolor.live_record"}
+        setb = p.obj("prepend set", [1900 + k * 60, 730, 70, 22])
+        p.connect(panel_out, setb, out)
+        p.connect(setb, btn)
+        tob = p.obj(f"prepend {sel}", [1900 + k * 60, 790, 110, 22])
+        p.connect(btn, tob)
+        p.connect(tob, script)
+    # COPY, PASTE and CLEAR, stacked under REC and OVD: lit while armed, PASTE dimmed while the
+    # clipboard is empty; what they do is in Live's Info View (annotation). Not stored; the
+    # script sets them ("copy 0/1" ... "pasteactive 0/1" from outlet 5). A click goes through
+    # [modifiers] as a pad press does (Ctrl+click CLEAR stays armed): "clipSelect 0/1/2 value".
+    targets_text = ("a track button (a grouped one: the group), a pad (Mute mode: its track; Step mode: "
+                    "its step; Pattern mode: its pattern), a cell of the CYCLE page's CYCLE row, or a dial")
+    for k, (name, label, info) in enumerate((
+            ("Copy", "COPY", "Click, then click what to copy: " + targets_text + " (its value). "
+             "The clipboard is outside the patterns, so it pastes into any of them."),
+            ("Paste", "PASTE", "Click, then click where to paste what was copied: tracks on a track "
+             "button or Mute pad (from that track on, keeping their spacing) or on a Pattern pad (into "
+             "that pattern, on their own track numbers); a step on a step pad, a pattern on a Pattern "
+             "pad, a cycle on a cycle; a dial's value on tracks or cycles. Ctrl+click the target to "
+             "paste and stay armed for more; click PASTE to stop. Dimmed while nothing is copied."),
+            ("Clear", "CLEAR", "Click, then click what to clear back to its default: " + targets_text +
+             " (its default value). Ctrl+click CLEAR to stay armed for several."))):
+        btn = p.param("live.text", [2100 + k * 60, 760, 50, 16], [COL_X, CLIP_Y + k * CLIP_STEP, COL_W, 16], name, 2,
+                      enum=["off", "on"], initial=0, outlets=2, outlettype=["", ""], hidden=True,
+                      mode=1, text=label, texton=label, annotation_name=label.title(), annotation=info)
+        setb = p.obj("prepend set", [2100 + k * 60, 730, 70, 22])
+        p.connect(panel_out, setb, 7 + k)
+        p.connect(setb, btn)
+        if label == "PASTE":
+            act = p.obj("prepend active", [2100 + k * 60, 700, 80, 22])
+            p.connect(panel_out, act, 10)
+            p.connect(act, btn)
+        tob = p.obj(f"prepend clipSelect {k}", [2100 + k * 60, 790, 110, 22])
+        p.connect(btn, tob)
+        p.connect(tob, press_t)
+
     # Blinking: staged mutes, committed ones and a queued pattern.
     blinker = p.obj("metro 125 @active 1", [1760, 760, 120, 22], 2, 1, ["bang"])
     blinkmsg = p.msg("blink", [1760, 790, 50, 22])
@@ -745,13 +853,14 @@ def display(p, trig, script):
             x = 2000 + n * 90
             # Where it goes: the next row at the left, or the spec's x (from the display's
             # left edge) and row; the label, if any, then the control.
-            name, y = row["name"], DISPLAY_ROW_Y + row.get("row", r) * DISPLAY_ROW_H
+            name, y = row["name"], DISPLAY_ROW_Y + row.get("row", r) * DISPLAY_ROW_H + row.get("dy", 0)
             lx = DISPLAY_X + 8 + row.get("x", 0)
             lw = row.get("labelW", DISPLAY_LABEL_W)
             if row.get("label"):
                 label(name, row["label"], [lx, y, max(lw - 4, 10), 16], x)
             rx = lx + lw
-            rect = [rx, y, row.get("width", DISPLAY_X + DISPLAY_W - 8 - rx), 16]
+            lines = row.get("lines", 1)
+            rect = [rx, y, row.get("width", DISPLAY_X + DISPLAY_W - 8 - rx), 16 + (lines - 1) * DISPLAY_ROW_H]
             kind = row["kind"]
             pname = f"{view.title()} {row['label'].title()}" if row.get("label") else f"{view.title()} {name}"
             common = dict(hidden=True, varname="d_" + name, appearance=1)
@@ -778,6 +887,8 @@ def display(p, trig, script):
                 continue
             if kind in ("tab", "buttons"):
                 extra = {"button": 1} if kind == "buttons" else {}
+                if lines > 1:  # the choices on several lines (SONG's entries: 2 rows of 8)
+                    extra.update(multiline=1, num_lines_patching=lines, num_lines_presentation=lines)
                 ctl = p.param("live.tab", [x, 260, 80, 16], rect, pname, 2, enum=row["items"], outlets=3,
                               outlettype=["", "", "float"], fontsize=float(row.get("fontsize", 8)), **common, **extra)
             elif kind == "menu":
@@ -790,10 +901,20 @@ def display(p, trig, script):
             p.boxes[-1]["box"]["hidden"] = 1  # shown with its page (hidden= above: a Hidden parameter)
             if row.get("playBars"):
                 # A bar under each choice; the script shows the playing one's.
-                bw = rect[2] / len(row["items"])
+                per = -(-len(row["items"]) // lines)  # choices on a line
+                bw, lh = rect[2] / per, (rect[3] + (lines - 1) * (DISPLAY_ROW_H - 16)) / lines
+                above = row["playBars"] == "above"
                 for i in range(len(row["items"])):
+                    if above:
+                        # SONG: a thicker blue bar in the gap above the row (between an entry's
+                        # pattern and its bars), blue as the LOCKS frame.
+                        p.box("panel", [x + i * 6, 380, 5, 3], None, 1, 0, None,
+                              [rect[0] + i * bw + 2, rect[1] - (DISPLAY_ROW_H - 16), bw - 4, DISPLAY_ROW_H - 16],
+                              varname=f"d_{name}_play{i}", hidden=1, ignoreclick=1, background=0, border=0,
+                              bgcolor=[0.3, 0.6, 1.0, 1.0])
+                        continue
                     p.box("panel", [x + i * 6, 380, 5, 2], None, 1, 0, None,
-                          [rect[0] + i * bw + 3, rect[1] + rect[3] - 2, bw - 6, 2],
+                          [rect[0] + (i % per) * bw + 3, rect[1] + (i // per) * lh + lh - (DISPLAY_ROW_H - 16) - 2, bw - 6, 2],
                           varname=f"d_{name}_play{i}", hidden=1, ignoreclick=1, background=0, border=0,
                           bgcolor=[0.85, 0.85, 0.85, 1.0], saved_attribute_attributes={"bgcolor": lcd("live_lcd_control_fg")})
             setc = p.obj("prepend set", [x, 230, 70, 22])
@@ -811,7 +932,23 @@ def display(p, trig, script):
                 targets.append(rng)
             toscript = p.obj(f"prepend disp {name}", [x, 320, 90, 22])
             p.connect(ctl, toscript)
-            p.connect(toscript, script)
+            if row.get("mods"):
+                # The modifier keys first, as for a pad press ("padMods shift ctrl alt"), so
+                # a Ctrl+click can be told (PASTE on a cycle).
+                tt = p.obj("t l b", [x, 380, 40, 22], 1, 2)
+                mk = p.obj("modifiers", [x + 50, 410, 70, 22], 1, 5, ["int", "int", "int", "int", "int"])
+                mp = p.obj("pack 0 0 0", [x + 50, 440, 70, 22], 3, 1)
+                mm = p.obj("prepend padMods", [x + 50, 470, 100, 22])
+                p.connect(toscript, tt)
+                p.connect(tt, mk, 1)
+                p.connect(mk, mp, 0, 0)
+                p.connect(mk, mp, 4, 1)
+                p.connect(mk, mp, 2, 2)
+                p.connect(mp, mm)
+                p.connect(mm, script)
+                p.connect(tt, script, 0)
+            else:
+                p.connect(toscript, script)
             n += 1
 
     # The diagram band (GROOVE, PHRASE, STYLE): one [v8ui] drawing whichever the page has
@@ -847,7 +984,8 @@ def display(p, trig, script):
 
     # SETUP's other rows: the device's own controls, after the page's (the script shows
     # them with SETUP: spec "extras").
-    base = DISPLAY_ROW_Y + len(spec["views"]["SETUP"]) * DISPLAY_ROW_H + 2
+    setup_rows = 1 + max(row.get("row", r) for r, row in enumerate(spec["views"]["SETUP"]))
+    base = DISPLAY_ROW_Y + setup_rows * DISPLAY_ROW_H + 2
     label("instance", "INSTANCE", [DISPLAY_X + 8, base, DISPLAY_LABEL_W - 4, 16], 1300)
     inst = p.param("live.menu", [600, 440, 60, 15], [cx, base, 50, 16], "Instance", 2,
                    enum=["A", "B", "C", "D"], outlets=3, outlettype=["", "", "float"],
@@ -865,6 +1003,7 @@ def display(p, trig, script):
     b.update(varname="d_status", hidden=1, fontsize=9.0, bgcolor=[0.08, 0.08, 0.09, 1.0], textcolor=[0.7, 0.7, 0.7, 1.0],
              saved_attribute_attributes={"bgcolor": lcd("live_lcd_bg"), "textcolor": lcd("live_lcd_control_fg")})
     p.connect(script, status, 1)
+
 
     route = p.obj("route " + " ".join(names), [2000, 400, 900, 22], 1, len(names) + 1)
     p.connect(out, route, 1)

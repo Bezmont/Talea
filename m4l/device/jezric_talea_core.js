@@ -53,7 +53,11 @@ function Stepper(M, preset) {
 	}
 	this.tracks = w("num_tracks", "number", [])();
 	this.sounding = [];
-	for (var t = 0; t < this.tracks; t++) this.sounding.push([]);
+	this.soundCh = []; // the channel (0-15) each track's sounding notes started on
+	for (var t = 0; t < this.tracks; t++) {
+		this.sounding.push([]);
+		this.soundCh.push(t);
+	}
 	this.last = null; // the last step processed
 	// After each step, the engine's state is saved, so it can carry on from any of the
 	// last few steps again (rewind): numbered runs of steps, `count` so far.
@@ -64,17 +68,22 @@ function Stepper(M, preset) {
 	this.count = 0;
 }
 
-// The MIDI entries of step p, per track. A step that doesn't follow the last one (a jump,
+// The MIDI entries of step p, per track, each with the channel (0-15) it goes to after its
+// five numbers. A note ends on the channel it started on, whatever the track's channel is now
+// (moved, or another pattern switched in). A step that doesn't follow the last one (a jump,
 // a loop wrap, Play from somewhere else) first ends what was sounding, at offset 0.
 Stepper.prototype.step = function (p) {
-	var out = [], t, i, j;
-	for (t = 0; t < this.tracks; t++) out.push([]);
+	var out = [], t, i, j, ch = [], sc = this.soundCh;
+	for (t = 0; t < this.tracks; t++) {
+		out.push([]);
+		ch.push(this.channelOf(t));
+	}
 	var jump = this.last === null || p !== this.last + 1;
 	if (jump || this.cut) {
 		// What's sounding ends at the step's start: after a jump, or a change that cut the
 		// engine's notes (a pattern switch at once).
 		for (t = 0; t < this.tracks; t++) {
-			for (i = 0; i < this.sounding[t].length; i++) out[t].push([0, this.sounding[t][i], 0, 0, 0]);
+			for (i = 0; i < this.sounding[t].length; i++) out[t].push([0, this.sounding[t][i], 0, 0, 0, sc[t]]);
 			this.sounding[t] = [];
 		}
 		this.cut = false;
@@ -94,21 +103,28 @@ Stepper.prototype.step = function (p) {
 		var cc = this.cc(this.h, i);
 		if (cc >= 0) {
 			// A CC track's note-on is a value; its note-offs mean nothing.
-			if (this.on(this.h, i)) out[t].push([o, -1, cc, this.velocity(this.h, i), Math.round(this.glide(this.h, i) * 1000)]);
+			if (this.on(this.h, i)) out[t].push([o, -1, cc, this.velocity(this.h, i), Math.round(this.glide(this.h, i) * 1000), ch[t]]);
 			continue;
 		}
 		if (this.on(this.h, i)) {
 			// A note-on ends the track's previous notes first (as Rack's MIDI out does).
-			for (j = 1; j < s.length; j++) out[t].push([o, s[j], 0, 0, 0]);
+			for (j = 1; j < s.length; j++) out[t].push([o, s[j], 0, 0, 0, sc[t]]);
+			// The first note-off goes with the first note-on, on one channel.
+			var first = s.length ? s[0] : 0;
+			if (first && sc[t] !== ch[t]) {
+				out[t].push([o, first, 0, 0, 0, sc[t]]);
+				first = 0;
+			}
 			var size = this.chordSize(this.h, i), vel = this.velocity(this.h, i), now = [];
 			for (j = 0; j < size; j++) {
 				var pitch = j === 0 ? this.note(this.h, i) : this.chordNote(this.h, i, j);
-				out[t].push([o, j === 0 && s.length ? s[0] : 0, 0, pitch, vel]);
+				out[t].push([o, j === 0 ? first : 0, 0, pitch, vel, ch[t]]);
 				now.push(pitch);
 			}
 			this.sounding[t] = now;
+			sc[t] = ch[t];
 		} else {
-			for (j = 0; j < s.length; j++) out[t].push([o, s[j], 0, 0, 0]);
+			for (j = 0; j < s.length; j++) out[t].push([o, s[j], 0, 0, 0, sc[t]]);
 			this.sounding[t] = [];
 		}
 	}
@@ -116,7 +132,7 @@ Stepper.prototype.step = function (p) {
 	this.id = this.count++;
 	var k = this.id % this.slots;
 	this.savePlayback(this.h, k);
-	this.saved[k] = { id: this.id, step: p, sounding: this.sounding.map(function (x) { return x.slice(); }) };
+	this.saved[k] = { id: this.id, step: p, sounding: this.sounding.map(function (x) { return x.slice(); }), soundCh: sc.slice() };
 	return out;
 };
 
@@ -128,6 +144,7 @@ Stepper.prototype.rewind = function (id) {
 	if (!s || s.id !== id) return false;
 	this.loadPlayback(this.h, k);
 	this.sounding = s.sounding.map(function (x) { return x.slice(); });
+	this.soundCh = s.soundCh.slice();
 	this.last = s.step;
 	return true;
 };
@@ -181,7 +198,7 @@ Stepper.prototype.stepAt = function (track, t) {
 // Track settings that aren't dials, and the sequencer's own settings, by name (the
 // numbers are talea_wasm.cpp's kFields and talea_get_setting's).
 var FIELDS = ["style", "mono", "voicingDown", "repeatTail", "groove", "grooveLength", "grooveLoop",
-	"swingSubdivision", "phrase", "phraseLength", "phraseLoop", "scale", "root", "cc", "ccNumber"];
+	"swingSubdivision", "phrase", "phraseLength", "phraseLoop", "scale", "root", "cc", "ccNumber", "channel"];
 var SETTINGS = ["muteTiming", "muteCuts", "patternQuantize"];
 // A track's random settings (talea_get_random's numbers); amount and perCycle are per
 // parameter (a key, as for the dials).
@@ -201,6 +218,11 @@ Stepper.prototype.setRandom = function (track, what, key, v) {
 // sequences are at time `now`), 2/3 phase -/+, 4/5 Probability phase -/+, 6 clear amounts.
 Stepper.prototype.randomAction = function (track, action, now) {
 	this.c("random_action", null, ["number", "number", "number", "number"])(this.h, track, action, now);
+};
+
+// The MIDI channel (0-15) a track plays on: SETUP's CHANNEL (track n on channel n unless set).
+Stepper.prototype.channelOf = function (track) {
+	return this.getField(track, "channel") - 1;
 };
 
 Stepper.prototype.getField = function (track, name) {
@@ -300,6 +322,46 @@ Stepper.prototype.seqSet = function (track, c, pos, what, v) {
 	this.c("seq_set", null, ["number", "number", "number", "number", "number", "number"])(this.h, track, c, pos, what, v);
 };
 
+// ---- recording (REC, OVD) ----
+//
+// The notes played into the sequencer: snapped to the scale, then into the sequence, live
+// (time in quarter notes) or step by step at the cursor.
+Stepper.prototype.snapNote = function (track, c, note) {
+	return this.c("snap_note", "number", ["number", "number", "number", "number"])(this.h, track, c, note);
+};
+
+Stepper.prototype.recOverdub = function (on) {
+	this.c("rec_overdub", null, ["number", "number"])(this.h, on ? 1 : 0);
+};
+
+Stepper.prototype.recRelease = function () {
+	this.c("rec_release", null, ["number"])(this.h);
+};
+
+Stepper.prototype.recSetCursor = function (pos) {
+	this.c("rec_set_cursor", null, ["number", "number"])(this.h, pos);
+};
+
+Stepper.prototype.recCursor = function () {
+	return this.c("rec_cursor", "number", ["number"])(this.h);
+};
+
+Stepper.prototype.recLiveOn = function (track, c, note, velocity, time) {
+	this.c("rec_live_on", null, ["number", "number", "number", "number", "number", "number"])(this.h, track, c, note, velocity, time);
+};
+
+Stepper.prototype.recLiveOff = function (track, c, note, time) {
+	this.c("rec_live_off", null, ["number", "number", "number", "number", "number"])(this.h, track, c, note, time);
+};
+
+Stepper.prototype.recStepOn = function (track, c, note, velocity) {
+	this.c("rec_step_on", null, ["number", "number", "number", "number", "number"])(this.h, track, c, note, velocity);
+};
+
+Stepper.prototype.recStepOff = function (track, c, note) {
+	this.c("rec_step_off", null, ["number", "number", "number", "number"])(this.h, track, c, note);
+};
+
 // ---- step locks ----
 //
 // c: the edited cycle in Cycle edit, else -1 (the track). pos: an unrotated step (where locks
@@ -341,6 +403,10 @@ Stepper.prototype.lockable = function (key) {
 Stepper.prototype.paramRange = function (key) {
 	var i = this.keys.indexOf(key);
 	return [this.M.cwrap("talea_param_min", "number", ["number"])(i), this.M.cwrap("talea_param_max", "number", ["number"])(i)];
+};
+
+Stepper.prototype.paramDefault = function (key) {
+	return this.M.cwrap("talea_param_default", "number", ["number"])(this.keys.indexOf(key));
 };
 
 // ---- cycles ----
@@ -453,6 +519,63 @@ Stepper.prototype.selectPattern = function (slot, chain, immediate, now) {
 	if (immediate) this.cut = true; // (switching to the playing pattern restarts it)
 };
 
+// ---- the song ----
+//
+// On Live's timeline: its bar 1 is Live's bar 1. Edits take effect on the next bar line
+// after `now` (quarter notes).
+
+// { on, loop, count, bars (total), playing (entry, -1: none), overridden, pending, over,
+// entries: [{ slot, bars }] }.
+Stepper.prototype.song = function () {
+	var f = this.c("song", "number", ["number", "number"]), h = this.h, n = f(h, 0), entries = [];
+	for (var i = 0; i < n; i++) entries.push({ slot: f(h, 8 + 2 * i), bars: f(h, 9 + 2 * i) });
+	return { count: n, bars: f(h, 1), loop: f(h, 2) === 1, on: f(h, 3) === 1, playing: f(h, 4),
+		overridden: f(h, 5) === 1, pending: f(h, 6) === 1, over: f(h, 7) === 1, entries: entries,
+		start: this.c("song_entry_start", "number", ["number"])(h) };
+};
+
+// Where the song is (after the latest step worked out): { playing, start, overridden,
+// pending, over }.
+Stepper.prototype.songNow = function () {
+	var f = this.c("song", "number", ["number", "number"]), h = this.h;
+	return { playing: f(h, 4), start: this.c("song_entry_start", "number", ["number"])(h),
+		overridden: f(h, 5) === 1, pending: f(h, 6) === 1, over: f(h, 7) === 1 };
+};
+
+Stepper.prototype.songDefaultBars = function (slot) {
+	return this.c("song_default_bars", "number", ["number", "number"])(this.h, slot);
+};
+
+Stepper.prototype.songSetOn = function (on, now) {
+	this.c("song_set_on", null, ["number", "number", "number"])(this.h, on ? 1 : 0, now);
+};
+
+Stepper.prototype.songResume = function (now) {
+	this.c("song_resume", null, ["number", "number"])(this.h, now);
+};
+
+Stepper.prototype.songSetLoop = function (on, now) {
+	this.c("song_set_loop", null, ["number", "number", "number"])(this.h, on ? 1 : 0, now);
+};
+
+// bars < 1: the slot's own length.
+Stepper.prototype.songInsert = function (at, slot, bars, now) {
+	this.c("song_insert", null, ["number", "number", "number", "number", "number"])(this.h, at, slot, bars, now);
+};
+
+Stepper.prototype.songRemove = function (at, now) {
+	this.c("song_remove", null, ["number", "number", "number"])(this.h, at, now);
+};
+
+// slot or bars -1: left as it is (a new slot brings its own length).
+Stepper.prototype.songSet = function (i, slot, bars, now) {
+	this.c("song_set", null, ["number", "number", "number", "number", "number"])(this.h, i, slot, bars, now);
+};
+
+Stepper.prototype.songClear = function () {
+	this.c("song_clear", null, ["number"])(this.h);
+};
+
 // The whole bank (every pattern slot and which one plays) as JSON, and back: false if the
 // text isn't a usable bank. Loading drops the queue, the chain and mutes waiting.
 Stepper.prototype.saveBank = function () {
@@ -478,11 +601,37 @@ Stepper.prototype.loadPattern = function (text) {
 Stepper.prototype.silence = function () {
 	var out = [];
 	for (var t = 0; t < this.tracks; t++) {
-		out.push(this.sounding[t].map(function (n) { return [0, n, 0, 0, 0]; }));
+		var c = this.soundCh[t];
+		out.push(this.sounding[t].map(function (n) { return [0, n, 0, 0, 0, c]; }));
 		this.sounding[t] = [];
 	}
 	this.last = null;
 	return out;
+};
+
+// COPY / PASTE / CLEAR (the clipboard of tracks, cycles, steps and patterns, in the engine's
+// host): what "copy" / "paste" / "clear", on a "track" (copy, clear: t; paste: the copied
+// track, the track it goes on), "cycle" (t, c), "step" (t, c, step: c the edited cycle or
+// -1) or "pattern" (slot). No "clear" for a pattern slot: clearPattern.
+Stepper.prototype.clip = function (what, kind) {
+	var args = Array.prototype.slice.call(arguments, 2), types = ["number"];
+	for (var i = 0; i < args.length; i++) types.push("number");
+	this.c("clip_" + what + "_" + kind, null, types).apply(null, [this.h].concat(args));
+};
+
+// The copied tracks (a bit each) into pattern slot `slot`, on the same track numbers.
+Stepper.prototype.clipPasteTracksToSlot = function (slot, mask) {
+	this.c("clip_paste_tracks_to_slot", null, ["number", "number", "number"])(this.h, slot, mask);
+};
+
+// The track holds anything other than defaults.
+Stepper.prototype.trackUsed = function (t) {
+	return this.c("track_used", "number", ["number", "number"])(this.h, t) === 1;
+};
+
+// A parameter's value pasted on a cycle: its override there (past the last adds cycles).
+Stepper.prototype.clipPasteCycleParam = function (track, c, key, v) {
+	this.c("clip_paste_cycle_param", null, ["number", "number", "number", "number", "number"])(this.h, track, c, this.keys.indexOf(key), v);
 };
 
 // Forget the position, so the next step counts as a jump.

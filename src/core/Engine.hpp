@@ -230,6 +230,20 @@ public:
 	resumeSong() picks it up there. Edit `song` on the audio thread, through the edit helpers
 	below while it plays, so the playing position stays in step. */
 	Song song;
+	/** The song on the host's timeline (a DAW such as Live, whose transport moves about the
+	song): its bar 1 is the host's bar 1, and any position plays what the song has there, as
+	if it had played from the start (looping with Loop; past its end without Loop the tracks
+	are silent). Turning it on, resuming it and songEdited() take it to that position on the
+	next bar line; jump() takes it there at once (unless it is overridden). Off (Rack): the
+	song starts where it is turned on, and resumes at the bar it left. */
+	bool songTimeline = false;
+	/** Timeline song: the song was edited (entries, bars, Loop): it goes where the timeline
+	now says on the next bar line after `now`. */
+	void songEdited(double now);
+	/** Timeline song: past its end, without Loop (the tracks are silent). */
+	bool songOver() const {
+		return songOn_ && songOver_;
+	}
 	bool songOn() const {
 		return songOn_;
 	}
@@ -240,6 +254,7 @@ public:
 	void restoreSongOn(bool on) {
 		songOn_ = on;
 		songPos_ = -1;
+		songOver_ = false;
 		overridden_ = false;
 		jumpPending_ = false;
 	}
@@ -429,6 +444,7 @@ public:
 		double jumpTime = 0.0;
 		int jumpEntry = 0, jumpBar = 0;
 		bool songEnded = false;
+		bool songOver = false;
 		uint32_t restarts = 0;
 	};
 
@@ -463,7 +479,14 @@ private:
 	double jumpTime_ = 0.0;
 	int jumpEntry_ = 0, jumpBar_ = 0;
 	bool songEnded_ = false;
+	bool songOver_ = false; // timeline song past its end
 	uint32_t restarts_ = 0;
+	/** Timeline song: the entry and bar (from 0) at host time `t`; 1 found, 0 an empty song,
+	-1 past the end. */
+	int timelineEntry(double t, int& e, int& bar) const;
+	/** Timeline song: plays what the song has at `at` (notes sounding end at `cut`, into
+	`out` if not null). */
+	void songSeek(double at, double cut, EventList* out);
 	/** The song drives the patterns (playing, not overridden). */
 	bool songDriving() const {
 		return songOn_ && !overridden_ && !jumpPending_ && songPos_ >= 0 && songPos_ < song.count;

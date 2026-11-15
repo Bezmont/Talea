@@ -31,6 +31,7 @@ void Track::reset() {
 	muted = false;
 	cc = false;
 	ccNumber = kDefaultCc;
+	channel = -1;
 	seqMode = false;
 }
 
@@ -673,7 +674,7 @@ bool sameTrack(const Track& a, const Track& b) {
 	       && a.grooveLoop == b.grooveLoop && a.scale == b.scale && a.root == b.root && a.userScale == b.userScale
 	       && a.style == b.style && a.mono == b.mono && a.voicingDown == b.voicingDown && a.phrase == b.phrase
 	       && a.phraseLength == b.phraseLength && a.phraseLoop == b.phraseLoop && a.userPhrase == b.userPhrase && a.muted == b.muted && a.cc == b.cc
-	       && a.ccNumber == b.ccNumber && a.seqMode == b.seqMode;
+	       && a.ccNumber == b.ccNumber && a.channel == b.channel && a.seqMode == b.seqMode;
 }
 
 bool sameCycle(const CycleOverrides& a, const CycleOverrides& b) {

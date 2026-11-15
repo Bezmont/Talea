@@ -7,6 +7,7 @@
 
 #include "core/Engine.hpp"
 #include "core/Params.hpp"
+#include "core/Record.hpp"
 #include "core/State.hpp"
 #include "core/Tonal.hpp"
 #include "core/third_party/nlohmann/json.hpp"
@@ -32,6 +33,8 @@ struct Host {
 	EventList events;
 	std::string text; // the latest JSON handed back to the script
 	Engine::Playback saved[kPlaybackSlots];
+	SeqRecorder recorder; // SEQ mode recording (REC)
+	double recStepQuarters[128] = {}; // live recording: each held note's step length
 };
 
 const NoteEvent* event(Host* h, int i) {
@@ -44,7 +47,9 @@ extern "C" {
 
 // An engine is about 0.8 MB, too big for the WebAssembly stack: it lives on the heap.
 EMSCRIPTEN_KEEPALIVE Host* talea_create() {
-	return new Host();
+	Host* h = new Host();
+	h->engine.songTimeline = true; // the song follows Live's timeline
+	return h;
 }
 
 EMSCRIPTEN_KEEPALIVE void talea_destroy(Host* h) {
@@ -310,6 +315,9 @@ EMSCRIPTEN_KEEPALIVE const char* talea_save_bank(Host* h) {
 	root["muteTiming"] = h->engine.muteTiming;
 	root["muteCuts"] = h->engine.muteCuts;
 	root["patternQuantize"] = h->engine.patternQuantize;
+	// The song, as Rack's module saves it.
+	root["song"] = songToJson(h->engine.song);
+	root["songOn"] = h->engine.songOn();
 	h->text = root.dump();
 	return h->text.c_str();
 }
@@ -349,6 +357,9 @@ EMSCRIPTEN_KEEPALIVE int talea_load_bank(Host* h, const char* text) {
 	setting("muteTiming", 0);
 	setting("muteCuts", 1);
 	setting("patternQuantize", 2);
+	if (!(root.contains("song") && root["song"].is_string() && songFromJson(root["song"].get<std::string>(), h->engine.song)))
+		h->engine.song = Song();
+	h->engine.restoreSongOn(root.contains("songOn") && root["songOn"].is_boolean() && root["songOn"].get<bool>());
 	return 1;
 }
 
@@ -382,7 +393,9 @@ const Field kFields[] = {
 	{12, &Track::root, nullptr},                     // 12 root
 	{2, nullptr, &Track::cc},                        // 13 cc
 	{kNumCcNumbers, &Track::ccNumber, nullptr},      // 14 ccNumber
+	{17, &Track::channel, nullptr},                  // 15 channel: 1-16 (talea_get_field)
 };
+constexpr int kChannelField = 15;
 constexpr int kNumFields = int(sizeof(kFields) / sizeof(kFields[0]));
 
 } // namespace
@@ -393,6 +406,8 @@ EMSCRIPTEN_KEEPALIVE int talea_get_field(Host* h, int track, int id) {
 	if (!validTrack(track) || id < 0 || id >= kNumFields)
 		return 0;
 	const Track& t = h->engine.pattern.tracks[track];
+	if (id == kChannelField) // 1-16: the track's own number unless set
+		return (t.channel < 0 ? track : t.channel) + 1;
 	const Field& f = kFields[id];
 	return f.i ? t.*(f.i) : int(t.*(f.b));
 }
@@ -417,6 +432,13 @@ EMSCRIPTEN_KEEPALIVE void talea_set_field(Host* h, int track, int id, int v) {
 	if (!validTrack(track) || id < 0 || id >= kNumFields)
 		return;
 	Track& t = h->engine.pattern.tracks[track];
+	if (id == kChannelField) {
+		// 1-16; the track's own number is stored as "its own", so a copy of the track
+		// elsewhere plays on that track's channel, as it would by default.
+		int ch = std::max(1, std::min(16, v)) - 1;
+		t.channel = ch == track ? -1 : ch;
+		return;
+	}
 	const Field& f = kFields[id];
 	v = std::max(0, std::min(f.count - 1, v));
 	if (f.i)
@@ -1024,6 +1046,406 @@ EMSCRIPTEN_KEEPALIVE void talea_seq_set(Host* h, int track, int c, int pos, int 
 		sq.setVelocity(pos, v);
 	else if (what == 2)
 		sq.setGate(pos, v);
+}
+
+} // extern "C"
+
+// ---- recording (REC, OVD) ----------------------------------------------------------------
+//
+// Notes played into the sequencer go into the edit track's sequence (the edited cycle's in
+// Cycle edit), as Rack's SEQ recording: live while playing (the nearest step, quantized to
+// the Division; the length rounded to whole steps), step by step while stopped (each chord at
+// the cursor, which moves on when every key is up). Notes off the scale take the nearest
+// scale note (ties up) first, so what's recorded is what's heard.
+
+extern "C" {
+
+/** A played note snapped to the track's scale (what's monitored and recorded). */
+EMSCRIPTEN_KEEPALIVE int talea_snap_note(Host* h, int track, int c, int note) {
+	if (!validTrack(track))
+		return note;
+	Track v = viewOf(h, track, c);
+	return snapUp(std::max(0, std::min(127, note)), v.scaleMask(), v.root);
+}
+
+/** OVD: notes played on a step that has notes join them, instead of replacing them. */
+EMSCRIPTEN_KEEPALIVE void talea_rec_overdub(Host* h, int on) {
+	h->recorder.overdub = on != 0;
+}
+
+/** Forgets the held notes (REC off, the transport starting or stopping). */
+EMSCRIPTEN_KEEPALIVE void talea_rec_release(Host* h) {
+	h->recorder.release();
+}
+
+/** Step recording's next step (the first selected step when REC goes on), and where it is. */
+EMSCRIPTEN_KEEPALIVE void talea_rec_set_cursor(Host* h, int pos) {
+	h->recorder.cursor = std::max(0, std::min(kMaxSteps - 1, pos));
+}
+
+EMSCRIPTEN_KEEPALIVE int talea_rec_cursor(Host* h) {
+	return h->recorder.cursor;
+}
+
+/** Live: `note` (already snapped) started at host time `time` (quarter notes). */
+EMSCRIPTEN_KEEPALIVE void talea_rec_live_on(Host* h, int track, int c, int note, int velocity, double time) {
+	if (!validTrack(track) || note < 0 || note > 127)
+		return;
+	double stepQuarters = 0.25;
+	int pos = h->engine.nearestStep(track, time, stepQuarters);
+	h->recStepQuarters[note] = stepQuarters;
+	h->recorder.liveOn(h->engine.pattern.sequenceEdit(track, validCycle(c) ? c : -1), pos, time, note,
+	                   std::max(1, std::min(127, velocity)));
+}
+
+/** Live: `note` ended at `time`. */
+EMSCRIPTEN_KEEPALIVE void talea_rec_live_off(Host* h, int track, int c, int note, double time) {
+	if (!validTrack(track) || note < 0 || note > 127)
+		return;
+	h->recorder.liveOff(h->engine.pattern.sequenceEdit(track, validCycle(c) ? c : -1), note, time,
+	                    h->recStepQuarters[note] > 0 ? h->recStepQuarters[note] : 0.25);
+}
+
+/** Step: `note` started (written at the cursor, kept within the track's Steps). */
+EMSCRIPTEN_KEEPALIVE void talea_rec_step_on(Host* h, int track, int c, int note, int velocity) {
+	if (!validTrack(track) || note < 0 || note > 127)
+		return;
+	int steps = std::max(1, viewOf(h, track, c).steps());
+	h->recorder.cursor = std::max(0, std::min(h->recorder.cursor, steps - 1));
+	h->recorder.stepOn(h->engine.pattern.sequenceEdit(track, validCycle(c) ? c : -1), note, std::max(1, std::min(127, velocity)));
+}
+
+/** Step: `note` ended; once nothing is held the cursor moves on, wrapping at Steps. */
+EMSCRIPTEN_KEEPALIVE void talea_rec_step_off(Host* h, int track, int c, int note) {
+	if (!validTrack(track) || note < 0 || note > 127)
+		return;
+	h->recorder.stepOff(note, std::max(1, viewOf(h, track, c).steps()));
+}
+
+} // extern "C"
+
+// ---- the song (SONG page) ----------------------------------------------------------------
+//
+// The song follows Live's timeline (Engine::songTimeline): its bar 1 is Live's bar 1. Edits
+// take effect on the next bar line after `now` (the host time they are made at; stopped, the
+// host works the cue out again, which places the song at once).
+
+extern "C" {
+
+/** 0 entries, 1 total bars, 2 Loop, 3 on, 4 the entry playing (-1: none), 5 overridden,
+6 a start or resume waiting, 7 past the end (silent), 8 + 2i entry i's slot, 9 + 2i its bars. */
+EMSCRIPTEN_KEEPALIVE int talea_song(Host* h, int what) {
+	const Engine& e = h->engine;
+	switch (what) {
+		case 0: return e.song.count;
+		case 1: return e.song.totalBars();
+		case 2: return e.song.loop ? 1 : 0;
+		case 3: return e.songOn() ? 1 : 0;
+		case 4: return e.songEntry();
+		case 5: return e.songOverridden() && !e.songPending() ? 1 : 0;
+		case 6: return e.songPending() ? 1 : 0;
+		case 7: return e.songOver() ? 1 : 0;
+		default: {
+			int i = (what - 8) / 2;
+			if (i < 0 || i >= e.song.count)
+				return -1;
+			return (what - 8) % 2 == 0 ? e.song.entries[i].slot : e.song.entries[i].bars;
+		}
+	}
+}
+
+/** Host time the playing entry's bar 1 began. */
+EMSCRIPTEN_KEEPALIVE double talea_song_entry_start(Host* h) {
+	return h->engine.songEntryStart();
+}
+
+/** A new entry's bars: the slot's pattern length in whole bars. */
+EMSCRIPTEN_KEEPALIVE int talea_song_default_bars(Host* h, int slot) {
+	return h->engine.defaultBars(std::max(0, std::min(kNumPatterns - 1, slot)));
+}
+
+/** Song on or off. On, it plays from the next bar line (stopped: from the cue). */
+EMSCRIPTEN_KEEPALIVE void talea_song_set_on(Host* h, int on, double now) {
+	h->events.clear();
+	h->engine.setSongOn(on != 0, now, h->events);
+}
+
+/** After an override: back to the song on the next bar line. */
+EMSCRIPTEN_KEEPALIVE void talea_song_resume(Host* h, double now) {
+	h->engine.resumeSong(now);
+}
+
+EMSCRIPTEN_KEEPALIVE void talea_song_set_loop(Host* h, int on, double now) {
+	h->engine.song.loop = on != 0;
+	h->engine.songEdited(now);
+}
+
+/** Inserts an entry before `at` (at = count: at the end); bars < 1: the slot's own length. */
+EMSCRIPTEN_KEEPALIVE void talea_song_insert(Host* h, int at, int slot, int bars, double now) {
+	slot = std::max(0, std::min(kNumPatterns - 1, slot));
+	h->engine.songInsert(at, {slot, bars < 1 ? h->engine.defaultBars(slot) : std::min(bars, kMaxSongBars)}, now);
+	h->engine.songEdited(now);
+}
+
+EMSCRIPTEN_KEEPALIVE void talea_song_remove(Host* h, int at, double now) {
+	h->engine.songRemove(at, now);
+	h->engine.songEdited(now);
+}
+
+/** Entry i's slot (its bars become the slot's length) or bars; -1 leaves it. */
+EMSCRIPTEN_KEEPALIVE void talea_song_set(Host* h, int i, int slot, int bars, double now) {
+	Song& song = h->engine.song;
+	if (i < 0 || i >= song.count)
+		return;
+	if (slot >= 0) {
+		song.entries[i].slot = std::min(kNumPatterns - 1, slot);
+		song.entries[i].bars = h->engine.defaultBars(song.entries[i].slot);
+	}
+	if (bars >= 1)
+		song.entries[i].bars = std::min(bars, kMaxSongBars);
+	h->engine.songEdited(now);
+}
+
+EMSCRIPTEN_KEEPALIVE void talea_song_clear(Host* h) {
+	h->engine.songClear();
+}
+
+} // extern "C"
+
+// ---- COPY / PASTE / CLEAR ------------------------------------------------------------------
+//
+// The clipboard of tracks, cycles, steps and patterns, as Rack's: it's outside the patterns, so
+// it pastes across them. (A parameter's value is copied by the script, which knows what the
+// dial shows.) `c` is the edited cycle in Cycle edit, else -1; `step` a played step.
+
+namespace {
+
+struct Clip {
+	// Tracks copied (a group: several), each in its own place in a pattern (~0.4 MB: on the
+	// heap).
+	std::unique_ptr<Pattern> tracks;
+	CycleOverrides cycle;
+	std::unique_ptr<Pattern> pattern;
+	// A step: its on/off state, locks (as it plays: the cycle's over the track's), pool and
+	// SEQ step.
+	bool stepHit = false;
+	uint32_t stepMask = 0;
+	float stepValues[kNumTrackParams] = {};
+	PoolLock stepPool;
+	SeqStep seqStep;
+	bool seqStepHas = false;
+};
+
+Clip gClip;
+
+/** Everything of track `src` of `from` onto track `dst` of `to`. */
+void copyTrack(Pattern& to, int dst, const Pattern& from, int src) {
+	to.tracks[dst] = from.tracks[src];
+	to.cycles[dst] = from.cycles[src];
+	to.random[dst] = from.random[src];
+	to.locks[dst] = from.locks[src];
+	to.seqs[dst] = from.seqs[src];
+}
+
+} // namespace
+
+extern "C" {
+
+/** COPY on a track button: the whole track (values, steps, pool, scale, channel, cycles,
+random, locks, sequence, mute), kept in its own place; a group copies each of its tracks. */
+EMSCRIPTEN_KEEPALIVE void talea_clip_copy_track(Host* h, int t) {
+	if (!validTrack(t))
+		return;
+	if (!gClip.tracks)
+		gClip.tracks.reset(new Pattern());
+	copyTrack(*gClip.tracks, t, h->engine.pattern, t);
+}
+
+/** Copied track `src` onto track `dst` of the playing pattern. */
+EMSCRIPTEN_KEEPALIVE void talea_clip_paste_track(Host* h, int src, int dst) {
+	if (validTrack(src) && validTrack(dst) && gClip.tracks)
+		copyTrack(h->engine.pattern, dst, *gClip.tracks, src);
+}
+
+/** The copied tracks (`mask`: a bit each) into pattern slot `slot`, on the same track
+numbers; its other tracks stay. */
+EMSCRIPTEN_KEEPALIVE void talea_clip_paste_tracks_to_slot(Host* h, int slot, int mask) {
+	if (slot < 0 || slot >= kNumPatterns || !gClip.tracks)
+		return;
+	Engine& e = h->engine;
+	if (slot == e.currentPattern()) {
+		for (int t = 0; t < kNumTracks; t++)
+			if (mask & (1 << t))
+				copyTrack(e.pattern, t, *gClip.tracks, t);
+		return;
+	}
+	std::unique_ptr<Pattern> p(new Pattern(e.patternSlot(slot)));
+	for (int t = 0; t < kNumTracks; t++)
+		if (mask & (1 << t))
+			copyTrack(*p, t, *gClip.tracks, t);
+	e.storePattern(slot, *p);
+}
+
+/** The track holds anything other than defaults (its track button lights dim orange). */
+EMSCRIPTEN_KEEPALIVE int talea_track_used(Host* h, int t) {
+	return validTrack(t) && h->engine.pattern.trackUsed(t) ? 1 : 0;
+}
+
+/** CLEAR on a track button: the track back to the default. */
+EMSCRIPTEN_KEEPALIVE void talea_clip_clear_track(Host* h, int t) {
+	if (!validTrack(t))
+		return;
+	Pattern& p = h->engine.pattern;
+	p.tracks[t].reset();
+	p.cycles[t].reset();
+	p.random[t].reset(t);
+	p.locks[t].reset();
+	p.seqs[t].reset();
+}
+
+/** A cycle (the CYCLE page's cells): its overrides, own steps, locks, random, mute. */
+EMSCRIPTEN_KEEPALIVE void talea_clip_copy_cycle(Host* h, int t, int c) {
+	if (validTrack(t) && validCycle(c))
+		gClip.cycle = h->engine.pattern.cycles[t].cycles[c];
+}
+
+/** Pasting past the last cycle adds cycles. */
+EMSCRIPTEN_KEEPALIVE void talea_clip_paste_cycle(Host* h, int t, int c) {
+	if (!validTrack(t) || !validCycle(c))
+		return;
+	TrackCycles& cyc = h->engine.pattern.cycles[t];
+	cyc.cycles[c] = gClip.cycle;
+	cyc.count = std::max(cyc.count, c + 1);
+}
+
+EMSCRIPTEN_KEEPALIVE void talea_clip_clear_cycle(Host* h, int t, int c) {
+	if (validTrack(t) && validCycle(c))
+		h->engine.pattern.cycles[t].clearCycle(c);
+}
+
+/** A parameter's value pasted on a cycle: its override there (past the last adds cycles). */
+EMSCRIPTEN_KEEPALIVE void talea_clip_paste_cycle_param(Host* h, int t, int c, int p, float v) {
+	if (!validTrack(t) || !validCycle(c) || p < 0 || p >= kNumTrackParams)
+		return;
+	TrackCycles& cyc = h->engine.pattern.cycles[t];
+	cyc.set(c, TrackParam(p), v);
+	cyc.count = std::max(cyc.count, c + 1);
+}
+
+/** A pattern slot as it plays. */
+EMSCRIPTEN_KEEPALIVE void talea_clip_copy_pattern(Host* h, int slot) {
+	if (slot < 0 || slot >= kNumPatterns)
+		return;
+	if (!gClip.pattern)
+		gClip.pattern.reset(new Pattern());
+	*gClip.pattern = h->engine.patternSlot(slot);
+}
+
+/** Into a slot; the playing one changes at once. */
+EMSCRIPTEN_KEEPALIVE void talea_clip_paste_pattern(Host* h, int slot) {
+	if (slot >= 0 && slot < kNumPatterns && gClip.pattern)
+		h->engine.storePattern(slot, *gClip.pattern);
+}
+
+/** A step: its on/off state and its locks as it plays here (in Cycle edit the cycle's over
+the track's), with its pool and, in SEQ mode, its notes. */
+EMSCRIPTEN_KEEPALIVE void talea_clip_copy_step(Host* h, int t, int c, int step) {
+	if (!validTrack(t))
+		return;
+	c = validCycle(c) ? c : -1;
+	Track view = viewOf(h, t, c);
+	if (step < 0 || step >= view.steps())
+		return;
+	int pos = view.unrotated(step);
+	const Pattern& p = h->engine.pattern;
+	gClip.stepHit = hasHit(h->engine.hits(t, c), step);
+	gClip.stepMask = 0;
+	for (int k = 0; k < kNumTrackParams; k++) {
+		double v = talea_lock_get(h, t, c, pos, k);
+		if (!std::isnan(v)) {
+			gClip.stepMask |= 1u << k;
+			gClip.stepValues[k] = float(v);
+		}
+	}
+	const PoolLock* pool = c >= 0 ? p.cycles[t].cycles[c].locks.poolAt(pos) : nullptr;
+	if (!pool)
+		pool = p.locks[t].poolAt(pos);
+	gClip.stepPool = pool ? *pool : PoolLock();
+	const StepSequence& sq = p.sequenceOf(t, c);
+	gClip.seqStepHas = view.seqMode && sq.has(pos);
+	gClip.seqStep = gClip.seqStepHas ? sq.steps[pos] : SeqStep();
+}
+
+EMSCRIPTEN_KEEPALIVE void talea_clip_paste_step(Host* h, int t, int c, int step) {
+	if (!validTrack(t))
+		return;
+	c = validCycle(c) ? c : -1;
+	Track view = viewOf(h, t, c);
+	if (step < 0 || step >= view.steps())
+		return;
+	int pos = view.unrotated(step);
+	Pattern& p = h->engine.pattern;
+	if (view.seqMode) {
+		// SEQ mode: the step's notes, velocity and gate (a rest stays a rest).
+		StepSequence& sq = p.sequenceEdit(t, c);
+		if (gClip.seqStepHas) {
+			int notes[kMaxPool];
+			for (int k = 0; k < gClip.seqStep.count; k++)
+				notes[k] = gClip.seqStep.notes[k];
+			sq.set(pos, notes, gClip.seqStep.count, gClip.seqStep.velocity, gClip.seqStep.gate);
+		}
+		else
+			sq.clear(pos);
+	}
+	else if (hasHit(h->engine.hits(t, c), step) != gClip.stepHit) {
+		if (c >= 0)
+			p.cycles[t].toggleStep(p.tracks[t], c, step);
+		else
+			p.tracks[t].toggleStep(step);
+	}
+	int notes[kMaxPool];
+	for (int k = 0; k < gClip.stepPool.size; k++)
+		notes[k] = gClip.stepPool.notes[k];
+	if (c >= 0) {
+		CycleLocks& cl = p.cycles[t].cycles[c].locks;
+		cl.clearStep(pos);
+		for (int k = 0; k < kNumTrackParams; k++) {
+			if (gClip.stepMask & (1u << k))
+				cl.set(pos, TrackParam(k), gClip.stepValues[k]);
+		}
+		cl.setPool(pos, notes, gClip.stepPool.size);
+	}
+	else
+		p.locks[t].copyStep(pos, gClip.stepMask, gClip.stepValues, gClip.stepPool);
+}
+
+/** CLEAR on a step: its locks and its manual on/off edit (the edited cycle's in Cycle edit);
+in SEQ mode its notes too. */
+EMSCRIPTEN_KEEPALIVE void talea_clip_clear_step(Host* h, int t, int c, int step) {
+	if (!validTrack(t))
+		return;
+	c = validCycle(c) ? c : -1;
+	Track view = viewOf(h, t, c);
+	if (step < 0 || step >= view.steps())
+		return;
+	int pos = view.unrotated(step);
+	Pattern& p = h->engine.pattern;
+	if (view.seqMode && p.sequenceOf(t, c).has(pos))
+		p.sequenceEdit(t, c).clear(pos);
+	StepMask keep = ~(StepMask(1) << pos);
+	if (c >= 0) {
+		CycleOverrides& o = p.cycles[t].cycles[c];
+		o.locks.clearStep(pos);
+		if (o.ownHits) {
+			o.manualHits &= keep;
+			o.removedHits &= keep;
+		}
+	}
+	else {
+		p.locks[t].clearStep(pos);
+		p.tracks[t].manualHits &= keep;
+		p.tracks[t].removedHits &= keep;
+	}
 }
 
 } // extern "C"
