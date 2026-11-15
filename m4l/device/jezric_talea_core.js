@@ -204,20 +204,32 @@ var SETTINGS = ["muteTiming", "muteCuts", "patternQuantize"];
 // parameter (a key, as for the dials).
 var RANDOM = ["amount", "perCycle", "variance", "rate", "phase", "probPhase", "slew", "locked"];
 
-Stepper.prototype.getRandom = function (track, what, key) {
-	return this.c("get_random", "number", ["number", "number", "number", "number"])(this.h, track, RANDOM.indexOf(what),
-		key === undefined ? -1 : this.keys.indexOf(key));
+// c (here and in the field, diagram, pool and scale calls): the edited cycle in Cycle edit,
+// whose own amounts / scale / pool / phrase they read and edit; left out or -1, the track.
+function cyc(c) {
+	return c === undefined || c === null ? -1 : c;
+}
+
+Stepper.prototype.getRandom = function (track, what, key, c) {
+	return this.c("get_random", "number", ["number", "number", "number", "number", "number"])(this.h, track, cyc(c),
+		RANDOM.indexOf(what), key === undefined || key === null ? -1 : this.keys.indexOf(key));
 };
 
-Stepper.prototype.setRandom = function (track, what, key, v) {
-	this.c("set_random", null, ["number", "number", "number", "number", "number"])(this.h, track, RANDOM.indexOf(what),
-		key === undefined || key === null ? -1 : this.keys.indexOf(key), v);
+Stepper.prototype.setRandom = function (track, what, key, v, c) {
+	this.c("set_random", null, ["number", "number", "number", "number", "number", "number"])(this.h, track, cyc(c),
+		RANDOM.indexOf(what), key === undefined || key === null ? -1 : this.keys.indexOf(key), v);
+};
+
+// Whether cycle c has its own random amount of `key`.
+Stepper.prototype.cycleRandomOwn = function (track, c, key) {
+	return this.c("get_random", "number", ["number", "number", "number", "number", "number"])(this.h, track, c, 8,
+		this.keys.indexOf(key)) === 1;
 };
 
 // The RANDOM page's buttons (talea_random_action): 0 Regen, 1 Lock or unlock (where the
 // sequences are at time `now`), 2/3 phase -/+, 4/5 Probability phase -/+, 6 clear amounts.
-Stepper.prototype.randomAction = function (track, action, now) {
-	this.c("random_action", null, ["number", "number", "number", "number"])(this.h, track, action, now);
+Stepper.prototype.randomAction = function (track, action, now, c) {
+	this.c("random_action", null, ["number", "number", "number", "number", "number"])(this.h, track, cyc(c), action, now);
 };
 
 // The MIDI channel (0-15) a track plays on: SETUP's CHANNEL (track n on channel n unless set).
@@ -225,12 +237,13 @@ Stepper.prototype.channelOf = function (track) {
 	return this.getField(track, "channel") - 1;
 };
 
-Stepper.prototype.getField = function (track, name) {
-	return this.c("get_field", "number", ["number", "number", "number"])(this.h, track, FIELDS.indexOf(name));
+// The fields a cycle can have its own of (phrase, scale, root): c applies to these only.
+Stepper.prototype.getField = function (track, name, c) {
+	return this.c("get_field", "number", ["number", "number", "number", "number"])(this.h, track, cyc(c), FIELDS.indexOf(name));
 };
 
-Stepper.prototype.setField = function (track, name, v) {
-	this.c("set_field", null, ["number", "number", "number", "number"])(this.h, track, FIELDS.indexOf(name), v);
+Stepper.prototype.setField = function (track, name, v, c) {
+	this.c("set_field", null, ["number", "number", "number", "number", "number"])(this.h, track, cyc(c), FIELDS.indexOf(name), v);
 };
 
 Stepper.prototype.getSetting = function (name) {
@@ -243,19 +256,19 @@ Stepper.prototype.setSetting = function (name, v) {
 
 // The display's diagrams (talea_diagram): 0 groove shape, 1 phrase notes, 2 style notes,
 // 3 the User phrase's levels; and the playhead across one (0..1, -1: none) at time t.
-Stepper.prototype.diagram = function (track, kind) {
-	var n = this.c("diagram", "number", ["number", "number", "number"])(this.h, track, kind);
+Stepper.prototype.diagram = function (track, kind, c) {
+	var n = this.c("diagram", "number", ["number", "number", "number", "number"])(this.h, track, cyc(c), kind);
 	var value = this.c("diagram_value", "number", ["number"]), out = [];
 	for (var i = 0; i < n; i++) out.push(value(i));
 	return out;
 };
 
-Stepper.prototype.diagramPhase = function (track, kind, t) {
-	return this.c("diagram_phase", "number", ["number", "number", "number", "number"])(this.h, track, kind, t);
+Stepper.prototype.diagramPhase = function (track, kind, t, c) {
+	return this.c("diagram_phase", "number", ["number", "number", "number", "number", "number"])(this.h, track, cyc(c), kind, t);
 };
 
-Stepper.prototype.setPhraseLevel = function (track, col, level) {
-	this.c("set_phrase_level", null, ["number", "number", "number", "number"])(this.h, track, col, level);
+Stepper.prototype.setPhraseLevel = function (track, col, level, c) {
+	this.c("set_phrase_level", null, ["number", "number", "number", "number", "number"])(this.h, track, cyc(c), col, level);
 };
 
 // TRACK's info line; KEYS' pool (its notes) and the scale (12 bits by pitch class from C);
@@ -264,23 +277,23 @@ Stepper.prototype.trackInfo = function (track) {
 	return this.c("track_info", "string", ["number", "number"])(this.h, track);
 };
 
-Stepper.prototype.pool = function (track) {
-	var n = this.c("pool_size", "number", ["number", "number"])(this.h, track), note = this.c("pool_note", "number", ["number", "number", "number"]);
-	var out = [];
-	for (var i = 0; i < n; i++) out.push(note(this.h, track, i));
+Stepper.prototype.pool = function (track, c) {
+	var n = this.c("pool_size", "number", ["number", "number", "number"])(this.h, track, cyc(c));
+	var note = this.c("pool_note", "number", ["number", "number", "number", "number"]), out = [];
+	for (var i = 0; i < n; i++) out.push(note(this.h, track, cyc(c), i));
 	return out;
 };
 
-Stepper.prototype.scaleNotes = function (track) {
-	return this.c("scale_notes", "number", ["number", "number"])(this.h, track);
+Stepper.prototype.scaleNotes = function (track, c) {
+	return this.c("scale_notes", "number", ["number", "number", "number"])(this.h, track, cyc(c));
 };
 
-Stepper.prototype.poolKey = function (track, note) {
-	this.c("pool_key", null, ["number", "number", "number"])(this.h, track, note);
+Stepper.prototype.poolKey = function (track, note, c) {
+	this.c("pool_key", null, ["number", "number", "number", "number"])(this.h, track, cyc(c), note);
 };
 
-Stepper.prototype.scaleKey = function (track, pc) {
-	this.c("scale_key", null, ["number", "number", "number"])(this.h, track, pc);
+Stepper.prototype.scaleKey = function (track, pc, c) {
+	this.c("scale_key", null, ["number", "number", "number", "number"])(this.h, track, cyc(c), pc);
 };
 
 // ---- SEQ mode ----
@@ -303,6 +316,32 @@ Stepper.prototype.seqStep = function (track, c, pos) {
 	var notes = [];
 	for (var i = 0; i < n; i++) notes.push(f(h, track, c, pos, 3 + i));
 	return { notes: notes, velocity: f(h, track, c, pos, 1), gate: f(h, track, c, pos, 2) };
+};
+
+// A step's own pool (EUCLID mode; KEYS with steps selected): its notes as cycle c plays it
+// ([] = none, it plays the track's), a key click
+// toggling a note in it, a copy from another step, and TRACK POOL (the lock goes).
+Stepper.prototype.stepPool = function (track, c, pos) {
+	var n = this.c("step_pool_size", "number", ["number", "number", "number", "number"])(this.h, track, c, pos);
+	var note = this.c("step_pool_note", "number", ["number", "number", "number", "number", "number"]), out = [];
+	for (var i = 0; i < n; i++) out.push(note(this.h, track, c, pos, i));
+	return out;
+};
+
+Stepper.prototype.stepPoolKey = function (track, c, pos, note) {
+	return !!this.c("step_pool_key", "number", ["number", "number", "number", "number", "number"])(this.h, track, c, pos, note);
+};
+
+Stepper.prototype.poolsUsed = function (track, c) {
+	return !!this.c("pools_used", "number", ["number", "number", "number"])(this.h, track, c);
+};
+
+Stepper.prototype.stepPoolCopy = function (track, c, dst, src) {
+	this.c("step_pool_copy", null, ["number", "number", "number", "number", "number"])(this.h, track, c, dst, src);
+};
+
+Stepper.prototype.stepPoolClear = function (track, c, pos) {
+	this.c("step_pool_clear", null, ["number", "number", "number", "number"])(this.h, track, c, pos);
 };
 
 Stepper.prototype.seqToggleNote = function (track, c, pos, note, velocity) {
@@ -423,9 +462,12 @@ Stepper.prototype.setCycleCount = function (track, n) {
 // { muted, modified, ownHits, overrides (parameter keys) }
 Stepper.prototype.cycleState = function (track, c) {
 	var f = this.c("cycle_flags", "number", ["number", "number", "number"])(this.h, track, c);
-	var bits = this.c("cycle_overrides", "number", ["number", "number", "number"])(this.h, track, c);
-	return { muted: (f & 1) !== 0, modified: (f & 2) !== 0, ownHits: (f & 4) !== 0,
-		overrides: this.keys.filter(function (k, i) { return (bits >> i) & 1; }) };
+	var ov = this.c("cycle_overrides", "number", ["number", "number", "number", "number"]);
+	var bits = ov(this.h, track, c, 0), rbits = ov(this.h, track, c, 1);
+	return { muted: (f & 1) !== 0, modified: (f & 2) !== 0, ownHits: (f & 4) !== 0, ownLocks: (f & 8) !== 0,
+		ownTonal: (f & 16) !== 0, ownSeq: (f & 32) !== 0, ownMode: (f & 64) !== 0,
+		overrides: this.keys.filter(function (k, i) { return (bits >> i) & 1; }),
+		randomOverrides: this.keys.filter(function (k, i) { return (rbits >> i) & 1; }) };
 };
 
 Stepper.prototype.setCycleMuted = function (track, c, muted) {
@@ -479,7 +521,20 @@ Stepper.prototype.cycleInfo = function (track, c) {
 	return this.c("cycle_info", "string", ["number", "number", "number"])(this.h, track, c);
 };
 
-// PATTERN page: the playing pattern copied into a slot, and a slot cleared.
+// The first boundary of `timing` (0 now, 1 beat, 2 bar, 3 the pattern's loop) strictly
+// after quarter note `now`.
+Stepper.prototype.nextBoundary = function (timing, now) {
+	return this.c("next_boundary", "number", ["number", "number", "number"])(this.h, timing, now);
+};
+
+// Temp: 1 on, 2 off reverting its changes, 3 off keeping them; 0 (or none) asks. Returns
+// whether Temp is on.
+Stepper.prototype.temp = function (action) {
+	return this.c("temp", "number", ["number", "number"])(this.h, action || 0) !== 0;
+};
+
+// PATTERN page: the playing pattern copied into a slot (as it plays, Temp included; onto
+// the playing slot it keeps Temp's changes), and a slot cleared.
 Stepper.prototype.copyPattern = function (slot) {
 	this.c("copy_pattern", null, ["number", "number"])(this.h, slot);
 };

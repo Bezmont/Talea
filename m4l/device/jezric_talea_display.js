@@ -26,14 +26,17 @@
 //            row's RANDOM button numbers (talea_random_action)
 //   x, row   where it goes: x px from the display's left edge, row number (default: the
 //            next row, at the left); "labelW" the label's width ("label" left out: none)
+//   kind     "toggle": an on/off button labelled "text" (two buttons, the script showing the
+//            one for the state; a click flips it; not a parameter)
 //   unit     "%": a numbox shows its value in percent
 //   fontsize a tab row's font size (default 8)
 //   showWhen shown only while the script says so ("lanePages": more than 6 lanes,
-//            "stepPages": more than 16 steps, "seqStep": SEQ mode with steps selected,
+//            "stepPages": more than 16 steps, "seqStep": SEQ mode with steps selected, "stepPool": the first
+//            selected step has its own pool (EUCLID mode),
 //            "songOverridden": a pattern switch took over from the song, "songPages":
 //            more than 16 song entries)
 //   seqUnused dimmed while the edit track is in SEQ mode (it doesn't use it)
-//   altWhen  "@cycleEdit": the alt label in Cycle edit
+//   altWhen  "@cycleEdit": the alt label in Cycle edit; "@temp": while Temp is on
 //   playBars a tab row with a bar under each choice, shown under the one playing
 //            ("d_<name>_play<i>": CYCLE's playing cycle); "above": a thicker blue bar in
 //            the gap above the row instead (SONG's playing entry, between its rows)
@@ -52,11 +55,12 @@
 // (the same script, a bigger box).
 //
 // "MUTE" isn't a page: Mute pad mode shows it over whatever page is chosen, as on Rack.
+// "DEVICE" isn't a tab either: the gear right of the tabs shows it ("gear"), the device's
+// own settings (for every track: TEMP OFF, then Instance, Ahead and the status line, placed
+// by build.py).
 // LOCKS is Rack's STEP page (its step locks). No REPEAT page: its one setting, Choke or Tail,
 // is on SETUP. VOICING is Rack's STYLE page
 // (what the Voicing dial moves). Pages without rows aren't built yet; they show a note.
-// SETUP also has the device's own controls (Instance, Look-ahead, the status line), placed
-// by build.py.
 //
 // Strict JSON after "module.exports =", so build.py can read it.
 
@@ -69,10 +73,15 @@ module.exports = {
 		"velocity": "GROOVE", "probability": "GROOVE", "sustain": "GROOVE", "accent": "GROOVE", "timing": "GROOVE", "delay": "GROOVE",
 		"pitch": "SCALE", "voicing": "VOICING", "range": "PHRASE"
 	},
+	"gear": "DEVICE",
 	"pages": ["TRACK", "LOCKS", "CYCLE", "KEYS", "SCALE", "PHRASE", "VOICING", "GROOVE", "RANDOM", "PATTERN", "SONG", "SETUP"],
 	"views": {
 		"TRACK": [
-			{"name": "trackInfo", "kind": "text", "text": "trackInfo", "labelW": 0}
+			{"name": "trackInfo", "kind": "text", "text": "trackInfo", "labelW": 0},
+			{"name": "trackStepPage", "label": "PAGE", "kind": "tab", "items": ["1-16", "17-32", "33-48", "49-64"], "action": "stepPage", "x": 278, "row": 0, "labelW": 0, "width": 116,
+				"marks": "stepPages", "showWhen": "stepPages"},
+			{"name": "trackFollow", "kind": "toggle", "text": "FOLLOW", "action": "follow", "x": 398, "row": 0, "labelW": 0, "width": 56,
+				"showWhen": "stepPages"}
 		],
 		"LOCKS": [
 			{"name": "lockSelect", "label": "SELECT", "kind": "buttons", "items": ["NONE", "PAGE", "CLEAR LOCKS"], "action": "lockSelect", "width": 180},
@@ -92,7 +101,8 @@ module.exports = {
 		"KEYS": [
 			{"name": "keysOctave", "label": "OCTAVE", "kind": "buttons", "items": ["<", ">"], "action": "octave", "width": 50},
 			{"name": "keysHelp", "kind": "text", "text": "keysHelp", "x": 120, "row": 0, "labelW": 0, "width": 270},
-			{"name": "seqRest", "kind": "button", "text": "REST", "action": "seqRest", "x": 400, "row": 0, "labelW": 0, "width": 54, "showWhen": "seqStep"}
+			{"name": "seqRest", "kind": "button", "text": "REST", "action": "seqRest", "x": 400, "row": 0, "labelW": 0, "width": 54, "showWhen": "seqStep"},
+			{"name": "trackPool", "kind": "button", "text": "TRACK POOL", "action": "trackPool", "x": 392, "row": 0, "labelW": 0, "width": 70, "showWhen": "stepPool"}
 		],
 		"SCALE": [
 			{"name": "scale", "label": "SCALE", "kind": "menu", "items": "@scales", "field": "scale", "width": 180},
@@ -157,7 +167,7 @@ module.exports = {
 		],
 		"PATTERN": [
 			{"name": "patternPlay", "label": "PLAY", "kind": "tab", "items": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"], "action": "queue", "marks": "used"},
-			{"name": "patternCopy", "label": "COPY TO", "kind": "buttons", "items": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"], "action": "copy", "marks": "used"},
+			{"name": "patternCopy", "label": "COPY TO", "alt": "TEMP TO", "altWhen": "@temp", "kind": "buttons", "items": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"], "action": "copy", "marks": "used"},
 			{"name": "patternClear", "label": "CLEAR", "kind": "buttons", "items": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"], "action": "clear", "marks": "used"},
 			{"name": "patternQuantize", "label": "SWITCH", "kind": "tab", "items": ["NOW", "BEAT", "BAR", "PATTERN"], "setting": "patternQuantize", "width": 200}
 		],
@@ -187,6 +197,9 @@ module.exports = {
 			{"name": "repeatTail", "label": "REPEATS", "kind": "tab", "items": ["CHOKE", "TAIL"], "field": "repeatTail", "width": 100},
 			{"name": "seqMode", "label": "MODE", "alt": "CYC MODE", "altWhen": "@cycleEdit", "kind": "tab", "items": ["EUCLID", "SEQ"], "action": "seqMode", "width": 100},
 			{"name": "channel", "label": "CHANNEL", "kind": "num", "min": 1, "max": 16, "field": "channel", "x": 180, "row": 0, "width": 44}
+		],
+		"DEVICE": [
+			{"name": "tempTiming", "label": "TEMP OFF", "kind": "tab", "items": ["NOW", "BEAT", "BAR", "PATTERN"], "action": "tempTiming", "width": 200}
 		],
 		"MUTE": [
 			{"name": "muteTiming", "label": "APPLY", "kind": "tab", "items": ["NOW", "BEAT", "BAR", "PATTERN"], "setting": "muteTiming", "width": 200},

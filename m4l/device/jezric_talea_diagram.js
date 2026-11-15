@@ -12,6 +12,12 @@
 //                                    + 2 locked (a bar along the bottom) + 4 selected (blue),
 //                                    those past `played` cut off by Length, the step
 //                                    playing (`now`, -1 none)
+//   cycles edit red now e0..e15 n [label flags now c0..c15]...
+//                                    TRACK with several cycles: the step page as a row
+//                                    (`edit` its label, red in Cycle edit), then a lane
+//                                    per cycle, its steps as it plays them (cells as
+//                                    lanes'; flags 1 playing, 2 muted, 4 selected);
+//                                    in Cycle edit a label click: "cyclesel c"
 //   keys label first octaves scale root k p1..pk m l1..lm
 //                                    KEYS: `octaves` octaves of keys from MIDI note `first`;
 //                                    in the scale (12 bits from C) or in the pool (the k
@@ -23,7 +29,9 @@
 //                                    else 1 + 2 hit + 4 selected + 8 locked + 16 cut off),
 //                                    `now` the playing one (-1), `edit` the row's label;
 //                                    then L lanes of locked parameters, each step's lock as
-//                                    a bar ("x": none); `more` 1 if more are locked
+//                                    a bar ("x": none); lo = hi: a lane of marks (POOL:
+//                                    steps with their own pool, not editable here);
+//                                    `more` 1 if more are locked
 //   play x                           the playhead, 0..1 across (-1: none)
 //   clear                            nothing
 //
@@ -65,7 +73,7 @@ function grid(text) {
 	mgraphics.redraw();
 }
 
-var keyFirst = 36, keyOctaves = 4, scaleBits = 0, root = 0, pool = [], lit = [], stepsData = null;
+var keyFirst = 36, keyOctaves = 4, scaleBits = 0, root = 0, pool = [], lit = [], poolOwn = false, stepsData = null;
 
 function keys(text, first, octaves, bits, r) {
 	kind = "keys";
@@ -77,6 +85,7 @@ function keys(text, first, octaves, bits, r) {
 	var a = Array.prototype.slice.call(arguments, 5).map(Number), k = a[0] || 0;
 	pool = a.slice(1, 1 + k);
 	lit = a.slice(2 + k, 2 + k + (a[1 + k] || 0));
+	poolOwn = !!a[2 + k + (a[1 + k] || 0)]; // the selected steps' own pool: blue, as locks
 	mgraphics.redraw();
 }
 
@@ -100,7 +109,58 @@ function steps() {
 	mgraphics.redraw();
 }
 
-var lanesData = null;
+var lanesData = null, cyclesData = null;
+
+function cycles() {
+	var a = Array.prototype.slice.call(arguments), i = 0;
+	kind = "cycles";
+	label = "";
+	var d = { edit: String(a[i++]), red: Number(a[i++]) === 1, now: Number(a[i++]) };
+	d.cells = a.slice(i, i + 16).map(Number);
+	i += 16;
+	var n = Number(a[i++]);
+	d.lanes = [];
+	for (var c = 0; c < n; c++) {
+		var lane = { name: String(a[i++]), flags: Number(a[i++]), now: Number(a[i++]) };
+		lane.cells = a.slice(i, i + 16).map(Number);
+		i += 16;
+		d.lanes.push(lane);
+	}
+	cyclesData = d;
+	mgraphics.redraw();
+}
+
+// TRACK with several cycles (Rack's cycle lanes): the edit row, then a lane per cycle.
+// Labels: white = playing, blue-grey = muted; the selected cycle boxed (red in Cycle edit).
+function paintCycles(w, h) {
+	var d = cyclesData;
+	if (!d) return;
+	var cw = laneCellW(w), red = [1, 0.25, 0.2, 1];
+	laneLabel(d.edit, PAD, EDIT_H, d.red ? red : dim);
+	var cell = function (c, x, y, ch, now, alpha) {
+		if (!c) return;
+		stepCell(x, y, cw, ch, c & 2, c & 16, now, c & 4, c & 8);
+		if (alpha < 1) { // muted: dimmed over
+			mgraphics.set_source_rgba(0.04, 0.04, 0.05, 1 - alpha);
+			mgraphics.rectangle(x + 1, y, cw - 2, ch);
+			mgraphics.fill();
+		}
+	};
+	for (var i = 0; i < 16; i++) cell(d.cells[i], LANE_X + i * cw, PAD, EDIT_H, i === d.now, 1);
+	var n = d.lanes.length;
+	for (var l = 0; l < n; l++) {
+		var lane = d.lanes[l], g = laneGeom(l, n, h), y = g[0], lh = g[1];
+		var playing = lane.flags & 1, muted = lane.flags & 2;
+		laneLabel(lane.name, y, lh, playing ? [1, 1, 1, 1] : muted ? [0.29, 0.35, 0.47, 1] : dim);
+		if (lane.flags & 4) {
+			mgraphics.set_source_rgba(d.red ? red : fg);
+			mgraphics.set_line_width(1);
+			mgraphics.rectangle(PAD - 2.5, y - 1.5, LANE_X - PAD - 2, lh + 3);
+			mgraphics.stroke();
+		}
+		for (i = 0; i < 16; i++) cell(lane.cells[i], LANE_X + i * cw, y, lh, i === lane.now, muted ? 0.35 : 1);
+	}
+}
 
 function lanes() {
 	var a = Array.prototype.slice.call(arguments), i = 0;
@@ -157,6 +217,7 @@ function paint() {
 	if (kind === "clear") return;
 	if (kind === "steps") return paintSteps(w, h);
 	if (kind === "lanes") return paintLanes(w, h);
+	if (kind === "cycles") return paintCycles(w, h);
 	if (kind === "keys" || kind === "scalekeys") return paintKeys(w, h);
 	var x0 = PAD, x1 = w - PAD, top = TOP, bottom = h - PAD;
 	// The corner label, top right.
@@ -323,7 +384,11 @@ function paintLanes(w, h) {
 			mgraphics.rectangle(x + 1, y, cw - 2, lh);
 			mgraphics.fill();
 			var v = lane.v[i];
-			if (!isNaN(v)) {
+			if (!isNaN(v) && lane.lo === lane.hi) {
+				mgraphics.set_source_rgba(LOCK_BLUE); // a mark: the whole cell
+				mgraphics.rectangle(x + 1, y, cw - 2, lh);
+				mgraphics.fill();
+			} else if (!isNaN(v)) {
 				var norm = Math.max(0, Math.min(1, (v - lane.lo) / (lane.hi - lane.lo))), from = bipolar ? 0.5 : 0;
 				var lo = Math.min(from, norm), hi = Math.max(from, norm);
 				mgraphics.set_source_rgba(LOCK_BLUE);
@@ -352,6 +417,7 @@ function laneAt(x, y, only) {
 		if (only !== undefined && l !== only) continue;
 		var g = laneGeom(l, n, s[1]);
 		if (only === undefined && (y < g[0] || y > g[0] + g[1])) continue;
+		if (lanesData.list[l].lo === lanesData.list[l].hi) return null; // marks only: no clicks
 		var norm = Math.max(0, Math.min(1, 1 - (y - g[0]) / g[1]));
 		return { lane: l, step: step, value: Math.round(norm * 1000) / 1000 };
 	}
@@ -420,7 +486,7 @@ function paintKeys(w, h) {
 			mgraphics.rectangle(k[1], k[2], k[3], k[4]);
 			mgraphics.fill();
 		}
-		if (on) mgraphics.set_source_rgba(fg);
+		if (on) mgraphics.set_source_rgba(kind === "keys" && poolOwn ? LOCK_BLUE : fg);
 		else mgraphics.set_source_rgba(dim[0], dim[1], dim[2], (enabled ? 0.3 : 0.08) * (black ? 0.7 : 1));
 		mgraphics.rectangle(k[1] + 0.5, k[2], k[3] - 1, k[4]);
 		mgraphics.fill();
@@ -482,6 +548,16 @@ function onclick(x, y, but, cmd, shift, caps, option, ctrl) {
 			return;
 		}
 		return laneEdit(x, y, !!(cmd || ctrl));
+	}
+	if (kind === "cycles") {
+		// In Cycle edit a lane's label: edit that cycle.
+		if (!cyclesData || !cyclesData.red || x >= LANE_X) return;
+		var nl = cyclesData.lanes.length;
+		for (var l = 0; l < nl; l++) {
+			var g = laneGeom(l, nl, size()[1]);
+			if (y >= g[0] - 1 && y < g[0] + g[1] + 1) return outlet(0, "cyclesel", l);
+		}
+		return;
 	}
 	if (kind === "keys" || kind === "scalekeys") {
 		var n = keyAt(x, y);

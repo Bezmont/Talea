@@ -481,6 +481,14 @@ Rack yet; consider them when it's next revised.
 - **STYLE page → VOICING.** The page holds Style, Poly/Mono and Voice direction: the
   settings of the Voicing knob, so the Live version names it after the knob (its Style row
   keeps its name). (2026-11-13)
+- **Temp off, quantized.** A module setting, TEMP OFF: Now / Beat / Bar / Pattern end
+  (default Bar). Ending Temp by reverting (B04 click, or the Temp gate going low) while
+  playing waits for that boundary, counted from the pattern's start as the mute and switch
+  timings are, so the revert lands on the grid; the Temp light shows the wait (the Live
+  version: TEMP unlit, a blinking frame). A click while waiting cancels the revert (Temp
+  stays on); Ctrl+click keeps the changes at once. Keeping, turning Temp on and reverting
+  while stopped stay immediate. The Live version puts it on a device settings page with
+  its other settings for the whole device. (2026-11-15)
 
 ---
 

@@ -68,6 +68,8 @@ CLIP_STEP = 19
 LABEL_SCRIPT = "jezric_talea_label.js"
 DISPLAY_SCRIPT = "jezric_talea_display.js"  # the display's pages and rows, read by the script too
 DIAGRAM_SCRIPT = "jezric_talea_diagram.js"  # [v8ui]: the display's diagrams
+GEAR_SVG = "jezric_talea_gear.svg"  # the DEVICE page's tab, right of the page tabs
+GEAR_W = 22
 CELL = 29          # a track select button's width
 DISPLAY_X = 560    # the display's place: 8 px right of the sections and tabs
 DISPLAY_W = 470
@@ -534,7 +536,7 @@ def brain():
     # sends "pad i bang", after "padMods shift ctrl alt" from [modifiers] (polled by the press:
     # [t l b] fires right to left, and [modifiers] its outlets too, so [pack]'s hot inlet,
     # Shift, comes last).
-    panel_out = p.obj("route pad page follow mode apply rec ovd copy paste clear pasteactive trk", [1500, 400, 380, 22], 1, 13)
+    panel_out = p.obj("route pad page follow mode apply rec ovd copy paste clear pasteactive trk temp", [1500, 400, 400, 22], 1, 14)
     press_t = p.obj("t l b", [1500, 600, 40, 22], 1, 2)
     mods = p.obj("modifiers", [1560, 630, 70, 22], 1, 5, ["int", "int", "int", "int", "int"])
     modpack = p.obj("pack 0 0 0", [1560, 660, 70, 22], 3, 1)
@@ -733,7 +735,8 @@ def brain():
     topage = p.obj("prepend stepPageSelect", [1500, 640, 130, 22])
     p.connect(page, topage)
     p.connect(topage, script)
-    follow = p.param("live.text", [1640, 600, 48, 16], [COL_X, FOLLOW_Y, COL_W, 16], "Follow", 2,
+    half = (COL_W - 2) / 2  # Follow and TEMP side by side, as REC and OVD
+    follow = p.param("live.text", [1640, 600, 48, 16], [COL_X, FOLLOW_Y, half, 16], "Follow", 2,
                      enum=["off", "on"], initial=1, outlets=2, outlettype=["", ""], hidden=True,
                      mode=1, text="Follow", texton="Follow")
     setfollow = p.obj("prepend set", [1640, 580, 70, 22])
@@ -742,6 +745,24 @@ def brain():
     tofollow = p.obj("prepend followSelect", [1640, 640, 120, 22])
     p.connect(follow, tofollow)
     p.connect(tofollow, script)
+    # TEMP (Rack's Temp), right of Follow: a parameter, so a controller or automation can
+    # hold it (Rack's Temp gate). The script sets it ("temp 0/1" from outlet 5; off as the
+    # set loads). A click goes through [modifiers] as a pad press does: Ctrl+click off keeps
+    # the changes.
+    temp = p.param("live.text", [1780, 600, 48, 16], [COL_X + half + 2, FOLLOW_Y, half, 16], "Temp", 2,
+                   enum=["off", "on"], initial=0, outlets=2, outlettype=["", ""],
+                   mode=1, text="TEMP", texton="TEMP")
+    # A frame over TEMP, blinking while a revert waits for TEMP OFF's boundary (shown by the
+    # script; clicks go through).
+    p.box("panel", [1840, 600, 30, 16], None, 1, 0, None, [COL_X + half + 2, FOLLOW_Y, half, 16],
+          varname="d_tempwait", hidden=1, ignoreclick=1, background=0, border=2, rounded=0,
+          bgcolor=[0.0, 0.0, 0.0, 0.0], bordercolor=[1.0, 0.84, 0.23, 1.0])
+    settemp = p.obj("prepend set", [1780, 580, 70, 22])
+    p.connect(panel_out, settemp, 12)
+    p.connect(settemp, temp)
+    totemp = p.obj("prepend tempSelect", [1780, 640, 120, 22])
+    p.connect(temp, totemp)
+    p.connect(totemp, press_t)
 
     display(p, trig, script)
 
@@ -810,17 +831,44 @@ def display(p, trig, script):
         targets.append(setl)
         return bid
 
-    # The page tabs: not stored (the script sets them).
-    pages = p.param("live.tab", [2000, 120, 400, 16], [DISPLAY_X, TRACKS_Y, DISPLAY_W, TRACKS_H], "Display page", 2,
+    # The page tabs: not stored (the script sets them). Then the gear tab (the DEVICE page).
+    # While DEVICE shows, the same tabs in button mode take their place (a live.tab can't
+    # show no choice), and the gear's two looks are two tabs: one in button mode (not
+    # chosen), one with its one choice chosen. The script shows the ones for the page.
+    pages_w = DISPLAY_W - GEAR_W - 2
+    pages = p.param("live.tab", [2000, 120, 400, 16], [DISPLAY_X, TRACKS_Y, pages_w, TRACKS_H], "Display page", 2,
                     enum=spec["pages"], outlets=3, outlettype=["", "", "float"], hidden=True,
                     fontsize=8.0, varname="d_pages")
     setpages = p.obj("prepend set", [2000, 100, 70, 22])
     p.connect(setpages, pages)
     names.append("d_pages")
     targets.append(setpages)
+    pagesb = p.param("live.tab", [2000, 150, 400, 16], [DISPLAY_X, TRACKS_Y, pages_w, TRACKS_H], "Display page b", 2,
+                     enum=spec["pages"], outlets=3, outlettype=["", "", "float"], hidden=True,
+                     fontsize=8.0, varname="d_pagesb", button=1)
+    p.boxes[-1]["box"]["hidden"] = 1
+    topagesb = p.obj("prepend displayPage", [2000, 180, 120, 22])
+    p.connect(pagesb, topagesb)
+    p.connect(topagesb, script)
+    # The gear: a live.text in toggle mode (square, as the tabs; its colours are a tab's by
+    # default), its picture tinted with its text colour. Two of them, an unchosen look and a
+    # chosen one (each the same set or not), the script showing one: a one-choice live.tab
+    # showed a blank second tab in Live.
+    looks = (("live_control_bg", "live_control_fg_off"), ("live_control_selection", "live_control_fg_on"))
+    for k, (bg, fg) in enumerate(looks):
+        attrs = {"activebgcolor": bg, "activebgoncolor": bg, "activetextcolor": fg, "activetextoncolor": fg}
+        gear = p.box("live.text", [2420 + k * 40, 120, 30, 16], None, 1, 2, ["", ""],
+                     [DISPLAY_X + pages_w + 2, TRACKS_Y, GEAR_W, TRACKS_H], parameter_enable=0, mode=1,
+                     usepicture=1, pictures=[GEAR_SVG, GEAR_SVG], remapsvgcolors=1, usesvgviewbox=1,
+                     varname="d_gear" + ("_on" if k else ""), hidden=k,
+                     saved_attribute_attributes={a: {"expression": f"themecolor.{c}"} for a, c in attrs.items()})
+        p.boxes[-1]["box"]["text"] = "DEVICE"
+        togear = p.obj("prepend gearSelect", [2420 + k * 40, 150, 100, 22])
+        p.connect(gear, togear)
+        p.connect(togear, script)
     # A blue frame over the RANDOM tab while the edit track has a random amount (the
     # dials' value arc colour); clicks go through to the tab. Shown by the script.
-    tab_w = DISPLAY_W / len(spec["pages"])
+    tab_w = pages_w / len(spec["pages"])
     p.box("panel", [2200, 120, 40, 18], None, 1, 0, None,
           [DISPLAY_X + spec["pages"].index("RANDOM") * tab_w, TRACKS_Y, tab_w, TRACKS_H],
           varname="d_rndmark", hidden=1, ignoreclick=1, background=0, border=1, rounded=0,
@@ -844,6 +892,26 @@ def display(p, trig, script):
     p.box("live.comment", [2100, 120, 100, 18], "Not in this version yet", 1, 0, None,
           [DISPLAY_X + 10, DISPLAY_ROW_Y, 200, 18], varname="d_soon", hidden=1, fontsize=9.0,
           textcolor=[0.7, 0.7, 0.7, 1.0], saved_attribute_attributes={"textcolor": lcd("live_lcd_title")})
+
+    # A display toggle's two looks, as the display's tabs: off, the LCD's background with its
+    # control colour for the text and border; on, reversed. Colours are fallbacks; Live's
+    # theme colours replace them.
+    def toggle_look(on):
+        orange = ([1.0, 0.63, 0.2, 1.0], "live_lcd_control_fg")
+        black = ([0.08, 0.08, 0.09, 1.0], "live_lcd_bg")
+        bg, fg = (orange, black) if on else (black, orange)
+        attrs = {}
+        for k in ("bgcolor", "activebgcolor", "bgoncolor", "activebgoncolor"):
+            attrs[k] = bg
+        for k in ("textcolor", "activetextcolor", "textoncolor", "activetextoncolor"):
+            attrs[k] = fg
+        attrs["bordercolor"] = orange
+        out = {k: list(v[0]) for k, v in attrs.items()}
+        # Toggle mode (mode 1), drawn square in Live as the transport's On and Follow (a
+        # mode 0 button is drawn rounded); each look's on and off colours are the same, so
+        # its own state never shows.
+        out["saved_attribute_attributes"] = {k: lcd(v[1]) for k, v in attrs.items()}
+        return out
 
     n = 0
     cx = DISPLAY_X + 8 + DISPLAY_LABEL_W
@@ -874,9 +942,25 @@ def display(p, trig, script):
                 p.connect(toscript, script)
                 n += 1
                 continue
+            if kind == "toggle":
+                # An on/off button: two buttons in one place, "d_<name>" (off) and
+                # "d_<name>_on" (on); the script shows the one for the state. A click on
+                # either sends "disp <name> 0/1" and the script flips the setting. (A
+                # live.text toggle in Live kept its off look when set on.)
+                toscript = p.obj(f"prepend disp {name}", [x, 320, 90, 22])
+                p.connect(toscript, script)
+                for k, suffix in enumerate(["", "_on"]):
+                    ctl = p.box("live.text", [x + k * 45, 260, 40, 16], None, 1, 2, ["", ""], rect,
+                                varname=f"d_{name}{suffix}", parameter_enable=0, mode=1, texton=row["text"],
+                                **toggle_look(k == 1))
+                    p.boxes[-1]["box"]["text"] = row["text"]
+                    p.boxes[-1]["box"]["hidden"] = 1
+                    p.connect(ctl, toscript)
+                n += 1
+                continue
             if kind == "text":  # a line the script writes ("d_<name> text")
                 ctl = p.box("live.comment", [x, 260, 200, 18], "", 1, 0, None, rect, varname="d_" + name,
-                            fontsize=9.0, textcolor=[0.85, 0.85, 0.85, 1.0],
+                            ignoreclick=1, fontsize=9.0, textcolor=[0.85, 0.85, 0.85, 1.0],
                             saved_attribute_attributes={"textcolor": lcd("live_lcd_control_fg")})
                 p.boxes[-1]["box"]["hidden"] = 1
                 setc = p.obj("prepend set", [x, 230, 70, 22])
@@ -966,11 +1050,11 @@ def display(p, trig, script):
     names.append("d_board")
     targets.append(board)
     # Their clicks: "grid col level", "key note", "scale pc", "lane l step value",
-    # "laneclear l step", "stepsel step add".
-    clicks = p.obj("route grid key scale lane laneclear stepsel", [2000, 530, 230, 22], 1, 7)
+    # "laneclear l step", "stepsel step add", "cyclesel c".
+    clicks = p.obj("route grid key scale lane laneclear stepsel cyclesel", [2000, 530, 260, 22], 1, 8)
     p.connect(diagram, clicks)
     p.connect(board, clicks)
-    for i, sel in enumerate(["phraseGrid", "poolKey", "scaleKey", "lane", "laneClear", "lockStepClick"]):
+    for i, sel in enumerate(["phraseGrid", "poolKey", "scaleKey", "lane", "laneClear", "lockStepClick", "cycleLaneClick"]):
         to = p.obj(f"prepend {sel}", [2000 + i * 110, 560, 100, 22])
         p.connect(clicks, to, i)
         p.connect(to, script)
@@ -982,9 +1066,9 @@ def display(p, trig, script):
     p.connect(dcolors, diagram)
     p.connect(dcolors, board)
 
-    # SETUP's other rows: the device's own controls, after the page's (the script shows
-    # them with SETUP: spec "extras").
-    setup_rows = 1 + max(row.get("row", r) for r, row in enumerate(spec["views"]["SETUP"]))
+    # DEVICE's other rows: the device's own controls, after the page's (the script shows
+    # them with DEVICE).
+    setup_rows = 1 + max(row.get("row", r) for r, row in enumerate(spec["views"]["DEVICE"]))
     base = DISPLAY_ROW_Y + setup_rows * DISPLAY_ROW_H + 2
     label("instance", "INSTANCE", [DISPLAY_X + 8, base, DISPLAY_LABEL_W - 4, 16], 1300)
     inst = p.param("live.menu", [600, 440, 60, 15], [cx, base, 50, 16], "Instance", 2,
@@ -1030,7 +1114,7 @@ def main(out):
         print("wrote", out / f"{name}.amxd")
     for src, dst in ((HERE / SCRIPT, SCRIPT), (HERE / "jezric_talea_core.js", "jezric_talea_core.js"),
                      (HERE / LABEL_SCRIPT, LABEL_SCRIPT), (HERE / DISPLAY_SCRIPT, DISPLAY_SCRIPT),
-                     (HERE / DIAGRAM_SCRIPT, DIAGRAM_SCRIPT),
+                     (HERE / DIAGRAM_SCRIPT, DIAGRAM_SCRIPT), (HERE / GEAR_SVG, GEAR_SVG),
                      (ENGINE, "jezric_talea_engine.js")):
         shutil.copyfile(src, out / dst)
         print("copied", out / dst)

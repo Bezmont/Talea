@@ -101,7 +101,13 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
     selection. In Cycle edit locks go to the edited cycle, over the track's. Orange is a hit, white the playing step, dark past Length. The **step page**
     tabs 1-4 in the left column show steps 1-16 ... 49-64 (a page past the track's Steps
     doesn't take); **Follow** moves the page with the playing step, and choosing a page
-    turns it off, as on Rack.
+    turns it off, as on Rack. **TEMP**, right of Follow, is Rack's Temp: while it's on every
+    pattern edit is temporary; clicking it off reverts them, Ctrl+click off keeps them.
+    Mutes are never reverted (mutes staged meanwhile apply as it ends), the pattern stored
+    with the set never has Temp's changes, and a pattern switch (or Live's undo, or a paste
+    onto the playing slot) ends it, reverting. A Live parameter, so a controller button or
+    automation can hold it, as Rack's Temp gate; its stored value is ignored as the set
+    loads (Temp starts off).
   - **Mute**: a pad per track. A click stages a change (the pad blinks slowly);
     the **A** (Apply) button right of the menu, shown only while changes are staged, or
     choosing Mute again in the menu, commits them for the next mute boundary (blinking
@@ -149,6 +155,12 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
   edit track and takes their edits on the next 16th, like a dial's. Built so far:
   - **TRACK**: the info line (steps, pulses, rotate, division, length; how many steps play
     when Length cuts the loop) and the track's steps, 16 to a row, lit as the pads are.
+    With several cycles, Rack's cycle lanes instead: the step page as a row for what the
+    pads edit (TRACK, or EDIT n in red in Cycle edit), then a lane per cycle with the same
+    steps as that cycle plays them (C2* plays differently; white while playing, blue-grey
+    and dimmed while muted, the selected one boxed). In Cycle edit a lane's label edits
+    that cycle; the steps take no clicks. More than 16 steps: PAGE (the step page the pads
+    edit) and a FOLLOW toggle, the same as the transport's, at the right of the top line.
     Rack's clock and tempo aren't here.
   - **LOCKS** (Rack's STEP page: its step locks): SELECT (NONE, PAGE: the step page's
     steps, CLEAR LOCKS on the selected steps) and, with more than 16 steps, the step pages
@@ -156,7 +168,9 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
     step page as a row (STEPS, or CYCLE n in Cycle edit: a click there selects a step,
     Ctrl+click adds or removes one) and a lane per locked parameter
     (up to 6), each step's lock as a bar. Click or drag in a lane sets a step's lock (a
-    drag keeps to its lane), Ctrl+click removes it. A lockable dial turned with steps
+    drag keeps to its lane), Ctrl+click removes it. Steps with their own pool (KEYS) are
+    marked in blue on a last lane, POOL, which takes no clicks: the pool is edited on KEYS
+    and removed with TRACK POOL there. A lockable dial turned with steps
     selected shows LOCKS. With more than 6 parameters locked, LANES (1-6, 7-12, 13) picks
     the group shown; a dial's lock shows its group. While steps are selected the LOCKS tab's
     blue frame blinks.
@@ -168,12 +182,20 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
     cycle (a panel per choice, shown by the script). **EDIT** on: the dials and the step pads edit the selected
     cycle (a dial overrides its value there; a step pad gives it step edits of its own),
     that cycle plays alone, TRACK shows it, and the CYCLE tab's red frame blinks on every
-    page.
-    The other pages still edit the track: a cycle's own scale, pool, random amounts and
-    locks aren't here yet, nor Rack's lanes of every cycle on TRACK.
+    page. LOCKS edits the cycle's own locks; SCALE, KEYS and PHRASE its own scale, root,
+    pool and phrase (one copy of all four, made from the track's on the first edit); RANDOM
+    its own amounts (Variance, Rate, Slew, Lock and the buttons stay the track's; CLEAR
+    there makes the cycle's amounts 0). The other pages edit the track, and a group's
+    other tracks stay at track level. CLEAR then also lists LOCKS, SCALE (scale, pool and
+    phrase), SEQ, MODE and the random amounts ("R.PITCH"), as Rack's.
   - **KEYS**: the note pool on a 4-octave keyboard (OCTAVE < > moves it, from C2 at first):
     a click adds a note or takes it out, keys outside the scale are greyed (a pool note
-    stays clickable), the root is marked, a note lights as it starts.
+    stays clickable), the root is marked, a note lights as it starts. With steps selected
+    for locks (Ctrl+click on the step pads, EUCLID mode) the keys edit the steps' own pool
+    instead, a pool lock starting from the track's (the edited cycle's lock in Cycle edit):
+    shown in blue, the first selected step's; TRACK POOL takes it away. Pitch, Voicing,
+    Random and the step's other locks still apply to it, as to the track's pool. In SEQ mode
+    the keys edit the selected step's chord instead (REST: a rest).
   - **SCALE**: scale (a menu) and root, and the scale's notes on one octave: a click adds
     or removes one, making the scale the User scale (as on Rack).
   - **PHRASE**: shape, bars or loops, sync. Rack's CV input shape isn't here.
@@ -186,15 +208,30 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
     Steps, Division, Length) has its amount (-100..100 %) and R/C: a new value per Random
     Rate tick or per cycle loop. Then Variance, Rate, Slew, Lock (locks the sequences where
     they are now), and REGEN, PHASE -/+, PROB -/+ and CLEAR ALL.
-  - **PATTERN**: Play (queues, as a pattern pad), Copy to, Clear, Switch timing. A slot
+  - **PATTERN**: Play (queues, as a pattern pad), Copy to, Clear, Switch timing. While
+    Temp is on COPY TO reads TEMP TO: it copies the pattern as it plays, Temp's changes
+    included, and onto the playing slot it keeps them (Temp ends). COPY on a Pattern pad
+    copies it as it plays too. A slot
     holding a pattern reads "3*" in all three rows: the script renames the choices
     (`_parameter_range`), and ignores what a row sends within 100 ms of a rename, in case
     Live echoes it as a click.
+  - **DEVICE** (the gear right of the page tabs): the device's own settings, for every
+    track. TEMP OFF (NOW / BEAT / BAR / PATTERN, default BAR): while playing, clicking TEMP
+    off waits for that boundary (BAR: the next bar line, PATTERN: the end of the pattern's
+    loop, as the switch timing) before reverting, TEMP unlit with a yellow frame blinking;
+    a click meanwhile cancels the revert (Temp stays on), Ctrl+click keeps the changes at
+    once. Keeping, turning Temp on and reverting while stopped are at once; stopping
+    reverts a waiting revert at once. Stored with the set (the bank's "ui"). Then the
+    Instance, Look-ahead and status line. While DEVICE shows, the gear is lit and the page
+    tabs show no page (a button-mode copy of them takes their place: a live.tab can't show
+    no choice). The gear is a live.text toggle (square and coloured as a tab) with an SVG
+    picture (`jezric_talea_gear.svg`, tinted with its text colour), as Live's fonts have no
+    gear; two of them, unlit and lit, the script showing one (a one-choice live.tab showed a
+    blank second tab).
   - **SETUP**: Type (note or CC), CHANNEL (1-16: the receivers of that channel play the
     track; several tracks can share one), CC number (dimmed for a note track), Repeats
     (Choke or Tail: a new pulse cuts the repeats before it, or they overlap), MODE (EUCLID
-    or SEQ; CYC MODE in Cycle edit: the edited cycle's own), and the device's own Instance,
-    Look-ahead and status line. The channel is a track property, saved in the pattern
+    or SEQ; CYC MODE in Cycle edit: the edited cycle's own). The channel is a track property, saved in the pattern
     (`Track::channel`; a track on its own number is stored as "its own", so a copy of it
     on another track plays on that track's channel). Rack keeps a MIDI channel per track on
     the module instead, and its MIDI clock isn't here. Off is Mute: a track's mute is saved

@@ -38,6 +38,7 @@ EXPORTS = [
     "get_cycle_param", "set_cycle_param", "cycle_clear", "toggle_cycle_step", "cycle_hits_low",
     "cycle_hits_high", "cycle_steps", "cycle_played_steps", "set_solo_cycle", "cycle_at", "cycle_info",
     "unrotated", "lock_get", "lock_set", "lock_clear", "locks_used", "locks_at", "lockable",
+    "step_pool_size", "step_pool_note", "step_pool_key", "step_pool_copy", "step_pool_clear", "pools_used",
     "seq_mode", "set_seq_mode", "seq_step", "seq_toggle_note", "seq_copy_chord", "seq_clear", "seq_set",
     "snap_note", "rec_overdub", "rec_release", "rec_set_cursor", "rec_cursor", "rec_live_on", "rec_live_off",
     "rec_step_on", "rec_step_off",
@@ -46,7 +47,7 @@ EXPORTS = [
     "clip_copy_track", "clip_paste_track", "clip_clear_track", "clip_copy_cycle", "clip_paste_cycle",
     "clip_clear_cycle", "clip_paste_cycle_param", "clip_copy_pattern", "clip_paste_pattern",
     "clip_copy_step", "clip_paste_step", "clip_clear_step",
-    "clip_paste_tracks_to_slot", "track_used",
+    "clip_paste_tracks_to_slot", "track_used", "temp", "next_boundary",
 ]
 
 
