@@ -216,15 +216,18 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
     (`_parameter_range`), and ignores what a row sends within 100 ms of a rename, in case
     Live echoes it as a click.
   - **DEVICE** (the gear right of the page tabs): the device's own settings, for every
-    track. TEMP OFF (NOW / BEAT / BAR / PATTERN, default BAR): while playing, clicking TEMP
+    track. PAGE LOCK (ON by default): a dial turned leaves the page as it is (OFF: it
+    shows its page). PAGE SYNC (ON by default): the device and the floating window show the
+    same page; OFF, each its own (a tab, the gear or a dial in one moves that one only).
+    Turned ON in one, the other takes its page (the gear page, where the setting is). Both stored with the set (the bank's "ui").
+    TEMP OFF (NOW / BEAT / BAR / PATTERN, default BAR): while playing, clicking TEMP
     off waits for that boundary (BAR: the next bar line, PATTERN: the end of the pattern's
     loop, as the switch timing) before reverting, TEMP unlit with a yellow frame blinking;
     a click meanwhile cancels the revert (Temp stays on), Ctrl+click keeps the changes at
     once. Keeping, turning Temp on and reverting while stopped are at once; stopping
     reverts a waiting revert at once. Stored with the set (the bank's "ui"). Then the
-    Instance, Look-ahead and status line. While DEVICE shows, the gear is lit and the page
-    tabs show no page (a button-mode copy of them takes their place: a live.tab can't show
-    no choice). The gear is a live.text toggle (square and coloured as a tab) with an SVG
+    Instance, Look-ahead and status line. While DEVICE shows, the gear is lit and no page
+    tab is. The gear is a live.text toggle (square and coloured as a tab) with an SVG
     picture (`jezric_talea_gear.svg`, tinted with its text colour), as Live's fonts have no
     gear; two of them, unlit and lit, the script showing one (a one-choice live.tab showed a
     blank second tab).
@@ -291,10 +294,59 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
     `Engine::songTimeline` (Rack keeps its own way: the song starts where it's turned on and
     resumes at the bar it left). The song and SONG on are saved in the bank, as Rack saves
     them with the module.
-  - Turning a dial shows its page, as Rack's "display follows knobs": the shape dials
+  - With DEVICE's PAGE LOCK off, turning a dial shows its page, as Rack's "display follows
+    knobs" (on, the default, the page stays as the user left it): the shape dials
     TRACK, the repeat dials SETUP (Choke / Tail), the groove dials GROOVE, Pitch SCALE, Voicing VOICING,
     Range PHRASE (`dialPages` in the spec). In Mute mode the Mute view stays.
   The mute and switch timings are saved in the bank, as Rack saves them.
+- **The floating window** must stay in step with the device: every UI change goes to both
+  copies (both built by `panel()` and `display()`), and where they differ (KEYS, the
+  keyboard row, the display's width, the window button) it's on purpose and noted here.
+- **The floating window** (the window button right of On, before the TRK label; a
+  picture, `jezric_talea_window.svg`; a toggle, lit while the window is open, and a Stored
+  Only parameter, so the window opens with the set only if it was open; the window's own
+  button or its close box closes it, `[closebang]` turning the buttons off): a copy of the whole panel in a window of its own,
+  floating over Live, so it stays when another track is chosen. Stacked: the track
+  buttons, left column, dials and pads on top, the display under them at the panel's width
+  (rows marked `"anchor": "right"` in the spec keep to the right edge), and a keyboard at
+  the bottom, always there: KEYS' keys over 5 octaves, clicked as KEYS' are, with a row
+  over it: < and > (an octave down or up, saved with the set) and the range, KEYS' help
+  line, REST and TRACK POOL. So the window's tabs leave KEYS out (their own numbering),
+  and while the device shows KEYS the window stays on the page it had: the
+  script draws the window's display for its own view, to outlet 7 (`---talea_win_out6`),
+  its controls' state kept apart; what both copies have (the pad lock bars, TEMP's frame,
+  the gear, Instance, Ahead) goes to both. The
+  device's window button opens and closes it, the window's closes it.
+  Live's Zoom doesn't reach a Max window (and a device can't read it), so DEVICE's
+  **WINDOW** (100-200%, saved with the set) sizes it up: the script scales
+  the window's controls itself: each one's place, size and font size times the factor,
+  the drawings told their scale (`scale z`: they draw and take clicks in their 100%
+  coordinates), the window sized to fit, its clicks scaled back. Max's own zoom (the
+  patcher's `zoomfactor`) scales the view about its middle, the controls sliding past the
+  window's top and left edges, and nothing scrolls a view back, so it isn't used. A size
+  is reached a step at a time (each WINDOW size between, 50 ms apart): straight from 100%
+  to 175% or 200% the dials and RANDOM's rows landed too far apart. A control's hidden
+  state is put back after it's moved, and once the size is reached every control of the
+  window's display is hidden and its page's shown again (Max showed some hidden ones a
+  while after moving them). A step chain that stops on an error doesn't block the next.
+  How: `build.py` builds the panel and display a second time into a subpatcher (`[p
+  window]`, `window()`), its parameters Hidden copies ("Win ..."), so mapping, automation
+  and the set keep the device's. Its controls reach the script through device-local sends
+  (`---talea_win_in`, as "fromWin <message>", handled as the device's), and the script's
+  outlets reach it as they reach the device (`---talea_win_out<n>`); On, Instance and
+  Ahead, which the device doesn't get from the script otherwise, are sent for both copies.
+  Both `[mousestate]`s see every click: only the one in front (the window's `[active]`)
+  takes it, each with its own dial and pad places.
+
+- **Info View**: every control has Live Info View text (title and text), on the device
+  and in the window alike, all in `device/jezric_talea_info.js` (adapted from the Rack
+  module's tooltips, `src/rack/Tooltips.hpp`). `build.py` puts it on the controls by
+  scripting name (`annotate()`, for both copies; a display row without text stops the
+  build); the boards and the diagram band get theirs from the script as their page
+  changes (`setBoxInfo`). The page tabs are a button per page, not a live.tab: Live
+  reads a control's Info View text as the mouse enters it, so one live.tab couldn't show
+  each tab's own (`pageTabs`). Each is two live.text toggles in one place, unlit and lit
+  in Live's tab colours (as the gear), the script showing one ("d_tab<i>", "d_tab<i>_on").
 
 ## Edits
 
@@ -351,7 +403,11 @@ still works. Edits not yet taken give way to it.
 **The dials are Hidden parameters:** not saved, automated or undone themselves. Their
 values are the pattern's and the script sets them from it. As stored parameters, setting
 them at load marked the set as changed, and each turn was an undo step of its own. The
-Edit track menu, Instance and Look-ahead are stored as usual.
+Edit track menu, Instance and Look-ahead are stored as usual. The script never sets a
+stored parameter of the device's as the set loads (that marks the set changed too): the
+floating window's copies of On, the window button, TEMP, Instance and Ahead are Hidden and
+set on their own ("won", "wwin", "wtemp", outlet 7's "d_instance" ...); the device's own
+only for a change made in the window, and TEMP's only when it shows otherwise.
 
 ## Messages and debugging
 

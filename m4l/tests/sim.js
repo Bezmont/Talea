@@ -94,6 +94,14 @@ World.prototype.device = function (role, trackNo, saved, restoreAfterInit, noTes
 				else if (a[0] === "apply") d.apply = a[1];
 				else if (a[0] === "rec") d.rec = a[1];
 				else if (a[0] === "temp") d.temp = a[1];
+				else if (a[0] === "wtemp") d.wtemp = a[1];
+				else if (a[0] === "onstate") d.onstate = a[1];
+				else if (a[0] === "win") d.win = a[1];
+				else if (a[0] === "winstate") d.winstate = a[1];
+				else if (a[0] === "won") d.won = a[1];
+				else if (a[0] === "wwin") d.wwin = a[1];
+				else if (/^(dshow|dhide)$/.test(a[0])) (d.dshown = d.dshown || {})[a[1]] = a[0] === "dshow";
+				else if (/^(wshow|whide)$/.test(a[0])) (d.wshown = d.wshown || {})[a[1]] = a[0] === "wshow";
 				else if (/^(copy|paste|clear|pasteactive)$/.test(a[0])) (d.clipBtn = d.clipBtn || {})[a[0]] = a[1];
 				else if (a[0] === "trk") (d.trk = d.trk || [])[a[1]] = a.slice(2, 5).join(" ");
 			} else if (n === 6 && role === "brain") {
@@ -104,6 +112,11 @@ World.prototype.device = function (role, trackNo, saved, restoreAfterInit, noTes
 				else if (a[0] === "d_diagram" && a[1] === "play") d.play = a[2];
 				else if (a[0] === "d_diagram") d.diagram = a.slice(1);
 				else d.disp[a[0]] = a.length > 2 || /^dr_/.test(a[0]) ? a.slice(1) : a[1];
+			} else if (n === 7 && role === "brain") {
+				// the floating window's display, drawn for its own view
+				var wd = d.w = d.w || { shown: {}, disp: {} };
+				if (a[0] === "script") wd.shown[a[2]] = a[1] === "show";
+				else if (a[0] !== "d_diagram") wd.disp[a[0]] = a.length > 2 || /^dr_/.test(a[0]) ? a.slice(1) : a[1];
 			}
 		},
 		Math: Math, Date: FakeDate
@@ -224,6 +237,9 @@ function setup(opts) {
 	opts = opts || {};
 	var w = new World(opts);
 	var brain = w.device("brain", 0, opts.saved, opts.restoreAfterInit, opts.noTestPattern);
+	// The tests were written for the display following the dials (PAGE LOCK off); a new
+	// device has PAGE LOCK on (tested on its own).
+	if (!opts.pageLock && brain.ctx) brain.ctx.pageLock = false;
 	var rx = [];
 	for (var t = 1; t <= preset.TRACKS; t++) rx.push(w.device("receiver", t));
 	return { w: w, brain: brain, rx: rx };
@@ -947,8 +963,14 @@ function loadBankStopped(s, bank) {
 // ---- the display ----
 
 // The display's controls shown now (not the tab frames and pad bars, which come and go).
+// The page tab lit (-1: none) on a copy, from its buttons shown ("d_tab<i>_on").
+function tabOf(shown) {
+	for (var i = 0; i < 13; i++) if (shown && shown["d_tab" + i + "_on"]) return i;
+	return -1;
+}
+
 function shownNames(d) {
-	return Object.keys(d.shown).filter(function (k) { return d.shown[k] && !/^d_(padlock|stepmark|cycmark|rndmark|pages|gear|tempwait)/.test(k); }).sort().join(" ");
+	return Object.keys(d.shown).filter(function (k) { return d.shown[k] && !/^d_(padlock|stepmark|cycmark|rndmark|pages|gear|tempwait|tab\d)/.test(k); }).sort().join(" ");
 }
 
 // Pages: a page shows its rows (or the note for one not built yet), set from the edit
@@ -1051,14 +1073,14 @@ function shownNames(d) {
 (function () {
 	var s = setup(), b = s.brain.ctx, d = s.brain;
 	turn(s.brain, 0, "pace", -20);
-	check("a Repeats dial shows SETUP, where Choke / Tail is (" + d.disp.d_pages + ", " + shownNames(d) + ")",
-		d.disp.d_pages === 11 && / d_repeatTail /.test(" " + shownNames(d) + " ") && !/ d_instance /.test(" " + shownNames(d) + " "));
+	check("a Repeats dial shows SETUP, where Choke / Tail is (" + tabOf(d.shown) + ", " + shownNames(d) + ")",
+		tabOf(d.shown) === 11 && / d_repeatTail /.test(" " + shownNames(d) + " ") && !/ d_instance /.test(" " + shownNames(d) + " "));
 	turn(s.brain, 0, "pitch", 3);
-	check("Pitch shows SCALE (" + d.disp.d_pages + ")", d.disp.d_pages === 4);
+	check("Pitch shows SCALE (" + tabOf(d.shown) + ")", tabOf(d.shown) === 4);
 	b.padModeSelect(1);
 	turn(s.brain, 0, "voicing", 2);
-	check("in Mute mode the Mute view stays (" + shownNames(d) + "), the page moves under it (" + d.disp.d_pages + ")",
-		shownNames(d) === "d_muteCuts d_muteTiming dl_muteCuts dl_muteTiming" && d.disp.d_pages === 6);
+	check("in Mute mode the Mute view stays (" + shownNames(d) + "), the page moves under it (" + tabOf(d.shown) + ")",
+		shownNames(d) === "d_muteCuts d_muteTiming dl_muteCuts dl_muteTiming" && tabOf(d.shown) === 6);
 	b.padModeSelect(0);
 	check("leaving Mute mode: VOICING (" + shownNames(d) + ")", /d_style/.test(shownNames(d)));
 	done(s);
@@ -1527,8 +1549,8 @@ function shownNames(d) {
 		", step 3 " + b.stepper.lockGet(0, -1, 2, "velocity") + "; track " + b.stepper.getParam(0, "velocity") + ")",
 		b.stepper.lockGet(0, -1, 1, "velocity") === 30 && b.stepper.lockGet(0, -1, 4, "velocity") === 30 &&
 		b.stepper.lockGet(0, -1, 2, "velocity") === null && b.stepper.getParam(0, "velocity") !== 30);
-	check("the dial shows the lock, the display LOCKS (" + d.dials.velocity + ", page " + d.disp.d_pages + ", " + shownNames(d) + ")",
-		d.dials.velocity === 30 && d.disp.d_pages === 1 && shownNames(d) === "d_board d_lockSelect dl_lockSelect");
+	check("the dial shows the lock, the display LOCKS (" + d.dials.velocity + ", page " + tabOf(d.shown) + ", " + shownNames(d) + ")",
+		d.dials.velocity === 30 && tabOf(d.shown) === 1 && shownNames(d) === "d_board d_lockSelect dl_lockSelect");
 	var bd = d.disp.d_board;
 	check("LOCKS: a VEL lane, the locked steps' bars (" + bd.slice(0, 2).join(" ") + " ... " + bd.slice(19, 26).join(" ") + ")",
 		bd[0] === "lanes" && bd[1] === "STEPS" && bd[19] === 1 && bd[20] === "VEL" && bd[23] === "x" && bd[24] === 30 && bd[27] === 30);
@@ -2112,28 +2134,188 @@ function songCells(d) {
 	done(s);
 })();
 
+// The floating window: its controls arrive as "fromWin ..." and act as the device's; its
+// clicks use its own geometry and only count while it's in front; On, Instance and Ahead
+// are set on both copies; its keyboard is KEYS' keys; open or not is saved with the set.
+(function () {
+	var s = setup(), b = s.brain.ctx, d = s.brain, st = b.stepper;
+	check("at load: On, Instance and Ahead set on the window's copies, not the device's (stored: the set would look changed) (" +
+		d.won + ", " + d.w.disp.d_instance + ", " + d.w.disp.d_lookahead + "; " + d.onstate + " " + d.disp.d_instance + " " + d.winstate + ")",
+		d.won === 1 && d.w.disp.d_instance === 0 && d.w.disp.d_lookahead === 4 && d.onstate === undefined &&
+		d.disp.d_instance === undefined && d.disp.d_lookahead === undefined && d.winstate === undefined && d.wwin === 0 && d.win === undefined);
+	b.winSelect(1);
+	check("the device's window button on: the window opens, both buttons lit, its keyboard drawn (" + d.win + ", " + (d.w.disp.d_kbd || []).slice(0, 4).join(" ") + ")",
+		d.wwin === 1 && d.winstate === undefined &&
+		d.win === "open" && b.winOpen && d.w.disp.d_kbd[0] === "keys" && d.w.disp.d_kbd[2] === 36 && d.w.disp.d_kbd[3] === 5 && d.w.disp.d_krange === "C2 - B6");
+	b.fromWin("param", "pulses", 3);
+	check("a dial in the window edits as the device's (" + st.getParam(0, "pulses") + ", the dials " + d.dials.pulses + ")",
+		st.getParam(0, "pulses") === 3 && d.dials.pulses === 3);
+	b.fromWin("enable", 0);
+	check("On in the window: off, both copies (" + d.onstate + ", " + d.won + ")", d.onstate === 0 && d.won === 0);
+	b.fromWin("enable", 1);
+	b.fromWin("lookahead", 6);
+	check("Ahead in the window: both copies (" + d.disp.d_lookahead + ", " + d.w.disp.d_lookahead + ")", d.disp.d_lookahead === 6 && d.w.disp.d_lookahead === 6 && b.lookaheadSteps === 6);
+	// Each copy's dials where they are: a COPY click on the window's Pulses dial.
+	b.dialGeometry("pulses", 104, 27, 44, 48);
+	b.fromWin("dialGeometry", "velocity", 104, 27, 44, 48);
+	b.clipSelect(0, 1);
+	b.fromWin("winActive", 1);
+	b.leftClick(120, 50); // the device's mousestate sees the click too: not in front, ignored
+	check("the window in front: the device's click ignored (" + b.armed + ")", b.armed === "copy");
+	b.fromWin("leftClick", 120, 50);
+	check("the window's click: its own dial (velocity) copied (" + b.clipInfo() + ")", b.armed === null && /VEL /.test(b.clipInfo()));
+	b.fromWin("winActive", 0);
+	b.clipSelect(0, 1);
+	b.fromWin("leftClick", 120, 50);
+	check("the window not in front: its click ignored", b.armed === "copy");
+	b.leftClick(120, 50);
+	check("the device's click: its dial (pulses)", b.armed === null && /PULSE/.test(b.clipInfo()));
+	// The keyboard follows the pool; its click is KEYS'.
+	b.fromWin("poolKey", 64);
+	check("a key on the window's keyboard: the pool (" + st.pool(0) + ")", st.pool(0).indexOf(64) >= 0 && d.w.disp.d_kbd.join(" ").indexOf(" 64 ") >= 0);
+	// The window's tabs leave KEYS out: their own numbering, KEYS shows none of them.
+	b.displayPage(4);
+	check("SCALE: the window's tab 4 of its 11 (" + tabOf(d.w.shown) + ")", tabOf(d.w.shown) === 3 && tabOf(d.w.shown) >= 0 && tabOf(d.w.shown) !== -1);
+	b.displayPage(3);
+	check("KEYS on the device: the window stays on SCALE, its tab chosen (" + tabOf(d.w.shown) + ", " + d.w.shown.d_scale + " " + d.shown.d_scale + ")",
+		tabOf(d.w.shown) === 3 && tabOf(d.w.shown) >= 0 && d.w.shown.d_scale === true && d.shown.d_scale === false && d.shown.d_keysHelp === true && !d.w.shown.d_keysHelp);
+	b.fromWin("disp", "scale", 2);
+	check("a SCALE click in the window while the device shows KEYS (" + st.getField(0, "scale") + ")", st.getField(0, "scale") === 2);
+	b.fromWin("kbdOctaveMove", 1);
+	check("the keyboard's > : C3 - B7 (" + d.w.disp.d_krange + ")", d.w.disp.d_krange === "C3 - B7" && d.w.disp.d_kbd[2] === 48);
+	b.fromWin("displayPage", 8);
+	check("the window's tab 9 (PATTERN): page 10 (" + b.dispPage + ")", b.dispPage === 9 && tabOf(d.w.shown) >= 0);
+	check("the keyboard's row: KEYS' help line (" + d.w.disp.d_khelp + "), no REST or TRACK POOL",
+		d.w.disp.d_khelp === "CLICK = ADD / REMOVE A POOL NOTE" && !d.wshown.k_rest && !d.wshown.k_pool);
+	b.fromWin("winSelect", 1);
+	check("the window's window button: closed, both buttons unlit (" + d.win + ")", d.win === "close" && !b.winOpen && d.winstate === 0 && d.wwin === 0);
+	b.winSelect(1);
+	b.winSelect(0);
+	check("the device's window button off: closed", d.win === "close" && !b.winOpen && d.wwin === 0);
+	b.winSelect(1);
+	b.fromWin("winClosed");
+	check("the window's close box: both buttons off (" + d.winstate + ")", !b.winOpen && d.winstate === 0 && d.wwin === 0);
+	b.winSelect(1);
+	check("opened again after the close box (" + d.win + ")", b.winOpen && d.win === "open" && d.wwin === 1);
+	b.fromWin("restore", 1);
+	check("only the panel's messages come from the window (restore ignored)", true);
+	done(s);
+})();
+
+// DEVICE's PAGE LOCK (on in a new device: a dial leaves the page) and PAGE SYNC (off: the
+// device and the window each on their own page).
+(function () {
+	var s = setup({ pageLock: true }), b = s.brain.ctx, d = s.brain;
+	b.displayPage(5);
+	turn(s.brain, 0, "pitch", 3);
+	check("PAGE LOCK on (a new device): a dial leaves the page (" + tabOf(d.shown) + ")", b.pageLock && tabOf(d.shown) === 5);
+	b.gearSelect(0);
+	s.w.wait(150);
+	b.disp("pageLock", 0);
+	b.displayPage(5);
+	turn(s.brain, 0, "pitch", 4);
+	check("PAGE LOCK off: a dial shows its page (SCALE: " + tabOf(d.shown) + ")", !b.pageLock && tabOf(d.shown) === 4);
+	b.winSelect(1);
+	b.gearSelect(0);
+	s.w.wait(150);
+	b.disp("pageSync", 0);
+	s.w.wait(600);
+	check("PAGE SYNC off, stored with the set", !b.pageSync && /"pageSync":0/.test(b.savedText) && /"pageLock":0/.test(b.savedText));
+	b.fromWin("displayPage", 6); // the window's GROOVE (its tabs have no KEYS)
+	check("off: a tab in the window moves the window only (device " + (tabOf(d.shown) < 0 ? "gear" : tabOf(d.shown)) + ", window " + tabOf(d.w.shown) + ")",
+		tabOf(d.shown) === -1 && tabOf(d.w.shown) === 6 && d.w.shown.d_grooveLength === true && !d.shown.d_grooveLength);
+	b.displayPage(0);
+	check("off: a tab on the device moves the device only (" + tabOf(d.shown) + ", window " + tabOf(d.w.shown) + ")",
+		tabOf(d.shown) === 0 && tabOf(d.w.shown) === 6 && d.shown.d_trackInfo === true && !d.w.shown.d_trackInfo);
+	b.fromWin("disp", "grooveLength", 2);
+	check("a GROOVE click in the window while the device shows TRACK (" + b.stepper.getField(0, "grooveLength") + ")", b.stepper.getField(0, "grooveLength") === 2);
+	b.fromWin("gearSelect", 0);
+	check("off: the gear in the window: the window only (" + d.w.shown.d_gear_on + " " + d.shown.d_gear_on + ")", d.w.shown.d_gear_on === true && !d.shown.d_gear_on);
+	b.fromWin("disp", "pageSync", 1);
+	check("PAGE SYNC on in the window: the device takes the window's page, the gear (" + tabOf(d.shown) + " " + d.shown.d_gear_on + ")",
+		b.pageSync && b.gearOpen && tabOf(d.shown) === -1 && d.shown.d_gear_on === true && d.w.shown.d_gear_on === true && !d.shown.d_trackInfo);
+	b.disp("pageSync", 0);
+	b.displayPage(0);
+	b.fromWin("displayPage", 6);
+	b.gearSelect(0);
+	b.disp("pageSync", 1);
+	check("PAGE SYNC on on the device: the window takes the device's page, the gear (" + d.w.shown.d_gear_on + ")",
+		b.pageSync && d.w.shown.d_gear_on === true && !d.w.shown.d_grooveLength && tabOf(d.w.shown) === -1);
+	done(s);
+})();
+
+// Info View texts: loaded by the script, one for each board and diagram it draws.
+(function () {
+	var s = setup(), b = s.brain.ctx, I = b.INFO;
+	var boards = ["steps", "cycles", "lanes", "keys"].every(function (k) { return I && I.boards[k] && I.boards[k][1].length > 20; });
+	var diagrams = Object.keys(b.DISPLAY.diagrams).every(function (v) { return I.diagrams[v] && I.diagrams[v][1].length > 20; });
+	check("Info View texts loaded: every board's and diagram's", boards && diagrams);
+	var pages = b.DISPLAY.pages.concat([b.DISPLAY.gear, "MUTE"]).every(function (v) { return I.pageTabs[v] && I.pageTabs[v][1].length > 40; });
+	check("every page has its own text for the tab row", pages);
+	done(s);
+})();
+
+// A set reloaded in a running Live: its pattern comes after init. Taken as the set's (its
+// device settings too: WINDOW, the edit track), not as Live's undo.
+(function () {
+	var s = setup(), b = s.brain.ctx, d = s.brain;
+	b.gearSelect(0);
+	s.w.wait(150);
+	b.disp("winZoom", 4);
+	b.editTrackSelect(3);
+	b.param("pulses", 2);
+	s.w.wait(600);
+	var saved = d.pattr.slice();
+	done(s);
+	var r = setup({ saved: saved, restoreAfterInit: true }), rb = r.brain.ctx;
+	check("a reload's late pattern: the set's, with its settings (WINDOW " + rb.winZoom + ", edit track " + rb.editTrack + ", pulses " + rb.stepper.getParam(3, "pulses") + ")",
+		rb.winZoom === 4 && rb.editTrack === 3 && rb.stepper.getParam(3, "pulses") === 2 && rb.setLoaded);
+	done(r);
+})();
+
+// A "fit" row (CYCLE's CLEAR): as wide as its choices need, never wider than the row.
+(function () {
+	var s = setup(), b = s.brain.ctx;
+	check("CLEAR's width for ALL HITS (" + b.fitWidth(["ALL", "HITS"], 398) + "), for many (" +
+		b.fitWidth(["ALL", "HITS", "LOCKS", "SCALE", "SEQ", "MODE", "PULSE", "R.PULSE"], 398) + ")",
+		b.fitWidth(["ALL", "HITS"], 398) === 72 && b.fitWidth(["ALL", "HITS", "LOCKS", "SCALE", "SEQ", "MODE", "PULSE", "R.PULSE"], 398) === 398);
+	done(s);
+})();
+
 // The gear: the DEVICE page (TEMP OFF, Instance, Ahead, the status line); the page tabs
 // show no page meanwhile. TEMP OFF stored with the set.
 (function () {
 	var s = setup(), b = s.brain.ctx, d = s.brain;
-	check("the gear unlit, the page tabs as they are (" + d.shown.d_gear + " " + d.shown.d_gear_on + " " + d.shown.d_pages + " " + d.shown.d_pagesb + ")",
-		d.shown.d_gear === true && !d.shown.d_gear_on && d.shown.d_pages === true && !d.shown.d_pagesb);
+	check("the gear unlit, the page tabs as they are (" + d.shown.d_gear + " " + d.shown.d_gear_on + " " + tabOf(d.shown) + " " + tabOf(d.shown) + ")",
+		d.shown.d_gear === true && !d.shown.d_gear_on && tabOf(d.shown) >= 0 && tabOf(d.shown) !== -1);
 	b.gearSelect(0);
 	check("the gear: DEVICE's rows, the gear lit, no page tab chosen (" + shownNames(d) + ")",
-		shownNames(d) === "d_instance d_lookahead d_status d_tempTiming dl_instance dl_lookahead dl_tempTiming"
-		&& d.shown.d_gear === false && d.shown.d_gear_on === true && d.shown.d_pages === false && d.shown.d_pagesb === true
+		shownNames(d) === "d_instance d_lookahead d_pageLock d_pageSync d_status d_tempTiming d_winZoom dl_instance dl_lookahead dl_pageLock dl_pageSync dl_tempTiming dl_winZoom"
+		&& d.shown.d_gear === false && d.shown.d_gear_on === true && tabOf(d.shown) === -1 && tabOf(d.shown) === -1
 		&& d.disp.d_tempTiming === 2);
 	s.w.wait(150);
 	b.disp("tempTiming", 1);
 	s.w.wait(600);
 	check("TEMP OFF: BEAT, stored with the set (" + b.tempTiming + ")", b.tempTiming === 1 && /"tempTiming":1/.test(b.savedText));
+	s.w.wait(150);
+	b.disp("winZoom", 2);
+	s.w.wait(600);
+	check("WINDOW: 150%, stored with the set (" + b.winZoom + ", " + d.disp.d_winZoom + ")",
+		b.winZoom === 2 && d.disp.d_winZoom === 2 && /"winZoom":2/.test(b.savedText));
+	check("WINDOW 150%: reached a step at a time (" + b.winApplied + ")", b.winApplied === 1.5 && !b.winStepping);
+	var wshown = Object.keys(d.w.shown).filter(function (k) { return d.w.shown[k] && /^d_|^dl_/.test(k) && !/^d_(pages|gear|padlock|tempwait|rndmark|stepmark|cycmark|tab\d)/.test(k); }).sort().join(" ");
+	check("then the window's controls hidden but its page's (" + wshown + ")",
+		wshown === "d_instance d_lookahead d_pageLock d_pageSync d_status d_tempTiming d_winZoom dl_instance dl_lookahead dl_pageLock dl_pageSync dl_tempTiming dl_winZoom");
+	s.w.wait(150);
+	b.disp("winZoom", 0);
+	check("WINDOW back to 100% (" + b.winApplied + ")", b.winApplied === 1);
 	b.displayPage(11);
 	check("a page tab: that page, the gear unlit (" + shownNames(d) + ")",
 		/ d_repeatTail /.test(" " + shownNames(d) + " ") && !/ d_instance /.test(" " + shownNames(d) + " ")
-		&& d.shown.d_gear === true && !d.shown.d_gear_on && d.shown.d_pages === true && !d.shown.d_pagesb && d.disp.d_pages === 11);
+		&& d.shown.d_gear === true && !d.shown.d_gear_on && tabOf(d.shown) >= 0 && tabOf(d.shown) !== -1 && tabOf(d.shown) === 11);
 	b.gearSelect(0);
 	turn(s.brain, 0, "pitch", 3);
-	check("a dial turned: its page, the gear unlit (" + d.disp.d_pages + ")", d.disp.d_pages === 4 && d.shown.d_gear === true && d.shown.d_pages === true);
+	check("a dial turned: its page, the gear unlit (" + tabOf(d.shown) + ")", tabOf(d.shown) === 4 && d.shown.d_gear === true && tabOf(d.shown) >= 0);
 	done(s);
 })();
 

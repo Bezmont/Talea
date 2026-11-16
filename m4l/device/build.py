@@ -68,9 +68,16 @@ CLIP_STEP = 19
 LABEL_SCRIPT = "jezric_talea_label.js"
 DISPLAY_SCRIPT = "jezric_talea_display.js"  # the display's pages and rows, read by the script too
 DIAGRAM_SCRIPT = "jezric_talea_diagram.js"  # [v8ui]: the display's diagrams
+INFO_SCRIPT = "jezric_talea_info.js"  # Live's Info View text for every control
 GEAR_SVG = "jezric_talea_gear.svg"  # the DEVICE page's tab, right of the page tabs
 GEAR_W = 22
+WIN_SVG = "jezric_talea_window.svg"  # the floating window's button, right of On
+WIN_W = 18
+TRK_W = 26          # the TRK label, between the window button and the track buttons
+WIN_GAP = 6         # the window: the panel, then the display this far under it
+KBD_H = 58          # the window's keyboard, under its display and its row
 CELL = 29          # a track select button's width
+PANEL_RIGHT = LEFT_X + TRACKS * CELL  # the panel's right edge (the track buttons' and pads')
 DISPLAY_X = 560    # the display's place: 8 px right of the sections and tabs
 DISPLAY_W = 470
 DISPLAY_Y = TRACKS_Y + TRACKS_H + 2  # the display's top: its page tabs sit above it, level with
@@ -79,6 +86,7 @@ DISPLAY_ROW_Y = DISPLAY_Y + 4  # the display's first row
 DISPLAY_ROW_H = 19   # row to row
 DISPLAY_LABEL_W = 56  # a row's label, then its control
 DIAGRAM_Y = 104      # the diagram band, under the rows (pages have at most 4 rows with one)
+SPEC_W = DISPLAY_W   # the display width the spec's x positions are for
 
 
 def display_spec():
@@ -96,6 +104,65 @@ def display_spec():
             if isinstance(row.get("items"), str):
                 row["items"] = named[row["items"]]
     return spec
+
+
+def info_spec():
+    """The Info View texts (jezric_talea_info.js: JSON after module.exports)."""
+    text = (HERE / INFO_SCRIPT).read_text(encoding="utf-8")
+    return json.loads(text[text.rindex("module.exports =") + len("module.exports ="):].strip().rstrip(";"))
+
+
+def annotate(p, keyboard=False):
+    """Live's Info View text (annotation_name / annotation) on every control of a panel and
+    display, by scripting name: the device's (p) or the floating window's (p.mirror,
+    keyboard: its keyboard and KEYS-less tabs), from jezric_talea_info.js. The boards and
+    diagrams get theirs from the script as their page changes; here a first one."""
+    info, spec = info_spec(), display_spec()
+    panel, rows = info["panel"], info["rows"]
+    labels = {k: lab for row in DIAL_ROWS for _, section in row for k, lab in section}
+    rowinfo = {}
+    for view in spec["views"].values():
+        for r in view:
+            name = r["name"]
+            if name in rows:
+                rowinfo[name] = rows[name]
+            else:
+                for pre in ("rndc_", "rnd_"):
+                    if name.startswith(pre) and pre + "*" in rows:
+                        t, x = rows[pre + "*"]
+                        rowinfo[name] = [f"{labels.get(r.get('param', ''), r.get('param', '')).title()} {t}", x]
+                        break
+                else:
+                    raise SystemExit(f"{INFO_SCRIPT}: no Info View text for the display row {name}")
+    fixed = {
+        "On": panel["on"], "WinButton": panel["windowWin" if p.mirror else "window"], "PadMode": panel["padMode"],
+        "Apply": panel["apply"], "Rec": panel["rec"], "Overdub": panel["ovd"], "Step page": panel["stepPage"],
+        "Follow": panel["follow"], "Temp": panel["temp"],
+        "d_gear": panel["gear"], "d_gear_on": panel["gear"],
+        "d_instance": info["device"]["instance"], "d_lookahead": info["device"]["lookahead"],
+        "d_status": info["device"]["status"],
+        "d_board": info["boards"]["steps"], "d_kbd": info["keyboard"]["keys"],
+        "k_oct0": info["keyboard"]["octave"], "k_oct1": info["keyboard"]["octave"], "k_help": info["keyboard"]["help"],
+        "k_rest": info["keyboard"]["rest"], "k_pool": info["keyboard"]["pool"],
+    }
+    for b in p.boxes:
+        box = b["box"]
+        vn = box.get("varname", "")
+        if p.mirror and vn.startswith("Win "):  # the window's parameters' names
+            vn = vn[4:]
+        pair = fixed.get(vn)
+        if pair is None and vn.startswith("trk"):
+            pair = panel["tracks"]
+        elif pair is None and vn.startswith("pad") and vn[3:].isdigit():
+            pair = panel["pads"]
+        elif pair is None and vn.startswith("dial_"):
+            key = vn[5:]
+            pair = [labels[key], info["dials"][key] + info["dialNote"]]
+        elif pair is None and vn.startswith("d_"):
+            key = vn[2:-3] if vn.endswith("_on") else vn[2:]
+            pair = rowinfo.get(key)
+        if pair is not None:
+            box["annotation_name"], box["annotation"] = pair[0], pair[1]
 
 
 def engine_params():
@@ -125,10 +192,15 @@ FOCUS_FRAMED = {"live.tab", "live.text", "live.menu", "live.numbox", "live.dial"
 
 
 class Patch:
-    def __init__(self):
+    def __init__(self, mirror=False):
         self.boxes = []
         self.lines = []
         self.count = 0
+        # The floating window's copy of the panel: its parameters are Hidden copies, named
+        # "Win ...", so each of the device's is there once (mapping, automation and the set
+        # keep the device's), and the script sets them as it sets the device's.
+        self.mirror = mirror
+        self.subs = {}  # a subpatcher box's id: its Patch (for the parameter list)
 
     def box(self, maxclass, rect, text=None, inlets=1, outlets=0, outlettype=None,
             present=None, **extra):
@@ -169,18 +241,23 @@ class Patch:
 
     def param(self, maxclass, rect, present, name, ptype, *, mmin=0, mmax=127, initial=0,
               enum=None, outlets=2, outlettype=None, hidden=False, varname=None, unitstyle=None,
-              **extra):
+              stored_only=False, **extra):
         """A Live parameter on a UI object (live.dial, live.menu, ...). Hidden: not saved
         with the set, recalled, automated or in the undo history."""
+        short = name
+        if self.mirror:  # the long name unique; the short name (what a dial shows) as the device's
+            name, hidden = "Win " + name, True
         attrs = {
             "parameter_longname": name,
-            "parameter_shortname": name,
+            "parameter_shortname": short,
             "parameter_type": ptype,
             "parameter_initial_enable": 1,
             "parameter_initial": [initial],
         }
         if hidden:
             attrs["parameter_invisible"] = 2
+        elif stored_only:  # saved with the set, not automated
+            attrs["parameter_invisible"] = 1
         if unitstyle is not None:
             attrs["parameter_unitstyle"] = unitstyle
         if enum is not None:
@@ -245,17 +322,65 @@ class Patch:
             }
         }
 
-    def parameters(self):
-        out = {}
+    def subpatcher(self, rect, title):
+        """This patch as a subpatcher's contents, opening as a window of `rect` (x, y, w,
+        h on screen) in presentation, without toolbars."""
+        return {
+            "fileversion": 1,
+            "appversion": {"major": 9, "minor": 0, "revision": 10, "architecture": "x64", "modernui": 1},
+            "classnamespace": "box",
+            "rect": [float(v) for v in rect],
+            "openinpresentation": 1,
+            "toolbarvisible": 0,
+            "default_fontsize": 10.0,
+            "default_fontname": "Arial Bold",
+            "gridsize": [8.0, 8.0],
+            "title": title,
+            "boxes": self.boxes,
+            "lines": self.lines,
+        }
+
+    def param_boxes(self, prefix=""):
+        """(id, box) of every parameter, a subpatcher's as "outer::inner"."""
         for b in self.boxes:
             box = b["box"]
             if box.get("parameter_enable") or box.get("saved_object_attributes", {}).get("parameter_enable"):
-                name = box["saved_attribute_attributes"]["valueof"]["parameter_longname"]
-                out[box["id"]] = [name, name, 0]
+                yield prefix + box["id"], box
+            if box["id"] in self.subs:
+                yield from self.subs[box["id"]].param_boxes(prefix + box["id"] + "::")
+
+    def parameters(self):
+        out = {}
+        for bid, box in self.param_boxes():
+            v = box["saved_attribute_attributes"]["valueof"]
+            out[bid] = [v["parameter_longname"], v.get("parameter_shortname", v["parameter_longname"]), 0]
         out["parameterbanks"] = {"0": {"index": 0, "name": "", "parameters": ["-"] * 8,
                                        "buttons": ["-"] * 8}}
         out["inherited_shortname"] = 1
         return out
+
+
+WIN_IN = "---talea_win_in"     # the window's controls to the script ("---": the device's own)
+WIN_OUT = "---talea_win_out"   # + n: the script's outlet n, to the window's copies
+
+
+class Port:
+    """Where a panel's controls send to the script, and where the script's outlets reach
+    them: the script itself (the device), or device-local sends and receives (the window's
+    copy, in a subpatcher)."""
+
+    def __init__(self, p, script=None):
+        self.p, self.script, self.recv = p, script, {}
+        self.inp = script if script is not None else p.obj(f"s {WIN_IN}", [20, 20, 140, 22], 1, 0)
+
+    def out(self, n, dst, inlet=0):
+        """The script's outlet n into `dst`."""
+        if self.script is not None:
+            self.p.connect(self.script, dst, n, inlet)
+            return
+        if n not in self.recv:
+            self.recv[n] = self.p.obj(f"r {WIN_OUT}{n}", [20 + 150 * len(self.recv), 60, 140, 22], 0, 1)
+        self.p.connect(self.recv[n], dst, 0, inlet)
 
 
 def common(p, role):
@@ -272,7 +397,7 @@ def common(p, role):
     pack = p.obj("pack 0 0 0", [120, 220, 80, 22], 3, 1)
     prep = p.obj("prepend tick", [120, 260, 80, 22])
     bus = p.obj(f"r {BUS}", [340, 260, 120, 22], 0, 1)
-    script = p.obj(f"v8 {SCRIPT} {role}", [20, 320, 200, 22], 1, 7)
+    script = p.obj(f"v8 {SCRIPT} {role}", [20, 320, 200, 22], 1, 8)
     midiin = p.obj("midiin", [500, 20, 50, 22], 1, 1, ["int"])
     midiout = p.obj("midiout", [500, 420, 60, 22], 1, 0)
 
@@ -326,11 +451,13 @@ def status_box(p, script, present):
 
 def ui(p, trig, script, ctrl, selector, x):
     """Wire a control: its value goes to the script as `selector value`, and the
-    start-up trigger bangs it so the script gets the saved value."""
+    start-up trigger bangs it so the script gets the saved value (not the window's copy:
+    the script sets it). `script`: the script, or a Port."""
     prep = p.obj(f"prepend {selector}", [x, 520, 110, 22])
-    p.connect(trig, ctrl, 2)
+    if not p.mirror:
+        p.connect(trig, ctrl, 2)
     p.connect(ctrl, prep)
-    p.connect(prep, script)
+    p.connect(prep, script.inp if isinstance(script, Port) else script)
 
 
 def instance_menu(p, trig, script, x=8, y=30):
@@ -452,6 +579,49 @@ def brain():
     line."""
     p = Patch()
     script, trig, _, _, _ = common(p, "brain")
+    port = Port(p, script)
+    panel(p, port, trig)
+    display(p, trig, port)
+    annotate(p)
+    window(p, script)
+
+    # "savelater" restarts a [delay]: the pattern is stored once the edits have paused for
+    # SAVE_PAUSE_MS, so a dial turned through many values is one step in Live's undo;
+    # [deferlow] sends "savepattern" back at low priority.
+    split = p.obj("route savelater", [240, 340, 100, 22], 1, 2)
+    defer = p.obj("deferlow", [240, 370, 60, 22])
+    pause = p.obj(f"delay {SAVE_PAUSE_MS}", [360, 340, 70, 22], 2, 1, ["bang"])
+    save = p.msg("savepattern", [360, 370, 80, 22])
+    p.connect(script, split, 2)
+    p.connect(split, defer, 1)
+    p.connect(split, pause, 0)
+    p.connect(pause, save)
+    p.connect(save, defer)
+    p.connect(defer, script)
+
+    # The pattern, saved with the Live set: a Stored Only Live parameter of type Blob
+    # (Hidden ones aren't saved). The script stores the pattern in it ("1 p<base64>
+    # p<base64>..." from outlet 4); Live saves it with the set and gives it back at load,
+    # before the device's init, and on undo and redo. A plain object (not a UI one) takes
+    # parameter_enable from saved_object_attributes, as Ableton's devices have it; on the
+    # box itself it's ignored and nothing is stored.
+    pattr = p.box("newobj", [240, 400, 120, 22], "pattr Pattern", 1, 3, ["", "", ""],
+                  varname="Pattern",
+                  saved_object_attributes={"parameter_enable": 1},
+                  saved_attribute_attributes={"valueof": {
+                      "parameter_longname": "Pattern", "parameter_shortname": "Pattern",
+                      "parameter_type": 3, "parameter_invisible": 1, "parameter_initial_enable": 0}})
+    restore = p.obj("prepend restore", [240, 430, 100, 22])
+    p.connect(script, pattr, 4)
+    p.connect(pattr, restore)
+    p.connect(restore, script)
+    return p
+
+
+def panel(p, port, trig):
+    """The panel's controls: the left column (On, REC / OVD, COPY / PASTE / CLEAR, the step
+    pages, Follow and TEMP, the pad mode), the track buttons, the dials and the step pads.
+    Built on the device, and again in the floating window (p.mirror) at the same places."""
     info = engine_params()
 
     # On: the whole sequencer. A stored parameter, so it's saved, automatable and undone
@@ -462,10 +632,24 @@ def brain():
                  initial=1, outlets=2, outlettype=["", ""], mode=1, text="On", texton="On")
     prep = p.obj("prepend enable", [840, 520, 110, 22])
     p.connect(on, prep)
-    p.connect(prep, script)
+    p.connect(prep, port.inp)
 
+    # The floating window's button, right of On: a toggle (lit while the window is open), a
+    # picture (Live's fonts have no window sign) in Live's toggle colours, as On. A Stored
+    # Only parameter: saved with the set, so the window opens with it only if it was open
+    # (the script reads it at init, as On). The window's copy closes the window; the script
+    # sets both ("winstate 0/1").
+    wx = COL_X + ON_W + 2
+    winb = p.param("live.text", [960, 440, 24, 18], [wx, TRACKS_Y, WIN_W, TRACKS_H], "Window", 2,
+                   enum=["off", "on"], initial=0, outlets=2, outlettype=["", ""], mode=1, usepicture=1,
+                   pictures=[WIN_SVG, WIN_SVG], remapsvgcolors=1, usesvgviewbox=1, varname="WinButton",
+                   stored_only=True, text="WINDOW", texton="WINDOW")
+    towin = p.obj("prepend winSelect", [960, 470, 100, 22])
+    p.connect(winb, towin)
+    p.connect(towin, port.inp)
     # Track select: the track the dials edit, along the top, named in the left column.
-    p.box("live.comment", [840, 570, 60, 18], "TRACKS", 1, 0, None, [COL_X + ON_W + 2, TRACKS_Y + 2, COL_W - ON_W - 2, TRACKS_H],
+    p.box("live.comment", [840, 570, 60, 18], "TRK", 1, 0, None,
+          [wx + WIN_W + 2, TRACKS_Y + 2, LEFT_X - (wx + WIN_W + 2), TRACKS_H],
           fontsize=9.0, fontface=1, textjustification=2)
 
     # The dials, one per track parameter. Each sends "param key value" for the edit
@@ -477,7 +661,7 @@ def brain():
     # "key value" sets a dial; "a_key 0/1" dims it (a step selection dims the dials that
     # can't be locked).
     route = p.obj("route " + " ".join(keys + ["a_" + k for k in keys]), [600, 700, 900, 22], 1, 2 * len(keys) + 1)
-    p.connect(script, route, 3)
+    port.out(3, route)
     # The section names take Live's theme colour, at load and when the theme changes.
     colors = p.obj("live.colors", [1300, 300, 80, 22], 1, 2)
     ask = p.msg("live_control_fg", [1300, 270, 100, 22])
@@ -527,7 +711,7 @@ def brain():
                 p.connect(act, dial)
                 prep = p.obj(f"prepend param {key}", [x, 820, 66, 22])
                 p.connect(dial, prep)
-                p.connect(prep, script)
+                p.connect(prep, port.inp)
                 n += 1
             x0 += fw + SECTION_GAP
 
@@ -536,7 +720,24 @@ def brain():
     # sends "pad i bang", after "padMods shift ctrl alt" from [modifiers] (polled by the press:
     # [t l b] fires right to left, and [modifiers] its outlets too, so [pack]'s hot inlet,
     # Shift, comes last).
-    panel_out = p.obj("route pad page follow mode apply rec ovd copy paste clear pasteactive trk temp", [1500, 400, 400, 22], 1, 14)
+    # (13 "onstate": On as the script has it, set on both copies; 14 "win open/close": the
+    # window's, its own [thispatcher].)
+    # (15-18 "dshow / dhide / wshow / whide name": shown or hidden on the device's copy only,
+    # or the window's.)
+    # (22 "wtemp": the window's TEMP; 12 "temp" the device's, set only when it differs.)
+    # (19 "winstate", 13 "onstate": the device's window button and On, set only for a
+    # change made in the window; 20 "won", 21 "wwin": the window's copies. The script never
+    # sets the device's own as the set loads: a stored parameter set then marks the set
+    # changed.)
+    panel_out = p.obj("route pad page follow mode apply rec ovd copy paste clear pasteactive trk temp onstate win "
+                      "dshow dhide wshow whide winstate won wwin wtemp", [1500, 400, 640, 22], 1, 24)
+    seton = p.obj("prepend set", [840, 490, 70, 22])
+    port.out(5, panel_out)
+    p.connect(panel_out, seton, 20 if p.mirror else 13)
+    p.connect(seton, on)
+    setwin = p.obj("prepend set", [960, 410, 70, 22])  # 19 "winstate": the window button
+    p.connect(panel_out, setwin, 21 if p.mirror else 19)
+    p.connect(setwin, winb)
     press_t = p.obj("t l b", [1500, 600, 40, 22], 1, 2)
     mods = p.obj("modifiers", [1560, 630, 70, 22], 1, 5, ["int", "int", "int", "int", "int"])
     modpack = p.obj("pack 0 0 0", [1560, 660, 70, 22], 3, 1)
@@ -562,7 +763,7 @@ def brain():
     p.connect(rdown, msreg, 0, 0)
     torc = p.obj("prepend rightClick", [1700, 720, 110, 22])
     p.connect(msreg, torc)
-    p.connect(torc, script)
+    p.connect(torc, port.inp)
     # A left-button press: "leftClick x y" (COPY / CLEAR on a dial, which reports turns only).
     ldown = p.obj("sel 1", [1840, 660, 40, 22], 1, 2)
     p.connect(ms, ldown, 0)
@@ -571,7 +772,7 @@ def brain():
     p.connect(ldown, lreg, 0, 0)
     tolc = p.obj("prepend leftClick", [1840, 720, 110, 22])
     p.connect(lreg, tolc)
-    p.connect(tolc, script)
+    p.connect(tolc, port.inp)
     # The dials' places, for the script to find the dial under a left click.
     dials = []
     for r, row in enumerate(DIAL_ROWS):
@@ -583,22 +784,21 @@ def brain():
             x0 += LABEL_W + (len(section) - 1) * DIAL_STEP + 44 + 2 * FRAME_PAD + SECTION_GAP
     dgeom = p.msg("dialGeometry " + " ".join(str(v) for v in dials), [1830, 570, 300, 22])
     p.connect(trig, dgeom, 2)
-    p.connect(dgeom, script)
+    p.connect(dgeom, port.inp)
     # The pads' place on the panel, for the script to find the pad under a right-click.
     geom = p.msg(f"padGeometry {LEFT_X} {PADS_Y} {CELL} {TRACKS_H}", [1830, 600, 170, 22])
     p.connect(trig, geom, 2)
-    p.connect(geom, script)
+    p.connect(geom, port.inp)
     p.connect(modpack, modmsg)
-    p.connect(modmsg, script)
-    p.connect(press_t, script, 0)
-    p.connect(script, panel_out, 5)
+    p.connect(modmsg, port.inp)
+    p.connect(press_t, port.inp, 0)
     which = p.obj("route " + " ".join(str(i) for i in range(16)), [1500, 440, 300, 22], 1, 17)
     p.connect(panel_out, which, 0)
     for i in range(16):
         x = 1500 + i * 60
         pad = p.box("live.text", [x, 520, 24, 18], None, 1, 2, ["", ""],
                     [LEFT_X + i * CELL + 1, PADS_Y, CELL - 2, TRACKS_H],
-                    parameter_enable=0, mode=0, texton="")
+                    parameter_enable=0, mode=0, texton="", varname=f"pad{i}")
         p.boxes[-1]["box"]["text"] = ""  # a live.text's label (box() takes text as the box's)
         colour = p.obj("prepend activebgcolor", [x, 480, 90, 22])
         p.connect(which, colour, i)
@@ -645,7 +845,7 @@ def brain():
     p.connect(setmode, mode)
     tomode = p.obj("prepend padModeSelect", [1500, 790, 130, 22])
     p.connect(mode, tomode)
-    p.connect(tomode, script)
+    p.connect(tomode, port.inp)
     # Apply: shown only while there are staged mutes ("apply 0/1" from outlet 5 shows or
     # hides it and narrows or widens the menu, by their scripting names, through
     # [thispatcher], on the main thread).
@@ -656,14 +856,18 @@ def brain():
     p.boxes[-1]["box"]["text"] = "A"
     toapply = p.obj("prepend applyMutes", [1640, 790, 110, 22])
     p.connect(apply, toapply)
-    p.connect(toapply, script)
+    p.connect(toapply, port.inp)
     showapply = p.obj("sel 0 1", [1640, 820, 50, 22], 1, 3)
     p.connect(panel_out, showapply, 4)
     menu_at = f"{COL_X} {PADS_Y + 1}"
-    hide = p.msg(f"script hide Apply, script sendbox PadMode presentation_rect {menu_at} {COL_W} 16",
-                 [1640, 850, 110, 22])
-    show = p.msg(f"script show Apply, script sendbox PadMode presentation_rect {menu_at} {COL_W - APPLY_W - 2} 16",
-                 [1760, 850, 110, 22])
+    if p.mirror:  # the window: its places are scaled by the script; Apply over the menu's end
+        hide = p.msg("script hide Apply", [1640, 850, 110, 22])
+        show = p.msg("script show Apply", [1760, 850, 110, 22])
+    else:
+        hide = p.msg(f"script hide Apply, script sendbox PadMode presentation_rect {menu_at} {COL_W} 16",
+                     [1640, 850, 110, 22])
+        show = p.msg(f"script show Apply, script sendbox PadMode presentation_rect {menu_at} {COL_W - APPLY_W - 2} 16",
+                     [1760, 850, 110, 22])
     p.connect(showapply, hide, 0)
     p.connect(showapply, show, 1)
     applydefer = p.obj("deferlow", [1640, 880, 60, 22])
@@ -671,6 +875,10 @@ def brain():
     p.connect(show, applydefer)
     thispatcher = p.obj("thispatcher", [1640, 910, 80, 22], 1, 2)
     p.connect(applydefer, thispatcher)
+    for k, what in enumerate(("show", "hide")):
+        ph = p.obj(f"prepend script {what}", [1760 + k * 110, 880, 100, 22])
+        p.connect(panel_out, ph, (17 if p.mirror else 15) + k)
+        p.connect(ph, applydefer)
     # REC and OVD, side by side at the top of the left column: SEQ mode recording of the notes
     # played into the sequencer's track. Not stored; the script sets them ("rec 0/1",
     # "ovd 0/1": REC goes off when the edit track isn't in SEQ mode).
@@ -688,7 +896,7 @@ def brain():
         p.connect(setb, btn)
         tob = p.obj(f"prepend {sel}", [1900 + k * 60, 790, 110, 22])
         p.connect(btn, tob)
-        p.connect(tob, script)
+        p.connect(tob, port.inp)
     # COPY, PASTE and CLEAR, stacked under REC and OVD: lit while armed, PASTE dimmed while the
     # clipboard is empty; what they do is in Live's Info View (annotation). Not stored; the
     # script sets them ("copy 0/1" ... "pasteactive 0/1" from outlet 5). A click goes through
@@ -723,7 +931,7 @@ def brain():
     blinker = p.obj("metro 125 @active 1", [1760, 760, 120, 22], 2, 1, ["bang"])
     blinkmsg = p.msg("blink", [1760, 790, 50, 22])
     p.connect(blinker, blinkmsg)
-    p.connect(blinkmsg, script)
+    p.connect(blinkmsg, port.inp)
 
     # The step page tabs (steps 1-16 ... 49-64) and Follow, in the left column. Not stored:
     # the script sets them ("page i", "follow 0/1" from outlet 5).
@@ -734,7 +942,7 @@ def brain():
     p.connect(setpage, page)
     topage = p.obj("prepend stepPageSelect", [1500, 640, 130, 22])
     p.connect(page, topage)
-    p.connect(topage, script)
+    p.connect(topage, port.inp)
     half = (COL_W - 2) / 2  # Follow and TEMP side by side, as REC and OVD
     follow = p.param("live.text", [1640, 600, 48, 16], [COL_X, FOLLOW_Y, half, 16], "Follow", 2,
                      enum=["off", "on"], initial=1, outlets=2, outlettype=["", ""], hidden=True,
@@ -744,7 +952,7 @@ def brain():
     p.connect(setfollow, follow)
     tofollow = p.obj("prepend followSelect", [1640, 640, 120, 22])
     p.connect(follow, tofollow)
-    p.connect(tofollow, script)
+    p.connect(tofollow, port.inp)
     # TEMP (Rack's Temp), right of Follow: a parameter, so a controller or automation can
     # hold it (Rack's Temp gate). The script sets it ("temp 0/1" from outlet 5; off as the
     # set loads). A click goes through [modifiers] as a pad press does: Ctrl+click off keeps
@@ -758,61 +966,91 @@ def brain():
           varname="d_tempwait", hidden=1, ignoreclick=1, background=0, border=2, rounded=0,
           bgcolor=[0.0, 0.0, 0.0, 0.0], bordercolor=[1.0, 0.84, 0.23, 1.0])
     settemp = p.obj("prepend set", [1780, 580, 70, 22])
-    p.connect(panel_out, settemp, 12)
+    p.connect(panel_out, settemp, 22 if p.mirror else 12)
     p.connect(settemp, temp)
     totemp = p.obj("prepend tempSelect", [1780, 640, 120, 22])
     p.connect(temp, totemp)
     p.connect(totemp, press_t)
-
-    display(p, trig, script)
-
-    # "savelater" restarts a [delay]: the pattern is stored once the edits have paused for
-    # SAVE_PAUSE_MS, so a dial turned through many values is one step in Live's undo;
-    # [deferlow] sends "savepattern" back at low priority.
-    split = p.obj("route savelater", [240, 340, 100, 22], 1, 2)
-    defer = p.obj("deferlow", [240, 370, 60, 22])
-    pause = p.obj(f"delay {SAVE_PAUSE_MS}", [360, 340, 70, 22], 2, 1, ["bang"])
-    save = p.msg("savepattern", [360, 370, 80, 22])
-    p.connect(script, split, 2)
-    p.connect(split, defer, 1)
-    p.connect(split, pause, 0)
-    p.connect(pause, save)
-    p.connect(save, defer)
-    p.connect(defer, script)
-
-    # The pattern, saved with the Live set: a Stored Only Live parameter of type Blob
-    # (Hidden ones aren't saved). The script stores the pattern in it ("1 p<base64>
-    # p<base64>..." from outlet 4); Live saves it with the set and gives it back at load,
-    # before the device's init, and on undo and redo. A plain object (not a UI one) takes
-    # parameter_enable from saved_object_attributes, as Ableton's devices have it; on the
-    # box itself it's ignored and nothing is stored.
-    pattr = p.box("newobj", [240, 400, 120, 22], "pattr Pattern", 1, 3, ["", "", ""],
-                  varname="Pattern",
-                  saved_object_attributes={"parameter_enable": 1},
-                  saved_attribute_attributes={"valueof": {
-                      "parameter_longname": "Pattern", "parameter_shortname": "Pattern",
-                      "parameter_type": 3, "parameter_invisible": 1, "parameter_initial_enable": 0}})
-    restore = p.obj("prepend restore", [240, 430, 100, 22])
-    p.connect(script, pattr, 4)
-    p.connect(pattr, restore)
-    p.connect(restore, script)
-    return p
+    return panel_out
 
 
-def display(p, trig, script):
+def window(p, script):
+    """The floating window: a copy of the panel, the display under it at the panel's width,
+    and a keyboard under that, always there. A subpatcher ([p window]) opened as a window
+    of its own, floating over Live, so it stays when another track is chosen. Its controls
+    reach the script through device-local sends ("fromWin ..." from [r WIN_IN]) and the
+    script's outlets reach it as they reach the device's (WIN_OUT n). "winSelect" on the
+    device's window button opens it, on the window's closes it ("win open/close" back)."""
+    w = Patch(mirror=True)
+    port = Port(w)
+    load = w.obj("loadbang", [300, 20, 60, 22], 1, 1, ["bang"])
+    trig = w.obj("t b b b", [300, 50, 60, 22], 1, 3, ["bang", "bang", "bang"])
+    w.connect(load, trig)
+    panel_out = panel(w, port, trig)
+    doy = 169 + WIN_GAP - TRACKS_Y  # the display's tabs WIN_GAP under the device's height
+    display(w, trig, port, x0=COL_X, oy=doy, width=PANEL_RIGHT - COL_X, keyboard=True)
+    height = doy + 165 + 4 + 18 + KBD_H + 4
+    # Opening and closing ("win open" / "win close" from outlet 5), on the main thread: shown
+    # in front, floating over Live, not resizable.
+    ctl = w.obj("route open close", [600, 20, 100, 22], 1, 3)
+    w.connect(panel_out, ctl, 14)
+    front = w.msg("window flags float, window flags nogrow, window flags nozoom, window exec, front",
+                  [600, 50, 300, 22])
+    close = w.msg("wclose", [910, 50, 60, 22])
+    w.connect(ctl, front, 0)
+    w.connect(ctl, close, 1)
+    wdefer = w.obj("deferlow", [600, 80, 60, 22])
+    w.connect(front, wdefer)
+    w.connect(close, wdefer)
+    wpatcher = w.obj("thispatcher", [600, 110, 80, 22], 1, 2)
+    w.connect(wdefer, wpatcher)
+    # Whether the window is the one clicked in: its [mousestate] and the device's both see
+    # every click, each in its own place ("winActive 0/1").
+    # Closed by its close box: the buttons go off ("winClosed").
+    closed = w.obj("closebang", [820, 20, 70, 22], 1, 1, ["bang"])
+    toclosed = w.msg("winClosed", [820, 50, 70, 22])
+    w.connect(closed, toclosed)
+    w.connect(toclosed, port.inp)
+    active = w.obj("active", [700, 20, 50, 22], 1, 1, ["int"])
+    toactive = w.obj("prepend winActive", [700, 50, 100, 22])
+    w.connect(active, toactive)
+    w.connect(toactive, port.inp)
+    # The device's side: the script's outlets out to the window, the window's controls in.
+    for n, out in ((1, 1), (3, 3), (5, 5), (6, 7)):  # the script's outlet 7: the window's display
+        snd = p.obj(f"s {WIN_OUT}{n}", [2600 + n * 130, 40, 120, 22], 1, 0)
+        p.connect(script, snd, out)
+    rin = p.obj(f"r {WIN_IN}", [2600, 80, 120, 22], 0, 1)
+    fromwin = p.obj("prepend fromWin", [2600, 110, 100, 22])
+    p.connect(rin, fromwin)
+    p.connect(fromwin, script)
+    # Its size at 100%, for the script to size it when it zooms it (DEVICE's WINDOW).
+    wsize = w.msg(f"winSize {PANEL_RIGHT + 6} {height}", [800, 20, 120, 22])
+    w.connect(trig, wsize, 2)
+    w.connect(wsize, port.inp)
+    annotate(w, keyboard=True)
+    box = p.box("newobj", [2600, 150, 80, 22], "p window", 0, 0, None, varname="WinPatcher",
+                patcher=w.subpatcher([120, 120, PANEL_RIGHT + 6, height], "Talea Sequencer"))
+    p.subs[box] = w
+
+
+def display(p, trig, port, x0=DISPLAY_X, oy=0, width=DISPLAY_W, keyboard=False):
     """The display: dark, in Live's LCD colours, with the page tabs along its top and each
     page's rows (jezric_talea_display.js) under them, all LCD-style live.* controls. Every
     row starts hidden; the script shows the page's ("script show d_<name>" from outlet 6,
     through [thispatcher]), sets the controls ("d_<name> value"), relabels ("dl_<name>
     text"), renames their choices ("dr_<name> ...") and dims them ("da_<name> 0/1"); a
-    control sends "disp <name> value"."""
+    control sends "disp <name> value". On the device at DISPLAY_X; in the floating window
+    (p.mirror) under the panel (oy down), `width` wide, with the keyboard under it."""
+    DISPLAY_X, DISPLAY_W = x0, width  # noqa: N806 (the device's by default)
+    DISPLAY_Y_, TRACKS_Y_, DISPLAY_ROW_Y_, DIAGRAM_Y_, BOTTOM = (
+        DISPLAY_Y + oy, TRACKS_Y + oy, DISPLAY_ROW_Y + oy, DIAGRAM_Y + oy, 165 + oy)
     spec = display_spec()
     lcd = lambda key: {"expression": f"themecolor.{key}"}  # noqa: E731
-    p.box("panel", [1300, 20, 60, 40], None, 1, 0, None, [DISPLAY_X, DISPLAY_Y, DISPLAY_W, 165 - DISPLAY_Y],
+    p.box("panel", [1300, 20, 60, 40], None, 1, 0, None, [DISPLAY_X, DISPLAY_Y_, DISPLAY_W, BOTTOM - DISPLAY_Y_],
           bgcolor=[0.08, 0.08, 0.09, 1.0], bordercolor=[0.3, 0.3, 0.3, 1.0], border=1, rounded=4, background=1,
           saved_attribute_attributes={"bgcolor": lcd("live_lcd_bg"), "bordercolor": lcd("live_lcd_frame")})
     out = p.obj("route script", [2000, 20, 80, 22], 1, 2)
-    p.connect(script, out, 6)
+    port.out(6, out)
     defer = p.obj("deferlow", [2000, 50, 60, 22])
     patcher = p.obj("thispatcher", [2000, 80, 80, 22], 1, 2)
     to_script = p.obj("prepend script", [2100, 50, 90, 22])
@@ -822,8 +1060,10 @@ def display(p, trig, script):
     names, targets = [], []  # the [route]'s selectors and where each goes
 
     def label(name, text, rect, x):
+        if p.mirror:  # the window's: room for its font scaled up (scaled text runs wider)
+            rect = [rect[0], rect[1], rect[2] + 16, rect[3]]
         bid = p.box("live.comment", [x, 200, 60, 18], text, 1, 0, None, rect, varname="dl_" + name, hidden=1,
-                    fontsize=9.0, textcolor=[0.7, 0.7, 0.7, 1.0],
+                    ignoreclick=1, fontsize=9.0, textcolor=[0.7, 0.7, 0.7, 1.0],
                     saved_attribute_attributes={"textcolor": lcd("live_lcd_title")})
         setl = p.obj("prepend set", [x, 170, 60, 22])
         p.connect(setl, bid)
@@ -831,66 +1071,65 @@ def display(p, trig, script):
         targets.append(setl)
         return bid
 
-    # The page tabs: not stored (the script sets them). Then the gear tab (the DEVICE page).
-    # While DEVICE shows, the same tabs in button mode take their place (a live.tab can't
-    # show no choice), and the gear's two looks are two tabs: one in button mode (not
-    # chosen), one with its one choice chosen. The script shows the ones for the page.
+    # The page tabs: a button per page (not a live.tab: Live reads a control's Info View
+    # text as the mouse enters it, so a live.tab, one control, can't show each tab's own),
+    # each two live.text toggles in one place, square and in Live's tab colours, as the gear:
+    # "d_tab<i>" not chosen, "d_tab<i>_on" chosen, the script showing one ("displayPage i"
+    # from either). The window's leave KEYS out (its keyboard is always there): its own
+    # numbering, mapped back by the script. Then the gear (the DEVICE page).
     pages_w = DISPLAY_W - GEAR_W - 2
-    pages = p.param("live.tab", [2000, 120, 400, 16], [DISPLAY_X, TRACKS_Y, pages_w, TRACKS_H], "Display page", 2,
-                    enum=spec["pages"], outlets=3, outlettype=["", "", "float"], hidden=True,
-                    fontsize=8.0, varname="d_pages")
-    setpages = p.obj("prepend set", [2000, 100, 70, 22])
-    p.connect(setpages, pages)
-    names.append("d_pages")
-    targets.append(setpages)
-    pagesb = p.param("live.tab", [2000, 150, 400, 16], [DISPLAY_X, TRACKS_Y, pages_w, TRACKS_H], "Display page b", 2,
-                     enum=spec["pages"], outlets=3, outlettype=["", "", "float"], hidden=True,
-                     fontsize=8.0, varname="d_pagesb", button=1)
-    p.boxes[-1]["box"]["hidden"] = 1
-    topagesb = p.obj("prepend displayPage", [2000, 180, 120, 22])
-    p.connect(pagesb, topagesb)
-    p.connect(topagesb, script)
+    tab_pages = [v for v in spec["pages"] if not (keyboard and v == "KEYS")]
+    tab_w = pages_w / len(tab_pages)
+    tab_info = info_spec()["pageTabs"]
+    looks = (("live_control_bg", "live_control_fg_off"), ("live_control_selection", "live_control_fg_on"))
+    for i, page in enumerate(tab_pages):
+        topage = p.msg(f"displayPage {i}", [2000 + i * 70, 150, 90, 22])
+        p.connect(topage, port.inp)
+        for k, (bg, fg) in enumerate(looks):
+            attrs = {"activebgcolor": bg, "activebgoncolor": bg, "activetextcolor": fg, "activetextoncolor": fg}
+            tab = p.box("live.text", [2000 + i * 70, 120 + k * 20, 60, 16], None, 1, 2, ["", ""],
+                        [DISPLAY_X + i * tab_w, TRACKS_Y_, tab_w, TRACKS_H], parameter_enable=0, mode=1,
+                        texton=page, fontsize=8.0, varname=f"d_tab{i}" + ("_on" if k else ""), hidden=k,
+                        annotation_name=tab_info[page][0], annotation=tab_info[page][1],
+                        saved_attribute_attributes={a: {"expression": f"themecolor.{c}"} for a, c in attrs.items()})
+            p.boxes[-1]["box"]["text"] = page
+            p.connect(tab, topage)
     # The gear: a live.text in toggle mode (square, as the tabs; its colours are a tab's by
     # default), its picture tinted with its text colour. Two of them, an unchosen look and a
     # chosen one (each the same set or not), the script showing one: a one-choice live.tab
     # showed a blank second tab in Live.
-    looks = (("live_control_bg", "live_control_fg_off"), ("live_control_selection", "live_control_fg_on"))
     for k, (bg, fg) in enumerate(looks):
         attrs = {"activebgcolor": bg, "activebgoncolor": bg, "activetextcolor": fg, "activetextoncolor": fg}
         gear = p.box("live.text", [2420 + k * 40, 120, 30, 16], None, 1, 2, ["", ""],
-                     [DISPLAY_X + pages_w + 2, TRACKS_Y, GEAR_W, TRACKS_H], parameter_enable=0, mode=1,
+                     [DISPLAY_X + pages_w + 2, TRACKS_Y_, GEAR_W, TRACKS_H], parameter_enable=0, mode=1,
                      usepicture=1, pictures=[GEAR_SVG, GEAR_SVG], remapsvgcolors=1, usesvgviewbox=1,
                      varname="d_gear" + ("_on" if k else ""), hidden=k,
                      saved_attribute_attributes={a: {"expression": f"themecolor.{c}"} for a, c in attrs.items()})
         p.boxes[-1]["box"]["text"] = "DEVICE"
         togear = p.obj("prepend gearSelect", [2420 + k * 40, 150, 100, 22])
         p.connect(gear, togear)
-        p.connect(togear, script)
+        p.connect(togear, port.inp)
     # A blue frame over the RANDOM tab while the edit track has a random amount (the
     # dials' value arc colour); clicks go through to the tab. Shown by the script.
-    tab_w = pages_w / len(spec["pages"])
     p.box("panel", [2200, 120, 40, 18], None, 1, 0, None,
-          [DISPLAY_X + spec["pages"].index("RANDOM") * tab_w, TRACKS_Y, tab_w, TRACKS_H],
+          [DISPLAY_X + tab_pages.index("RANDOM") * tab_w, TRACKS_Y_, tab_w, TRACKS_H],
           varname="d_rndmark", hidden=1, ignoreclick=1, background=0, border=1, rounded=0,
           bgcolor=[0.0, 0.0, 0.0, 0.0], bordercolor=[0.3, 0.6, 1.0, 1.0],
           saved_attribute_attributes={"bordercolor": lcd("live_value_arc")})
     # A blue frame over the LOCKS tab while steps are selected for locks (the pads' blue).
     p.box("panel", [2300, 120, 40, 18], None, 1, 0, None,
-          [DISPLAY_X + spec["pages"].index("LOCKS") * tab_w, TRACKS_Y, tab_w, TRACKS_H],
+          [DISPLAY_X + tab_pages.index("LOCKS") * tab_w, TRACKS_Y_, tab_w, TRACKS_H],
           varname="d_stepmark", hidden=1, ignoreclick=1, background=0, border=1, rounded=0,
           bgcolor=[0.0, 0.0, 0.0, 0.0], bordercolor=[0.3, 0.6, 1.0, 1.0])
     # A red frame over the CYCLE tab while Cycle edit is on (the dials and step pads edit a
     # cycle), as Rack lights CYC EDIT red.
     p.box("panel", [2250, 120, 40, 18], None, 1, 0, None,
-          [DISPLAY_X + spec["pages"].index("CYCLE") * tab_w, TRACKS_Y, tab_w, TRACKS_H],
+          [DISPLAY_X + tab_pages.index("CYCLE") * tab_w, TRACKS_Y_, tab_w, TRACKS_H],
           varname="d_cycmark", hidden=1, ignoreclick=1, background=0, border=1, rounded=0,
           bgcolor=[0.0, 0.0, 0.0, 0.0], bordercolor=[1.0, 0.25, 0.2, 1.0])
-    topage = p.obj("prepend displayPage", [2000, 150, 120, 22])
-    p.connect(pages, topage)
-    p.connect(topage, script)
     # A page not built yet.
     p.box("live.comment", [2100, 120, 100, 18], "Not in this version yet", 1, 0, None,
-          [DISPLAY_X + 10, DISPLAY_ROW_Y, 200, 18], varname="d_soon", hidden=1, fontsize=9.0,
+          [DISPLAY_X + 10, DISPLAY_ROW_Y_, 200, 18], varname="d_soon", hidden=1, fontsize=9.0,
           textcolor=[0.7, 0.7, 0.7, 1.0], saved_attribute_attributes={"textcolor": lcd("live_lcd_title")})
 
     # A display toggle's two looks, as the display's tabs: off, the LCD's background with its
@@ -921,8 +1160,8 @@ def display(p, trig, script):
             x = 2000 + n * 90
             # Where it goes: the next row at the left, or the spec's x (from the display's
             # left edge) and row; the label, if any, then the control.
-            name, y = row["name"], DISPLAY_ROW_Y + row.get("row", r) * DISPLAY_ROW_H + row.get("dy", 0)
-            lx = DISPLAY_X + 8 + row.get("x", 0)
+            name, y = row["name"], DISPLAY_ROW_Y_ + row.get("row", r) * DISPLAY_ROW_H + row.get("dy", 0)
+            lx = DISPLAY_X + 8 + row.get("x", 0) + (DISPLAY_W - SPEC_W if row.get("anchor") == "right" else 0)
             lw = row.get("labelW", DISPLAY_LABEL_W)
             if row.get("label"):
                 label(name, row["label"], [lx, y, max(lw - 4, 10), 16], x)
@@ -939,7 +1178,7 @@ def display(p, trig, script):
                 p.boxes[-1]["box"]["hidden"] = 1
                 toscript = p.obj(f"prepend disp {name}", [x, 320, 90, 22])
                 p.connect(ctl, toscript)
-                p.connect(toscript, script)
+                p.connect(toscript, port.inp)
                 n += 1
                 continue
             if kind == "toggle":
@@ -948,7 +1187,7 @@ def display(p, trig, script):
                 # either sends "disp <name> 0/1" and the script flips the setting. (A
                 # live.text toggle in Live kept its off look when set on.)
                 toscript = p.obj(f"prepend disp {name}", [x, 320, 90, 22])
-                p.connect(toscript, script)
+                p.connect(toscript, port.inp)
                 for k, suffix in enumerate(["", "_on"]):
                     ctl = p.box("live.text", [x + k * 45, 260, 40, 16], None, 1, 2, ["", ""], rect,
                                 varname=f"d_{name}{suffix}", parameter_enable=0, mode=1, texton=row["text"],
@@ -1029,23 +1268,23 @@ def display(p, trig, script):
                 p.connect(mk, mp, 4, 1)
                 p.connect(mk, mp, 2, 2)
                 p.connect(mp, mm)
-                p.connect(mm, script)
-                p.connect(tt, script, 0)
+                p.connect(mm, port.inp)
+                p.connect(tt, port.inp, 0)
             else:
-                p.connect(toscript, script)
+                p.connect(toscript, port.inp)
             n += 1
 
     # The diagram band (GROOVE, PHRASE, STYLE): one [v8ui] drawing whichever the page has
     # ("d_diagram groove ...", "d_diagram play x"), in Live's LCD colours; on PHRASE's User
     # shape a click or drag sends "phraseGrid col level".
     diagram = p.box("v8ui", [2000, 470, 200, 54], None, 1, 1, [""],
-                    [DISPLAY_X + 8, DIAGRAM_Y, DISPLAY_W - 16, 165 - 4 - DIAGRAM_Y],
+                    [DISPLAY_X + 8, DIAGRAM_Y_, DISPLAY_W - 16, BOTTOM - 4 - DIAGRAM_Y_],
                     filename=DIAGRAM_SCRIPT, border=0, parameter_enable=0, varname="d_diagram", hidden=1)
     names.append("d_diagram")
     targets.append(diagram)
     # The board (TRACK's steps, KEYS' keyboard): the same script, under the first row.
     board = p.box("v8ui", [2000, 580, 200, 80], None, 1, 1, [""],
-                  [DISPLAY_X + 8, DISPLAY_ROW_Y + DISPLAY_ROW_H, DISPLAY_W - 16, 165 - 4 - DISPLAY_ROW_Y - DISPLAY_ROW_H],
+                  [DISPLAY_X + 8, DISPLAY_ROW_Y_ + DISPLAY_ROW_H, DISPLAY_W - 16, BOTTOM - 4 - DISPLAY_ROW_Y_ - DISPLAY_ROW_H],
                   filename=DIAGRAM_SCRIPT, border=0, parameter_enable=0, varname="d_board", hidden=1)
     names.append("d_board")
     targets.append(board)
@@ -1057,7 +1296,7 @@ def display(p, trig, script):
     for i, sel in enumerate(["phraseGrid", "poolKey", "scaleKey", "lane", "laneClear", "lockStepClick", "cycleLaneClick"]):
         to = p.obj(f"prepend {sel}", [2000 + i * 110, 560, 100, 22])
         p.connect(clicks, to, i)
-        p.connect(to, script)
+        p.connect(to, port.inp)
     dcolors = p.obj("live.colors", [2220, 470, 80, 22], 1, 2)
     dask = p.msg("live_lcd_control_fg, live_lcd_title", [2220, 440, 200, 22])
     p.connect(trig, dask, 2)
@@ -1065,28 +1304,85 @@ def display(p, trig, script):
     p.connect(dask, dcolors)
     p.connect(dcolors, diagram)
     p.connect(dcolors, board)
+    if keyboard:
+        # The window's keyboard, under its display, always there: KEYS' keys ("d_kbd keys
+        # ..."), clicked as KEYS' are.
+        # KEYS' row over it: the help line ("d_khelp text"), REST and TRACK POOL (shown by the
+        # script: "wshow k_rest" ...).
+        ky = BOTTOM + 4
+        # < > move it an octave ("kbdOctaveMove -1/1"), its range beside them ("d_krange").
+        for k, (text, d) in enumerate((("<", -1), (">", 1))):
+            ob = p.box("live.text", [2400 + k * 40, 620, 30, 16], None, 1, 2, ["", ""], [DISPLAY_X + k * 26, ky, 24, 16],
+                       varname=f"k_oct{k}", parameter_enable=0, mode=0, texton=text)
+            p.boxes[-1]["box"]["text"] = text
+            tob = p.msg(f"kbdOctaveMove {d}", [2400 + k * 40, 650, 110, 22])
+            p.connect(ob, tob)
+            p.connect(tob, port.inp)
+        krange = p.box("live.comment", [2500, 620, 60, 18], "", 1, 0, None, [DISPLAY_X + 54, ky, 52, 16],
+                       varname="k_range", ignoreclick=1, fontsize=9.0, textcolor=[0.85, 0.85, 0.85, 1.0],
+                       saved_attribute_attributes={"textcolor": {"expression": "themecolor.live_control_fg"}})
+        setkr = p.obj("prepend set", [2500, 600, 70, 22])
+        p.connect(setkr, krange)
+        names.append("d_krange")
+        targets.append(setkr)
+        khelp = p.box("live.comment", [2000, 620, 200, 18], "", 1, 0, None, [DISPLAY_X + 110, ky, DISPLAY_W - 260, 16],
+                      varname="k_help", ignoreclick=1, fontsize=9.0, textcolor=[0.85, 0.85, 0.85, 1.0],
+                      saved_attribute_attributes={"textcolor": {"expression": "themecolor.live_control_fg"}})
+        setkh = p.obj("prepend set", [2000, 600, 70, 22])
+        p.connect(setkh, khelp)
+        names.append("d_khelp")
+        targets.append(setkh)
+        for k, (vn, text, sel, w_) in enumerate((("k_rest", "REST", "seqRest", 54), ("k_pool", "TRACK POOL", "trackPool", 70))):
+            btn = p.box("live.text", [2220 + k * 60, 620, 50, 16], None, 1, 2, ["", ""],
+                        [DISPLAY_X + DISPLAY_W - w_, ky, w_, 16], varname=vn, parameter_enable=0, mode=0,
+                        texton=text, hidden=1)
+            p.boxes[-1]["box"]["text"] = text
+            tobtn = p.obj(f"prepend {sel}", [2220 + k * 60, 650, 90, 22])
+            p.connect(btn, tobtn)
+            p.connect(tobtn, port.inp)
+        kbd = p.box("v8ui", [2000, 660, 200, 40], None, 1, 1, [""],
+                    [DISPLAY_X, ky + 18, DISPLAY_W, KBD_H], filename=DIAGRAM_SCRIPT, border=0,
+                    parameter_enable=0, varname="d_kbd")
+        names.append("d_kbd")
+        targets.append(kbd)
+        p.connect(kbd, clicks)
+        p.connect(dcolors, kbd)
 
     # DEVICE's other rows: the device's own controls, after the page's (the script shows
     # them with DEVICE).
     setup_rows = 1 + max(row.get("row", r) for r, row in enumerate(spec["views"]["DEVICE"]))
-    base = DISPLAY_ROW_Y + setup_rows * DISPLAY_ROW_H + 2
+    base = DISPLAY_ROW_Y_ + setup_rows * DISPLAY_ROW_H + 2
     label("instance", "INSTANCE", [DISPLAY_X + 8, base, DISPLAY_LABEL_W - 4, 16], 1300)
     inst = p.param("live.menu", [600, 440, 60, 15], [cx, base, 50, 16], "Instance", 2,
                    enum=["A", "B", "C", "D"], outlets=3, outlettype=["", "", "float"],
                    varname="d_instance", appearance=1, hidden=False)
     p.boxes[-1]["box"]["hidden"] = 1
-    ui(p, trig, script, inst, "instanceSelect", 600)
+    ui(p, trig, port, inst, "instanceSelect", 600)
     label("lookahead", "AHEAD", [DISPLAY_X + 8, base + DISPLAY_ROW_H, DISPLAY_LABEL_W - 4, 16], 1400)
     ahead = p.param("live.numbox", [720, 620, 44, 15], [cx, base + DISPLAY_ROW_H, 44, 16], "Lookahead", 1,
                     mmin=4, mmax=16, initial=4, outlets=2, outlettype=["", "float"], varname="d_lookahead",
                     appearance=1)
     p.boxes[-1]["box"]["hidden"] = 1
-    ui(p, trig, script, ahead, "lookahead", 720)
-    status = p.msg("", [20, 380, 300, 22], [cx, base + 2 * DISPLAY_ROW_H, full, 18])
-    b = p.boxes[-1]["box"]
-    b.update(varname="d_status", hidden=1, fontsize=9.0, bgcolor=[0.08, 0.08, 0.09, 1.0], textcolor=[0.7, 0.7, 0.7, 1.0],
-             saved_attribute_attributes={"bgcolor": lcd("live_lcd_bg"), "textcolor": lcd("live_lcd_control_fg")})
-    p.connect(script, status, 1)
+    ui(p, trig, port, ahead, "lookahead", 720)
+    # Set by the script on both copies ("d_instance i", "d_lookahead n"): the window's are
+    # Hidden copies, and a change on either goes to the other.
+    for vn, ctl, x in (("d_instance", inst, 600), ("d_lookahead", ahead, 720)):
+        setc = p.obj("prepend set", [x, 410, 70, 22])
+        p.connect(setc, ctl)
+        names.append(vn)
+        targets.append(setc)
+    if p.mirror:
+        # The window's: a live.comment ("set text" as a message box takes it), which keeps
+        # its width when its font is scaled up (a message box grows to its text).
+        status = p.box("live.comment", [20, 380, 300, 18], "", 1, 0, None, [cx, base + 2 * DISPLAY_ROW_H, full, 18],
+                       varname="d_status", hidden=1, ignoreclick=1, fontsize=9.0, textcolor=[0.85, 0.85, 0.85, 1.0],
+                       saved_attribute_attributes={"textcolor": lcd("live_lcd_control_fg")})
+    else:
+        status = p.msg("", [20, 380, 300, 22], [cx, base + 2 * DISPLAY_ROW_H, full, 18])
+        b = p.boxes[-1]["box"]
+        b.update(varname="d_status", hidden=1, fontsize=9.0, bgcolor=[0.08, 0.08, 0.09, 1.0], textcolor=[0.7, 0.7, 0.7, 1.0],
+                 saved_attribute_attributes={"bgcolor": lcd("live_lcd_bg"), "textcolor": lcd("live_lcd_control_fg")})
+    port.out(1, status)
 
 
     route = p.obj("route " + " ".join(names), [2000, 400, 900, 22], 1, len(names) + 1)
@@ -1115,6 +1411,7 @@ def main(out):
     for src, dst in ((HERE / SCRIPT, SCRIPT), (HERE / "jezric_talea_core.js", "jezric_talea_core.js"),
                      (HERE / LABEL_SCRIPT, LABEL_SCRIPT), (HERE / DISPLAY_SCRIPT, DISPLAY_SCRIPT),
                      (HERE / DIAGRAM_SCRIPT, DIAGRAM_SCRIPT), (HERE / GEAR_SVG, GEAR_SVG),
+                     (HERE / INFO_SCRIPT, INFO_SCRIPT), (HERE / WIN_SVG, WIN_SVG),
                      (ENGINE, "jezric_talea_engine.js")):
         shutil.copyfile(src, out / dst)
         print("copied", out / dst)

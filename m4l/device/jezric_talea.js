@@ -20,7 +20,7 @@
 
 autowatch = 1;
 inlets = 1;
-outlets = 7; // 0: MIDI now, "pitch velocity"   1: status text
+outlets = 8; // 0: MIDI now, "pitch velocity"   1: status text
              // receiver: 2: to [coll]: "store step entries...", "remove step", "clear"
              //           3: to [pipe]
              // brain: 2: "savelater" to a [delay] -> [deferlow] -> "savepattern" back
@@ -29,6 +29,7 @@ outlets = 7; // 0: MIDI now, "pitch velocity"   1: status text
              //           "apply 0/1", "rec 0/1", "ovd 0/1"
              //        6: the display: "script show|hide name", "d_<row> value",
              //           "dl_<row> label", "dr_<row> choices...", "da_<row> 0/1" (active)
+             //        7: the floating window's display, as 6 (drawn for its own view)
 
 var ROLE = (typeof jsarguments !== "undefined" && jsarguments.length > 1) ? String(jsarguments[1]) : "receiver";
 var BRAIN = ROLE === "brain";
@@ -97,6 +98,7 @@ var preMuteMode = MODE_STEP; // the pad mode before Mute (a display page tab goe
 // The display (jezric_talea_display.js): the page chosen, the view shown (a page, or MUTE
 // in Mute mode) and what each row's control shows, to send only changes.
 var DISPLAY = null;
+var INFO = null; // Live's Info View texts (jezric_talea_info.js): the boards' and diagrams' set here
 var dispPage = 0;
 var shownView = null;
 var dispShown = {};
@@ -129,6 +131,10 @@ var TEST_PATTERN = typeof TALEA_TEST_PATTERN !== "undefined" ? TALEA_TEST_PATTER
 var debugOn = typeof TALEA_DEBUG !== "undefined" && !!TALEA_DEBUG;
 var savedText = null; // the pattern as last stored in, or restored from, the set
 var pendingRestore = null; // a pattern from the set, waiting for the engine (init)
+// Whether the set's pattern (and the device's settings with it) has come; when init was.
+// A set reloaded in a running Live gives it a few seconds after init: taken as the set's,
+// not as Live's undo (setLoaded false, within LATE_LOAD_MS of init).
+var setLoaded = false, initAt = 0, LATE_LOAD_MS = 15000, storedSinceInit = false; // (an undo needs a stored edit first)
 
 // Receiver
 var plan = {}; // step -> epoch of the entries written to [coll] for it
@@ -217,6 +223,7 @@ function init() {
 		try {
 			stepper = new (require("jezric_talea_core").Stepper)(require("jezric_talea_engine"), TEST_PATTERN);
 			DISPLAY = require("jezric_talea_display");
+			try { INFO = require("jezric_talea_info"); } catch (e) { INFO = null; }
 		} catch (e) {
 			warn("can't start the engine: " + e);
 			stepper = null;
@@ -232,9 +239,11 @@ function init() {
 			for (var t = 0; t < stepper.tracks; t++) startValues.push(EDIT_KEYS.map(function (k) { return stepper.getParam(t, k); }));
 			// Live gives the device its saved values before it says the device is loaded,
 			// so a pattern saved with the set is usually waiting here.
+			initAt = Date.now();
 			if (pendingRestore !== null) {
 				var text = pendingRestore;
 				pendingRestore = null;
+				setLoaded = true;
 				if (applyPattern(text)) restoreUi(text);
 			}
 		}
@@ -245,7 +254,7 @@ function init() {
 		padKeys = [];
 		outlet(5, "mode", padMode);
 		outlet(5, "apply", 0);
-		outlet(6, "d_pages", dispPage);
+		showPageTab();
 		shownView = null;
 		showView();
 		outlet(5, "follow", follow ? 1 : 0);
@@ -254,7 +263,19 @@ function init() {
 		tempPending = null;
 		tempReadyAt = Date.now() + 2000;
 		gearShown = null;
+		winGearSeen = null;
+		tabLit = [null, null];
 		showGear();
+		// The window's copies (Hidden: setting them doesn't mark the set changed; the
+		// device's own are the set's).
+		outlet(7, "d_instance", instance);
+		outlet(7, "d_lookahead", lookaheadSteps);
+		WIN_DISP = { shown: {}, view: null };
+		outlet(5, "won", (newOn === null ? on : newOn) ? 1 : 0);
+		kbdShown = null;
+		// Open as the set was saved, a little later: reloading a set in a running Live, the
+		// window wasn't ready to be sized yet.
+		later(readWin, 300);
 		showTemp();
 		clipShown = null;
 		showClip();
@@ -270,6 +291,10 @@ function init() {
 function instanceSelect(i) {
 	instance = Math.max(0, Math.min(IDS.length - 1, Math.round(i)));
 	if (BRAIN) {
+		// The window's copy; the device's only for a change made in the window (a stored
+		// parameter set by the script as the set loads marks the set changed).
+		outlet(7, "d_instance", instance);
+		if (fromSrc === 1) outlet(6, "d_instance", instance);
 		send("announce");
 		if (lastStep < 0) sendCue();
 	} else {
@@ -293,6 +318,8 @@ function channelSelect(v) {
 function lookahead(v) {
 	if (!BRAIN) return;
 	var L = Math.max(4, Math.min(16, Math.round(v)));
+	outlet(7, "d_lookahead", L);
+	if (fromSrc === 1) outlet(6, "d_lookahead", L); // the device's: a change made in the window
 	if (L === lookaheadSteps) return;
 	lookaheadSteps = L;
 	if (lastStep < 0) sendCue(); // while playing, the next tick sends further ahead
@@ -504,10 +531,15 @@ function quantumSteps(q) {
 }
 
 // The device's patcher, to read the On button's value at init (a bang would toggle it).
-var PATCHER = (typeof this !== "undefined" && this && this.patcher) ? this.patcher : null;
+// The device's patcher, looked up each time (as the script first loads, on a set reloaded
+// in a running Live, it wasn't there yet).
+var SELF = this;
+function patcherNow() {
+	try { return SELF && SELF.patcher ? SELF.patcher : null; } catch (e) { return null; }
+}
 
 function readOn() {
-	var o = PATCHER && PATCHER.getnamed ? PATCHER.getnamed("On") : null;
+	var o = patcherNow() && patcherNow().getnamed ? patcherNow().getnamed("On") : null;
 	if (o && typeof o.getvalueof === "function") enable(o.getvalueof());
 }
 
@@ -517,6 +549,8 @@ function enable(v) {
 	var want = Number(v) !== 0;
 	if (want === (newOn === null ? on : newOn)) return;
 	newOn = want;
+	outlet(5, "won", want ? 1 : 0); // the window's copy of On (Hidden)
+	if (fromSrc === 1) outlet(5, "onstate", want ? 1 : 0); // the device's: changed in the window
 	if (lastStep < 0) takeOn(-1, false);
 	status();
 }
@@ -937,7 +971,106 @@ function soloChanged() {
 
 // The view shown: Mute mode's settings over any page, as on Rack, else the page chosen.
 function currentView() {
+	if (viewFor !== null) return viewFor; // drawing the window's
+	return fromSrc === 1 ? winView() : deviceView();
+}
+
+function deviceView() {
+	if (!DISPLAY) return null;
 	return padMode === MODE_MUTE ? "MUTE" : gearOpen ? DISPLAY.gear : DISPLAY.pages[dispPage];
+}
+
+// ---- the floating window's display ---------------------------------------------------
+//
+// Drawn as the device's, to outlet 7, for its own view: the device's, but while the device
+// shows KEYS the window stays on the page it had (its keyboard is always there). Its
+// controls' state is kept apart (dispShown, shownView swapped in while it's drawn).
+var viewFor = null, DOUT = 6, lastWinView = "TRACK", WIN_DISP = { shown: {}, view: null };
+function winView() {
+	if (!DISPLAY) return null;
+	if (!pageSync) {
+		if (padMode === MODE_MUTE) return "MUTE";
+		return winGear ? DISPLAY.gear : DISPLAY.pages[winPage];
+	}
+	var v = deviceView();
+	if (v === "KEYS") return lastWinView;
+	lastWinView = v;
+	return v;
+}
+
+// DEVICE's PAGE LOCK (on by default): a dial turned leaves the page as it is (off: it shows
+// its page, as Rack's "display follows knobs"). PAGE SYNC (on by default): the device and
+// the window show the same page; off, each its own (a tab or the gear clicked in one moves
+// that one only). Both saved with the set (the bank's "ui").
+var pageLock = true, pageSync = true, winPage = 0, winGear = false;
+function winGearShown() {
+	return pageSync ? gearOpen : winGear;
+}
+function setPageSync(on) {
+	var was = pageSync;
+	pageSync = on;
+	if (!DISPLAY) return;
+	if (on) {
+		// Turned on in the window: the device takes the window's page (the gear, where the
+		// setting is); on the device, the window takes the device's.
+		if (!was && fromSrc === 1) {
+			dispPage = winPage;
+			gearOpen = winGear;
+		}
+		return;
+	}
+	winPage = DISPLAY.pages.indexOf(lastWinView);
+	if (winPage < 0) winPage = 0;
+	winGear = gearOpen;
+}
+
+// The message as a list: one list argument, or the arguments.
+function msgOf(args) {
+	return args.length === 1 && Array.isArray(args[0]) ? args[0] : Array.prototype.slice.call(args);
+}
+
+function dout() {
+	outlet(DOUT, msgOf(arguments));
+}
+
+// Both copies: the panel's own controls, which the window has too.
+function both() {
+	var a = msgOf(arguments);
+	outlet(6, a);
+	outlet(7, a);
+}
+
+// The device's copy drawn: its own view, even for a click in the window.
+function withDevice(fn) {
+	var keep = [DOUT, viewFor];
+	viewFor = deviceView();
+	DOUT = 6;
+	try { fn(); } finally {
+		DOUT = keep[0];
+		viewFor = keep[1];
+	}
+}
+
+function withWindow(fn) {
+	var keep = [DOUT, dispShown, shownView, viewFor];
+	viewFor = winView();
+	DOUT = 7;
+	dispShown = WIN_DISP.shown;
+	shownView = WIN_DISP.view;
+	try { fn(); } finally {
+		WIN_DISP.shown = dispShown;
+		WIN_DISP.view = shownView;
+		DOUT = keep[0];
+		dispShown = keep[1];
+		shownView = keep[2];
+		viewFor = keep[3];
+	}
+}
+
+// A control's value sent again, on both copies (a click on it moved it on its own).
+function forget(key) {
+	delete dispShown[key];
+	delete WIN_DISP.shown[key];
 }
 
 // The gear right of the page tabs: the DEVICE page, the device's own settings. While it
@@ -945,19 +1078,56 @@ function currentView() {
 var gearOpen = false, gearShown = null;
 function gearSelect() {
 	if (!BRAIN || !DISPLAY) return;
+	if (fromSrc === 1 && !pageSync) { // the window's own
+		winGear = true;
+		showGear();
+		return showView();
+	}
 	gearOpen = true;
 	showGear();
 	showView();
 }
 
 function showGear() {
-	if (gearShown === gearOpen) return;
-	gearShown = gearOpen;
-	outlet(6, "script", gearOpen ? "hide" : "show", "d_pages");
-	outlet(6, "script", gearOpen ? "show" : "hide", "d_pagesb");
-	outlet(6, "script", gearOpen ? "hide" : "show", "d_gear");
-	outlet(6, "script", gearOpen ? "show" : "hide", "d_gear_on");
-	if (!gearOpen) outlet(6, "d_pages", dispPage);
+	if (gearShown !== gearOpen) {
+		gearShown = gearOpen;
+		outlet(6, "script", gearOpen ? "hide" : "show", "d_gear");
+		outlet(6, "script", gearOpen ? "show" : "hide", "d_gear_on");
+	}
+	var wg = winGearShown();
+	if (winGearSeen !== wg) {
+		winGearSeen = wg;
+		outlet(7, "script", wg ? "hide" : "show", "d_gear");
+		outlet(7, "script", wg ? "show" : "hide", "d_gear_on");
+	}
+	showPageTab();
+}
+var winGearSeen = null;
+
+// The page tabs: a button per page, the chosen one lit ("d_tab<i>_on" shown in place of
+// "d_tab<i>"): the device's, and the window's, whose tabs leave KEYS out (its own
+// numbering; on KEYS from the device, its own page). None while the gear is open.
+var WIN_PAGES = null, tabLit = [null, null];
+function winPages() {
+	if (!WIN_PAGES) WIN_PAGES = DISPLAY.pages.filter(function (v) { return v !== "KEYS"; });
+	return WIN_PAGES;
+}
+function showPageTab() {
+	if (!DISPLAY) return;
+	litTab(0, gearOpen ? -1 : dispPage, DISPLAY.pages.length);
+	var j = winPages().indexOf(DISPLAY.pages[pageSync ? dispPage : winPage]);
+	if (j < 0) j = winPages().indexOf(lastWinView); // KEYS on the device: the window's own page
+	litTab(1, winGearShown() ? -1 : j, winPages().length);
+}
+function litTab(k, i, n) {
+	if (tabLit[k] === i) return;
+	var was = tabLit[k], out = k ? 7 : 6;
+	tabLit[k] = i;
+	for (var t = 0; t < n; t++) {
+		if (was !== null && t !== was && t !== i) continue; // only the two that change
+		outlet(out, "script", t === i ? "hide" : "show", "d_tab" + t);
+		outlet(out, "script", t === i ? "show" : "hide", "d_tab" + t + "_on");
+	}
 }
 
 // The controls a view shows: its rows' (each a label and a control), or the note for a
@@ -978,28 +1148,45 @@ function viewItems(view) {
 
 // Shows the current view's controls, hiding the last view's, and sets them.
 function showView() {
+	if (!BRAIN || !DISPLAY) return; // still loading (the pad mode menu can send before init)
+	withDevice(renderView);
+	withWindow(renderView);
+}
+
+function renderView() {
 	if (!BRAIN || !DISPLAY) return;
 	var view = currentView();
 	if (view !== shownView) {
 		if (shownView !== null) {
-			viewItems(shownView).forEach(function (n) { outlet(6, "script", "hide", n); });
+			viewItems(shownView).forEach(function (n) { dout("script", "hide", n); });
 			(DISPLAY.views[shownView] || []).forEach(function (r) {
-				if (r.kind === "toggle" && dispShown["tg_" + r.name]) outlet(6, "script", "hide", "d_" + r.name + (dispShown["tg_" + r.name] === 2 ? "_on" : ""));
-				else if (r.showWhen && dispShown["vis_" + r.name]) outlet(6, "script", "hide", "d_" + r.name);
+				if (r.kind === "toggle" && dispShown["tg_" + r.name]) dout("script", "hide", "d_" + r.name + (dispShown["tg_" + r.name] === 2 ? "_on" : ""));
+				else if (r.showWhen && dispShown["vis_" + r.name]) dout("script", "hide", "d_" + r.name);
 			});
 		}
-		viewItems(view).forEach(function (n) { outlet(6, "script", "show", n); });
+		viewItems(view).forEach(function (n) { dout("script", "show", n); });
 		shownView = view;
 		dispShown = { rndmark: dispShown.rndmark, cycmark: dispShown.cycmark, stepmark: dispShown.stepmark, playbar: dispShown.playbar };
 	}
-	showDisplay();
+	renderDisplay();
 }
 
 // The page tabs: "displayPage i". A tab while in Mute mode leaves it, back to the pad mode
 // before it (staged mutes dropped), as on Rack.
 function displayPage(i) {
 	if (!BRAIN || !DISPLAY) return;
-	dispPage = Math.max(0, Math.min(DISPLAY.pages.length - 1, Math.round(i)));
+	i = Math.max(0, Math.min(DISPLAY.pages.length - 1, Math.round(i)));
+	if (fromSrc === 1 && !pageSync) { // the window's own page
+		winPage = i;
+		winGear = false;
+		showGear();
+		if (padMode === MODE_MUTE) {
+			padModeSelect(preMuteMode);
+			outlet(5, "mode", padMode);
+		}
+		return showView();
+	}
+	dispPage = i;
 	gearOpen = false;
 	showGear();
 	if (padMode === MODE_MUTE) {
@@ -1012,14 +1199,70 @@ function displayPage(i) {
 // A dial turned: the display shows its page (Rack's "display follows knobs"). In Mute mode
 // the Mute view stays; the page is there once Mute mode is left.
 function followDial(key) {
-	if (!DISPLAY || !DISPLAY.dialPages) return;
+	if (!DISPLAY || !DISPLAY.dialPages || pageLock) return;
 	var i = DISPLAY.pages.indexOf(selCount() && stepper.lockable(key) ? "LOCKS" : DISPLAY.dialPages[key]);
-	if (i < 0 || (i === dispPage && !gearOpen)) return;
+	if (i < 0) return;
+	if (fromSrc === 1 && !pageSync) { // a dial in the window: its own page
+		if (i === winPage && !winGear) return;
+		winPage = i;
+		winGear = false;
+		showGear();
+		return showView();
+	}
+	if (i === dispPage && !gearOpen) return;
 	dispPage = i;
 	gearOpen = false;
 	showGear();
-	outlet(6, "d_pages", i);
 	showView();
+}
+
+// A "fit" row (CYCLE's CLEAR): only as wide as its choices need, each as wide as the
+// longest's text with some padding (a live.tab's choices share its width evenly), never
+// wider than its row. On the copy being drawn (DOUT): the device's control, or the
+// window's, whose place at 100% is kept for its scaling (DEVICE's WINDOW).
+var FIT_CHAR = 5.6, FIT_PAD = 14, fitFull = [{}, {}];
+function fitWidth(names, full) {
+	var longest = 0;
+	names.forEach(function (n) { longest = Math.max(longest, String(n).length); });
+	return Math.min(full, Math.round(longest * FIT_CHAR + FIT_PAD) * names.length);
+}
+function fitRow(row, names) {
+	var win = DOUT === 7, vn = "d_" + row.name, o = null;
+	try {
+		if (!win) o = patcherNow() && patcherNow().getnamed ? patcherNow().getnamed(vn) : null;
+		else {
+			var box = patcherNow() && patcherNow().getnamed ? patcherNow().getnamed("WinPatcher") : null, sub = box ? box.subpatcher() : null;
+			o = sub ? sub.getnamed(vn) : null;
+		}
+		if (!o) return;
+		var it = null;
+		if (win && winItems) winItems.forEach(function (x) { if (x.o.varname === vn) it = x; });
+		var r = it ? it.r : o.getboxattr("presentation_rect"), k = win ? 1 : 0;
+		if (fitFull[k][vn] === undefined) fitFull[k][vn] = r[2];
+		var w = fitWidth(names, fitFull[k][vn]), z = it ? winApplied : 1;
+		if (it) it.r[2] = w;
+		o.setboxattr("presentation_rect", r[0] * z, r[1] * z, w * z, r[3] * z);
+	} catch (e) {
+		warn("fitting " + vn + ": " + e);
+	}
+}
+
+// A control's Info View text (annotation_name / annotation), on the copy being drawn
+// (DOUT: the device's, or the floating window's).
+function setBoxInfo(vn, pair) {
+	if (!pair || !patcherNow() || !patcherNow().getnamed) return;
+	try {
+		var o;
+		if (DOUT === 7) {
+			var box = patcherNow().getnamed("WinPatcher"), sub = box ? box.subpatcher() : null;
+			o = sub ? sub.getnamed(vn) : null;
+		} else o = patcherNow().getnamed(vn);
+		if (!o) return;
+		o.setboxattr("annotation_name", pair[0]);
+		o.setboxattr("annotation", pair[1]);
+	} catch (e) {
+		log("Info View text of " + vn + ": " + e);
+	}
 }
 
 function rowOf(name) {
@@ -1045,6 +1288,9 @@ function rowValue(row) {
 	else if (row.action === "stepPage") v = stepPage;
 	else if (row.action === "follow") v = follow ? 1 : 0;
 	else if (row.action === "tempTiming") v = tempTiming;
+	else if (row.action === "winZoom") v = winZoom;
+	else if (row.action === "pageLock") v = pageLock ? 1 : 0;
+	else if (row.action === "pageSync") v = pageSync ? 1 : 0;
 	else if (row.action === "songOn") v = stepper.song().on ? 1 : 0;
 	else if (row.action === "songLoop") v = stepper.song().loop ? 1 : 0;
 	else if (row.action === "songPage") v = songPage;
@@ -1061,6 +1307,13 @@ function rowValue(row) {
 // Sets the current view's controls from the engine: only what changed.
 function showDisplay() {
 	if (!BRAIN || !DISPLAY || !stepper) return;
+	showKbd();
+	withDevice(renderDisplay);
+	withWindow(renderDisplay);
+}
+
+function renderDisplay() {
+	if (!BRAIN || !DISPLAY || !stepper) return;
 	var rows = DISPLAY.views[currentView()] || [], used = null;
 	if (currentView() === "LOCKS") resolveLanePage(); // before LANES shows which
 	rows.forEach(function (row) {
@@ -1069,8 +1322,8 @@ function showDisplay() {
 			var tg = row.showWhen && !showsNow(row) ? 0 : rowValue(row) ? 2 : 1, was = dispShown["tg_" + row.name] || 0;
 			if (tg !== was) {
 				dispShown["tg_" + row.name] = tg;
-				if (was) outlet(6, "script", "hide", "d_" + row.name + (was === 2 ? "_on" : ""));
-				if (tg) outlet(6, "script", "show", "d_" + row.name + (tg === 2 ? "_on" : ""));
+				if (was) dout("script", "hide", "d_" + row.name + (was === 2 ? "_on" : ""));
+				if (tg) dout("script", "show", "d_" + row.name + (tg === 2 ? "_on" : ""));
 			}
 			return;
 		}
@@ -1078,7 +1331,7 @@ function showDisplay() {
 			var vis = showsNow(row);
 			if (dispShown["vis_" + row.name] !== vis) {
 				dispShown["vis_" + row.name] = vis;
-				outlet(6, "script", vis ? "show" : "hide", "d_" + row.name);
+				dout("script", vis ? "show" : "hide", "d_" + row.name);
 			}
 			if (!vis) return;
 		}
@@ -1086,7 +1339,7 @@ function showDisplay() {
 			var line = textOf(row);
 			if (dispShown["d_" + row.name] !== line) {
 				dispShown["d_" + row.name] = line;
-				outlet(6, "d_" + row.name, line);
+				dout("d_" + row.name, line);
 			}
 			return;
 		}
@@ -1113,13 +1366,14 @@ function showDisplay() {
 				dispShown["dr_" + row.name] = names.join(" ");
 				delete dispShown["d_" + row.name];
 				relabelled[row.name] = Date.now();
-				outlet(6, ["dr_" + row.name].concat(names));
+				dout(["dr_" + row.name].concat(names));
+				if (row.fit) fitRow(row, names);
 			}
 		}
 		var v = rowValue(row), key = "d_" + row.name;
 		if (v !== null && dispShown[key] !== v) {
 			dispShown[key] = v;
-			outlet(6, key, v);
+			dout(key, v);
 		}
 		if (row.alt) {
 			var altOn = row.altWhen === "@cycleEdit" ? cycleEdit : row.altWhen === "@temp" ? !!tempShown
@@ -1127,7 +1381,7 @@ function showDisplay() {
 			var text = altOn ? row.alt : row.label;
 			if (dispShown["dl_" + row.name] !== text) {
 				dispShown["dl_" + row.name] = text;
-				outlet(6, "dl_" + row.name, text);
+				dout("dl_" + row.name, text);
 			}
 		}
 		if (row.activeWhen || row.seqUnused) {
@@ -1136,13 +1390,13 @@ function showDisplay() {
 				: !row.activeWhen || row.activeWhen["in"].indexOf(stepper.getField(editTrack, row.activeWhen.field, editC())) >= 0 ? 1 : 0;
 			if (dispShown["da_" + row.name] !== on) {
 				dispShown["da_" + row.name] = on;
-				outlet(6, "da_" + row.name, on);
+				dout("da_" + row.name, on);
 			}
 		}
 	});
 	showDiagram();
 	showBoard();
-	showRandomMark();
+	renderMarks();
 }
 
 // The diagram under the rows, as Rack's display draws it: sent when it changes, its
@@ -1150,6 +1404,10 @@ function showDisplay() {
 function showDiagram() {
 	var which = DISPLAY.diagrams ? DISPLAY.diagrams[currentView()] : null;
 	if (!which) return;
+	if (dispShown.diagInfo !== currentView()) {
+		dispShown.diagInfo = currentView();
+		setBoxInfo("d_diagram", INFO && INFO.diagrams[currentView()]);
+	}
 	var t = editTrack, c = editC(), msg, kind = 0;
 	if (which === "groove") {
 		var percussion = stepper.getField(t, "groove") < 4, loops = stepper.getField(t, "grooveLoop");
@@ -1171,12 +1429,12 @@ function showDiagram() {
 	var key = msg.join(" ");
 	if (dispShown.d_diagram !== key) {
 		dispShown.d_diagram = key;
-		outlet(6, msg);
+		dout(msg);
 	}
 	var x = kind < 0 || lastStep < 0 ? -1 : Math.round(stepper.diagramPhase(t, kind, lastStep / 4 + 1e-6, c) * 400) / 400;
 	if (dispShown.d_play !== x) {
 		dispShown.d_play = x;
-		outlet(6, "d_diagram", "play", x);
+		dout("d_diagram", "play", x);
 	}
 }
 
@@ -1191,30 +1449,36 @@ function showPlayBars() {
 		if (k >= 0 && k < SONG_PAGE) want = "d_songCount_play" + k;
 	}
 	if (dispShown.playbar === want) return;
-	if (dispShown.playbar) outlet(6, "script", "hide", dispShown.playbar);
-	if (want) outlet(6, "script", "show", want);
+	if (dispShown.playbar) dout("script", "hide", dispShown.playbar);
+	if (want) dout("script", "show", want);
 	dispShown.playbar = want;
 }
 
 // The blue frame over the RANDOM tab: shown while the edit track has a random amount.
 function showRandomMark() {
+	if (!BRAIN || !DISPLAY || !stepper) return;
+	withDevice(renderMarks);
+	withWindow(renderMarks);
+}
+
+function renderMarks() {
 	var on = false, rows = DISPLAY.views.RANDOM || [];
 	for (var i = 0; i < rows.length && !on; i++)
 		if (rows[i].random === "amount" && stepper.getRandom(editTrack, "amount", rows[i].param, editC()) !== 0) on = true;
 	if (dispShown.rndmark !== on) {
 		dispShown.rndmark = on;
-		outlet(6, "script", on ? "show" : "hide", "d_rndmark");
+		dout("script", on ? "show" : "hide", "d_rndmark");
 	}
 	showPlayBars();
 	// LOCKS' frame blinks while steps are selected, CYCLE's while Cycle edit is on.
 	var stepOn = selCount() > 0 && slowBlinkOn(), cycOn = cycleEdit && slowBlinkOn();
 	if (dispShown.stepmark !== stepOn) {
 		dispShown.stepmark = stepOn;
-		outlet(6, "script", stepOn ? "show" : "hide", "d_stepmark");
+		dout("script", stepOn ? "show" : "hide", "d_stepmark");
 	}
 	if (dispShown.cycmark !== cycOn) {
 		dispShown.cycmark = cycOn;
-		outlet(6, "script", cycOn ? "show" : "hide", "d_cycmark");
+		dout("script", cycOn ? "show" : "hide", "d_cycmark");
 	}
 }
 
@@ -1240,7 +1504,14 @@ function cycleClearEntries() {
 // A text row's line.
 function textOf(row) {
 	if (row.text === "trackInfo") return cycleEdit ? stepper.cycleInfo(editTrack, selCycle) : stepper.trackInfo(editTrack);
-	if (row.text === "keysHelp") {
+	if (row.text === "keysHelp") return keysHelp();
+	if (row.text === "songInfo") return songInfo();
+	return textOf2(row);
+}
+
+// KEYS' help line (and the window's keyboard row's).
+function keysHelp() {
+	{
 		if (!isSeq()) {
 			if (!selCount()) return "CLICK = ADD / REMOVE A POOL NOTE";
 			return stepPoolShown() ? "THE STEPS' OWN POOL: CLICK = ADD / REMOVE"
@@ -1251,7 +1522,9 @@ function textOf(row) {
 		return stepper.seqStep(editTrack, cycleEdit ? selCycle : -1, ks[0]) ? "SEQ: THE STEP'S CHORD. CLICK = ADD / REMOVE A NOTE"
 			: "SEQ: A REST. CLICK = GIVE IT A NOTE";
 	}
-	if (row.text === "songInfo") return songInfo();
+}
+
+function textOf2(row) {
 	if (row.text === "cyclePlaying") {
 		var n = stepper.cycleCount(editTrack);
 		if (cycleEdit) return "EDIT: CYCLE " + (selCycle + 1) + " PLAYS ALONE; THE DIALS AND STEP PADS EDIT IT";
@@ -1384,28 +1657,332 @@ function showBoard() {
 		});
 		msg = ["d_board", "steps", n, playedOf(t), playingStep()].concat(hits);
 	} else {
-		var first = 12 + 12 * keysOctave, pool = stepper.pool(t, editC()), own = 0;
-		if (!isSeq() && selCount()) {
-			// Steps selected: the first one's pool, its own (blue) or the track's it starts from.
-			var sp = stepper.stepPool(t, cycleEdit ? selCycle : -1, selList()[0]);
-			if (sp.length) { pool = sp; own = 1; }
-		} else if (isSeq()) {
-			// No pool in SEQ mode: the first selected step's chord.
-			var ks = keysSel(), st = ks.length ? stepper.seqStep(t, cycleEdit ? selCycle : -1, ks[0]) : null;
-			pool = st ? st.notes : [];
-		}
-		var lit = lastStep >= 0 && playing && playing.notes ? playing.notes[t] : [];
-		msg = ["d_board", "keys", NOTE_NAMES[0] + (first / 12 - 1) + " - B" + (first / 12 + 2), first, 4,
-			stepper.scaleNotes(t, editC()), stepper.getField(t, "root", editC()), pool.length].concat(pool, [lit.length], lit, [own]);
+		// Steps selected: the first one's pool, its own (blue) or the track's it starts from;
+		// no pool in SEQ mode: the first selected step's chord (keysBoard).
+		var first = 12 + 12 * keysOctave;
+		msg = ["d_board", "keys", NOTE_NAMES[0] + (first / 12 - 1) + " - B" + (first / 12 + 2), first, 4].concat(keysBoard());
+	}
+	if (dispShown.boardInfo !== msg[1]) { // its Info View text: what it draws now
+		dispShown.boardInfo = msg[1];
+		setBoxInfo("d_board", INFO && INFO.boards[msg[1]]);
 	}
 	var key = msg.join(" ");
 	if (dispShown.d_board !== key) {
 		dispShown.d_board = key;
-		outlet(6, msg);
+		dout(msg);
 	}
 }
 
 var NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+// The floating window's keyboard, under its display: always there, KEYS' keys over 7
+// octaves (C1-B7), clicked as KEYS' are ("d_kbd keys ...": only the window has it).
+// 5 octaves from C(kbdOctave), moved by the row's < and > ("kbdOctave -1/1"), saved with
+// the set; the range shown beside them.
+var KBD_OCTAVES = 5, kbdOctave = 2, kbdShown = null;
+function kbdFirst() {
+	return 12 + 12 * kbdOctave;
+}
+function kbdOctaveMove(d) {
+	kbdOctave = Math.max(0, Math.min(4, kbdOctave + (Number(d) < 0 ? -1 : 1)));
+	queueSave();
+	showKbd();
+}
+function showKbd() {
+	if (!winOpen) return;
+	var first = kbdFirst(), k = keysBoard(), msg = ["d_kbd", "keys", "", first, KBD_OCTAVES].concat(k);
+	var rest = isSeq() && keysSel().length > 0, own = stepPoolShown(), help = keysHelp();
+	var range = NOTE_NAMES[0] + (first / 12 - 1) + " - B" + (first / 12 + KBD_OCTAVES - 2);
+	var key = msg.join(" ") + "|" + help + "|" + rest + own;
+	if (kbdShown === key) return;
+	kbdShown = key;
+	outlet(7, msg);
+	outlet(7, "d_khelp", help);
+	outlet(7, "d_krange", range);
+	outlet(5, rest ? "wshow" : "whide", "k_rest");
+	outlet(5, own ? "wshow" : "whide", "k_pool");
+}
+
+// What KEYS' keys show: the scale, root, pool (the selected steps' own, or in SEQ mode the
+// selected step's chord), the notes starting now, and whether the pool is the steps' own.
+function keysBoard() {
+	var t = editTrack, pool = stepper.pool(t, editC()), own = 0;
+	if (!isSeq() && selCount()) {
+		var sp = stepper.stepPool(t, cycleEdit ? selCycle : -1, selList()[0]);
+		if (sp.length) { pool = sp; own = 1; }
+	} else if (isSeq()) {
+		var ks = keysSel(), st = ks.length ? stepper.seqStep(t, cycleEdit ? selCycle : -1, ks[0]) : null;
+		pool = st ? st.notes : [];
+	}
+	var lit = lastStep >= 0 && playing && playing.notes ? playing.notes[t] : [];
+	return [stepper.scaleNotes(t, editC()), stepper.getField(t, "root", editC()), pool.length].concat(pool, [lit.length], lit, [own]);
+}
+
+// ---- the floating window ---------------------------------------------------------------
+//
+// A copy of the panel in a window of its own (build.py window()), floating over Live, so it
+// stays when another track is chosen. Its controls arrive as "fromWin <message>" and are
+// handled as the device's (fromSrc 1 meanwhile: the window's geometry for its clicks); the
+// script's outlets reach both copies. The window button opens it on the device and closes
+// it in the window; open or not is saved with the set.
+var fromSrc = 0, winOpen = false, winFocused = false;
+function fromWin() {
+	var a = Array.prototype.slice.call(arguments), sel = String(a.shift());
+	var f = WIN_MESSAGES.indexOf(sel) >= 0 ? GLOBAL_FNS[sel] : null;
+	if (!f) return;
+	if (sel === "displayPage") a[0] = DISPLAY.pages.indexOf(winPages()[Math.round(a[0])]); // the window's tabs have no KEYS
+	fromSrc = 1;
+	try { f.apply(this, a); } finally { fromSrc = 0; }
+}
+var WIN_MESSAGES = ["param", "pad", "disp", "padMods", "trackButton", "displayPage", "gearSelect", "clipSelect",
+	"tempSelect", "recSelect", "ovdSelect", "followSelect", "stepPageSelect", "padModeSelect", "applyMutes", "enable",
+	"instanceSelect", "lookahead", "phraseGrid", "poolKey", "scaleKey", "lane", "laneClear", "lockStepClick",
+	"cycleLaneClick", "dialGeometry", "padGeometry", "leftClick", "rightClick", "winSelect", "winActive", "winSize",
+	"seqRest", "trackPool", "kbdOctaveMove", "winClosed"];
+var GLOBAL_FNS = this; // the script's top level: its message handlers
+
+// The window button: on the device it opens the window (or brings it to the front), in the
+// window it closes it.
+function winSelect(v, internal) {
+	if (!BRAIN) return;
+	// The button's value as the set loads (Live gives it before the set's pattern, with
+	// WINDOW's size, has come): ignored; readWin decides once it's in.
+	if (!internal && fromSrc !== 1 && (!stepper || winWaiting)) return;
+	var want = fromSrc !== 1 && Number(v) !== 0; // the window's button only closes it
+	outlet(5, "wwin", want ? 1 : 0);
+	if (fromSrc === 1) outlet(5, "winstate", 0); // the window's button closed it: the device's off
+	if (want === winOpen) return;
+	winOpen = want;
+	if (winOpen) {
+		kbdShown = null;
+		showDisplay();
+		openWindow();
+	} else outlet(5, "win", "close");
+}
+
+// At init: the window button as the set has it (a Stored Only parameter, read by name as
+// On is), and the window opened if it's on.
+// If the window was open but the set's pattern hasn't come yet (a reload in a running
+// Live), it waits for it (WINDOW's size is in it), at most WIN_WAIT_MS.
+var winWaiting = false, WIN_WAIT_MS = 6000, winDecided = false;
+function readWin() {
+	var o = patcherNow() && patcherNow().getnamed ? patcherNow().getnamed("WinButton") : null;
+	var v = o && typeof o.getvalueof === "function" ? Number(o.getvalueof()) : 0;
+	log("window at start: button " + v + (o ? "" : " (button not found)") + ", the set's pattern " + (setLoaded ? "in" : "not in yet") +
+		", WINDOW " + winScale());
+	if (v && !setLoaded) {
+		winWaiting = true;
+		later(function () { if (winWaiting) { winWaiting = false; winDecided = true; winOpen = false; winSelect(1, true); } }, WIN_WAIT_MS);
+		return;
+	}
+	winDecided = true;
+	winOpen = false;
+	winSelect(v, true);
+}
+
+// DEVICE's WINDOW (100-200%): Live's Zoom doesn't reach a Max window (and a device can't
+// read it), so the window's controls are scaled here: every one's place, size and font
+// size times the factor (from their places at 100%, noted the first time), the drawings
+// told their scale ("scale z"), the window sized to fit (its size at 100% from the patch:
+// "winSize w h"). Max's own zoom (the patcher's zoomfactor) scales the view about its
+// middle, the controls sliding past the window's top and left, and nothing scrolls a
+// view back, so it isn't used. The window's clicks ([mousestate]) are scaled back.
+var WIN_ZOOMS = [1, 1.25, 1.5, 1.75, 2], winZoom = 0, winBase = null, winItems = null;
+function winSize(w, h) {
+	winBase = [Number(w), Number(h)];
+}
+
+function winScale() {
+	return WIN_ZOOMS[winZoom] || 1;
+}
+
+function openWindow() {
+	log("window: opening (size wanted " + winScale() + ", applied " + winApplied + ")");
+	outlet(5, "win", "open");
+	later(applyWinZoom, 60);
+	later(checkWinZoom, 1200);
+}
+
+// A while after opening: the window's size as it should be, or scaled again from 100%
+// (and its controls drawn afresh) if a step didn't take.
+function checkWinZoom() {
+	if (!winOpen || !patcherNow()) return; // (no patch: the simulator)
+	if (winStepping) return later(checkWinZoom, 500); // the steps still under way
+	var sub = winPatcher(), want = winScale(), ok = true;
+	if (!sub || !winBase) ok = false;
+	else {
+		try {
+			var size = sub.wind.size;
+			ok = Math.abs(size[0] - Math.round(winBase[0] * want)) <= 2 && Math.abs(size[1] - Math.round(winBase[1] * want)) <= 2;
+		} catch (e) { ok = true; } // no size to read: nothing to check
+	}
+	var cs = "?";
+	try { cs = String(sub.wind.size); } catch (e) {}
+	log("window check: want " + want + ", applied " + winApplied + ", window " + cs + ", 100% " + winBase + (ok ? ": fine" : ""));
+	if (ok && winApplied === want) return;
+	warn("window size " + want + " didn't take (now " + winApplied + "): sizing it again");
+	winApplied = 1;
+	winStepping = false;
+	zoomWindow(1);
+	applyWinZoom();
+}
+
+function winPatcher() {
+	var box = patcherNow() && patcherNow().getnamed ? patcherNow().getnamed("WinPatcher") : null;
+	try { return box ? box.subpatcher() : null; } catch (e) { return null; }
+}
+
+// fn after ms (at once where there's no Task: the simulator).
+// Each Task is kept until it has run: one nothing refers to can be freed before it fires
+// (the window's opening at start was lost that way on a set reloaded in a running Live).
+var pendingTasks = [];
+function later(fn, ms) {
+	if (typeof Task === "undefined") return fn();
+	var t = new Task(function () {
+		var i = pendingTasks.indexOf(t);
+		if (i >= 0) pendingTasks.splice(i, 1);
+		fn();
+	}, this);
+	pendingTasks.push(t);
+	t.schedule(ms);
+}
+
+// A size reached a step at a time, each WINDOW size between, 50 ms apart: scaled straight
+// from 100% to 175% or 200% in one go, the dials and RANDOM's rows land too far apart in
+// Live, a step at a time they don't.
+var winApplied = 1, winStepping = false;
+function applyWinZoom() {
+	// The steps under way go on to the size wanted now (unless they stopped: an error).
+	if (winStepping && Date.now() - stepAt < 1000) return;
+	winStepping = true;
+	stepWinZoom();
+}
+function stepWinZoom() {
+	var want = winScale(), i = WIN_ZOOMS.indexOf(winApplied), j = WIN_ZOOMS.indexOf(want);
+	if (i < 0) i = 0;
+	if (i === j) {
+		winStepping = false;
+		later(windowRowsAgain, 120);
+		later(windowRowsAgain, 600); // again: Max can show some later still
+		return;
+	}
+	var next = WIN_ZOOMS[i + (j > i ? 1 : -1)], done = false;
+	try { done = zoomWindow(next); } catch (e) { warn("window size " + next + ": " + e); }
+	stepAt = Date.now();
+	// A step counts once it's taken (the window ready, its size known); else it's tried
+	// again, a few times.
+	if (done || ++stepTries > 20) {
+		winApplied = next;
+		stepTries = 0;
+	}
+	later(stepWinZoom, 50);
+}
+var stepAt = 0, stepTries = 0;
+
+// Max shows some of the window's hidden controls a while after they're moved (TRACK's
+// rows over the page shown): once the size is reached, every control of its display
+// hidden, then its page's shown again.
+function windowRowsAgain() {
+	if (!DISPLAY || !stepper) return;
+	withWindow(function () {
+		Object.keys(DISPLAY.views).forEach(function (view) {
+			viewItems(view).forEach(function (n) { dout("script", "hide", n); });
+			(DISPLAY.views[view] || []).forEach(function (r) {
+				dout("script", "hide", "d_" + r.name);
+				if (r.kind === "toggle") dout("script", "hide", "d_" + r.name + "_on");
+				if (r.label && r.showWhen) dout("script", "hide", "dl_" + r.name);
+				if (r.playBars) for (var k = 0; k < r.items.length; k++) dout("script", "hide", "d_" + r.name + "_play" + k);
+			});
+		});
+		shownView = null;
+		dispShown = {};
+		renderView();
+	});
+	// The window's other controls that can be hidden, drawn afresh too: the lit tab, the
+	// gear, the keyboard row's buttons, the pad lock bars, TEMP's frame, Apply.
+	tabLit[1] = null;
+	winGearSeen = null;
+	showGear();
+	kbdShown = null;
+	showKbd();
+	padLocks = [];
+	tempShown = null;
+	tempWaitShown = null;
+	showTemp();
+	outlet(5, "apply", applyShown ? 1 : 0);
+	showPads();
+}
+
+// The window closed by its close box: both window buttons off.
+function winClosed() {
+	if (!winOpen) return;
+	winOpen = false;
+	outlet(5, "wwin", 0);
+	outlet(5, "winstate", 0);
+}
+
+function zoomWindow(zAt) {
+	var z = zAt || winScale();
+	var box = patcherNow() && patcherNow().getnamed ? patcherNow().getnamed("WinPatcher") : null;
+	var sub = null;
+	try { sub = box ? box.subpatcher() : null; } catch (e) { sub = null; }
+	// Its size at 100%: from the patch ("winSize"), or, if that came before the script was
+	// listening (a set reloaded in a running Live), read off the window while unscaled.
+	if (sub && !winBase && winApplied === 1) {
+		try { var ws = sub.wind.size; if (ws && ws[0] > 0) winBase = [ws[0], ws[1]]; } catch (e) {}
+	}
+	if (!sub || !winBase) { log("window size " + z + ": the window isn't ready (patcher " + !!sub + ", 100% size " + winBase + ")"); return false; }
+	var failed = 0, n = 0;
+	try { if (sub.getattr("zoomfactor") !== 1) sub.setattr("zoomfactor", 1); } catch (e) {}
+	// The window's size first: controls placed past its edges as it grows land elsewhere.
+	if (winBase && sub.wind) {
+		try { sub.wind.size = [Math.round(winBase[0] * z), Math.round(winBase[1] * z)]; } catch (e) { failed++; }
+	}
+	if (!winItems) {
+		// The places at 100%: the window starts unscaled.
+		winItems = [];
+		for (var o = sub.firstobject; o; o = o.nextobject) {
+			try {
+				if (!o.getboxattr("presentation")) continue;
+				var r = o.getboxattr("presentation_rect"), f = null;
+				try { f = o.getattr("fontsize"); } catch (e) { f = null; }
+				winItems.push({ o: o, r: [r[0], r[1], r[2], r[3]], f: typeof f === "number" ? f : (f && f.length ? f[0] : null),
+					draws: o.maxclass === "v8ui" });
+			} catch (e) { failed++; }
+		}
+	}
+	winItems.forEach(function (it) {
+		try {
+			// Moving a hidden control showed it (TRACK's rows over the page shown): its hidden
+			// state put back after.
+			var hid = it.o.hidden;
+			it.o.setboxattr("presentation_rect", it.r[0] * z, it.r[1] * z, it.r[2] * z, it.r[3] * z);
+			if (it.o.hidden !== hid) it.o.hidden = hid;
+			if (it.f) it.o.setattr("fontsize", it.f * z);
+			if (it.draws) it.o.message("scale", z);
+			n++;
+		} catch (e) { failed++; }
+	});
+	var probe = "";
+	winItems.forEach(function (it) {
+		if (probe || it.o.maxclass !== "live.dial") return;
+		try { probe = "; a dial's box now " + it.o.getboxattr("presentation_rect") + " (at 100% " + it.r + ")"; } catch (e) {}
+	});
+	var ws = "?";
+	try { ws = String(sub.wind.size); } catch (e) {}
+	(failed ? warn : log)("window size " + z + ": " + n + " controls scaled" + (failed ? ", " + failed + " failed" : "") + ", window now " + ws +
+		" (100%: " + winBase + ", open " + winOpen + ")" + probe);
+	return n > 0;
+}
+
+// "winActive 0/1": whether the window is the one in front. The device's [mousestate] and
+// the window's both see every click; only the one in front takes it.
+function winActive(v) {
+	winFocused = Number(v) !== 0;
+}
+function clickHere() {
+	return fromSrc === 1 ? winFocused : !(winOpen && winFocused);
+}
 
 // KEYS: a key click, "poolKey note"; SCALE's notes: "scaleKey pc". Taken on the next 16th.
 function poolKey(note) {
@@ -1529,7 +2106,7 @@ function disp(name, value) {
 		clipCtrl = mods.ctrl;
 		mods = { shift: false, ctrl: false, alt: false };
 		clipCycle(v);
-		delete dispShown.d_cycleSelect;
+		forget("d_cycleSelect");
 		return showDisplay();
 	}
 	else if (row.action === "cycleSelect") return selectCycle(v);
@@ -1551,6 +2128,19 @@ function disp(name, value) {
 			fn: function () { stepper.setSeqMode(t, mc, v === 1, vel); } };
 	}
 	else if (row.action === "stepPage") return stepPageSelect(v);
+	else if (row.action === "pageLock" || row.action === "pageSync") { // DEVICE's: stored with the set
+		if (row.action === "pageLock") pageLock = v === 1;
+		else setPageSync(v === 1);
+		queueSave();
+		showGear();
+		return showView();
+	}
+	else if (row.action === "winZoom") { // DEVICE's WINDOW: the window's size, stored with the set
+		winZoom = v;
+		applyWinZoom();
+		queueSave();
+		return showDisplay();
+	}
 	else if (row.action === "tempTiming") { // DEVICE's TEMP OFF: stored with the set (the bank's "ui")
 		tempTiming = v;
 		queueSave();
@@ -1655,8 +2245,8 @@ function songAction(row, v) {
 				songSel = i;
 				return showDisplay();
 			}
-			delete dispShown.d_songSelect; // "-": the selection stays where it was
-			delete dispShown.d_songCount;
+			forget("d_songSelect"); // "-": the selection stays where it was
+			forget("d_songCount");
 			if (i === song.count && i < SONG_MAX) return songAdd(perfShown().current);
 			return showDisplay();
 		}
@@ -1773,12 +2363,13 @@ function showTrackButtons() {
 
 // Where the dials are on the panel (from the patch: "dialGeometry key x y w h ..."), to find
 // the dial under a click (a live.dial reports a turn, not a click).
-var dialArea = [];
+// The device's and the floating window's (fromSrc 1), each in its own patcher's coordinates.
+var dialAreas = [[], []];
 function dialGeometry() {
-	var a = Array.prototype.slice.call(arguments);
-	dialArea = [];
+	var a = Array.prototype.slice.call(arguments), area = [];
 	for (var i = 0; i + 4 < a.length; i += 5)
-		dialArea.push({ key: String(a[i]), x: Number(a[i + 1]), y: Number(a[i + 2]), w: Number(a[i + 3]), h: Number(a[i + 4]) });
+		area.push({ key: String(a[i]), x: Number(a[i + 1]), y: Number(a[i + 2]), w: Number(a[i + 3]), h: Number(a[i + 4]) });
+	dialAreas[fromSrc] = area;
 }
 
 // A COPY / PASTE / CLEAR click: "clipSelect 0/1/2 value" (after "padMods").
@@ -1978,9 +2569,10 @@ function clipDial(key) {
 // A left click somewhere on the device (from [mousestate]): on a dial while armed, the dial
 // is the target.
 function leftClick(x, y) {
-	if (!BRAIN || !stepper || !armed) return;
-	x = Number(x);
-	y = Number(y);
+	if (!BRAIN || !stepper || !armed || !clickHere()) return;
+	x = Number(x) / (fromSrc === 1 ? winScale() : 1);
+	y = Number(y) / (fromSrc === 1 ? winScale() : 1);
+	var dialArea = dialAreas[fromSrc];
 	for (var i = 0; i < dialArea.length; i++) {
 		var d = dialArea[i];
 		if (x >= d.x && x < d.x + d.w && y >= d.y && y < d.y + d.h) return clipDial(d.key);
@@ -2122,11 +2714,16 @@ function showTemp() {
 	var frame = waiting && slowBlinkOn();
 	if (tempWaitShown !== frame) {
 		tempWaitShown = frame;
-		outlet(6, "script", frame ? "show" : "hide", "d_tempwait");
+		both("script", frame ? "show" : "hide", "d_tempwait");
 	}
 	if (tempShown === on) return;
 	tempShown = on;
-	outlet(5, "temp", on ? 1 : 0);
+	// The window's copy (Hidden); the device's own only when it shows otherwise: TEMP is a
+	// stored parameter, and setting one as the set loads marks the set changed.
+	outlet(5, "wtemp", on ? 1 : 0);
+	var dev = patcherNow() && patcherNow().getnamed ? patcherNow().getnamed("Temp") : null, now = null;
+	try { now = dev && typeof dev.getvalueof === "function" ? Number(dev.getvalueof()) : null; } catch (e) { now = null; }
+	if (now !== (on ? 1 : 0)) outlet(5, "temp", on ? 1 : 0);
 	if (DISPLAY && currentView() === "PATTERN") showDisplay(); // COPY TO / TEMP TO
 }
 
@@ -2136,17 +2733,18 @@ function padMods(shift, ctrl, alt) {
 
 // Where the step pads are on the panel (from the patch: "padGeometry x y cell height"), for
 // a right-click.
-var padArea = null;
+var padAreas = [null, null];
 function padGeometry(x, y, cell, h) {
-	padArea = { x: Number(x), y: Number(y), cell: Number(cell), h: Number(h) };
+	padAreas[fromSrc] = { x: Number(x), y: Number(y), cell: Number(cell), h: Number(h) };
 }
 
 // A right-click somewhere on the device (from [mousestate]): on a step pad in SEQ mode, the
 // step becomes a rest, as on Rack.
 function rightClick(x, y) {
-	if (!BRAIN || !stepper || !padArea || padMode !== MODE_STEP) return;
-	x = Number(x);
-	y = Number(y);
+	var padArea = padAreas[fromSrc];
+	if (!BRAIN || !stepper || !padArea || padMode !== MODE_STEP || !clickHere()) return;
+	x = Number(x) / (fromSrc === 1 ? winScale() : 1);
+	y = Number(y) / (fromSrc === 1 ? winScale() : 1);
 	if (y < padArea.y || y >= padArea.y + padArea.h) return;
 	var i = Math.floor((x - padArea.x) / padArea.cell);
 	if (i < 0 || i >= 16) return;
@@ -2341,7 +2939,7 @@ function setPadLock(i, on) {
 	on = !!on;
 	if (padLocks[i] === on) return;
 	padLocks[i] = on;
-	outlet(6, "script", on ? "show" : "hide", "d_padlock" + i);
+	both("script", on ? "show" : "hide", "d_padlock" + i);
 }
 
 // The edit track's step playing now, or -1 (stopped, off, or waiting to start).
@@ -2574,12 +3172,13 @@ function savepattern() {
 	if (Object.keys(edits).length || ops.length) return;
 	// The edit track and its group go along (read back when the set loads), not stored on
 	// their own: a track click isn't an undo step.
-	var text = stepper.saveBank().replace(/^\{/, '{"ui":{"editTrack":' + editTrack + ',"group":' + group + ',"tempTiming":' + tempTiming + '},');
+	var text = stepper.saveBank().replace(/^\{/, '{"ui":{"editTrack":' + editTrack + ',"group":' + group + ',"tempTiming":' + tempTiming + ',"winZoom":' + winZoom + ',"kbdOctave":' + kbdOctave + ',"pageLock":' + (pageLock ? 1 : 0) + ',"pageSync":' + (pageSync ? 1 : 0) + '},');
 	if (text === savedText) return;
 	savedText = text;
 	var b = toBase64(text), a = [PATTERN_FORMAT];
 	for (var i = 0; i < b.length; i += CHUNK) a.push("p" + b.slice(i, i + CHUNK));
 	outlet(4, a);
+	storedSinceInit = true;
 	log("pattern stored for the set: " + text.length + " bytes, " + (a.length - 1) + " pieces");
 }
 
@@ -2608,9 +3207,21 @@ function restore() {
 	}
 	savedText = text; // what [pattr] holds now: the pattern will equal it
 	edits = {};
-	ops = [{ desc: "undo or redo (the pattern from Live)", store: false, fn: function () {
+	var asLoad = !setLoaded && !storedSinceInit && Date.now() - initAt < LATE_LOAD_MS; // a reloaded set's, late
+	setLoaded = true;
+	ops = [{ desc: asLoad ? "the set's pattern (after init)" : "undo or redo (the pattern from Live)", store: false, fn: function () {
 		if (!stepper.loadBank(text)) warn("[pattr] gave a pattern that isn't readable: ignored");
 		shownPattern = stepper.perf().current; // not a switch to store
+		if (!asLoad) return;
+		restoreUi(text); // the device's settings with it, as at init
+		gearShown = null;
+		showGear();
+		if (winWaiting) { // the window, at its size
+			winWaiting = false;
+			winDecided = true;
+			winOpen = false;
+			winSelect(1, true);
+		} else if (winOpen) applyWinZoom();
 	} }];
 	log("undo or redo: the pattern from Live, taken " + (lastStep < 0 ? "now" : "on the next step"));
 	if (lastStep < 0) takeEdits(-1);
@@ -2624,6 +3235,10 @@ function restoreUi(text) {
 		editTrack = Math.max(0, Math.min(TRACKS - 1, Math.round(ui.editTrack) || 0));
 		group = (Math.round(ui.group) || 0) & 0xffff & ~(1 << editTrack);
 		if (ui.tempTiming !== undefined) tempTiming = Math.max(0, Math.min(3, Math.round(ui.tempTiming) || 0));
+		if (ui.pageLock !== undefined) pageLock = !!ui.pageLock;
+		if (ui.pageSync !== undefined) setPageSync(!!ui.pageSync);
+		if (ui.kbdOctave !== undefined) kbdOctave = Math.max(0, Math.min(4, Math.round(ui.kbdOctave) || 0));
+		if (ui.winZoom !== undefined) winZoom = Math.max(0, Math.min(WIN_ZOOMS.length - 1, Math.round(ui.winZoom) || 0));
 	} catch (e) {}
 }
 
@@ -2824,7 +3439,7 @@ function guarded(name, fn) {
 		"loopinfo", "look", "announce", "anything", "status", "reset", "param",
 		"editTrackSelect", "debug", "savepattern", "restore", "enable", "pad", "stepPageSelect", "followSelect", "padMods", "padModeSelect",
 		"applyMutes", "blink", "displayPage", "disp", "phraseGrid", "poolKey", "scaleKey", "cycleEditSelect", "lane", "laneClear", "lockStepClick", "cycleLaneClick", "padGeometry", "rightClick",
-		"clipSelect", "leftClick", "dialGeometry", "trackButton", "tempSelect", "gearSelect"].forEach(function (n) {
+		"clipSelect", "leftClick", "dialGeometry", "trackButton", "tempSelect", "gearSelect", "fromWin", "winSelect", "winActive", "winSize"].forEach(function (n) {
 		if (typeof g[n] !== "function") return;
 		var f = guarded(n, g[n]);
 		if (g[n].immediate) f.immediate = g[n].immediate; // keep scheduler-thread handlers there

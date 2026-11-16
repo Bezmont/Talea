@@ -25,7 +25,9 @@
 //            parameter "param" for "amount" and "perCycle"; "randomAction": a buttons
 //            row's RANDOM button numbers (talea_random_action)
 //   x, row   where it goes: x px from the display's left edge, row number (default: the
-//            next row, at the left); "labelW" the label's width ("label" left out: none)
+//            next row, at the left); "labelW" the label's width ("label" left out: none);
+//            "anchor": "right" keeps it as far from the right edge in a wider display (the
+//            floating window's)
 //   kind     "toggle": an on/off button labelled "text" (two buttons, the script showing the
 //            one for the state; a click flips it; not a parameter)
 //   unit     "%": a numbox shows its value in percent
@@ -40,6 +42,8 @@
 //   playBars a tab row with a bar under each choice, shown under the one playing
 //            ("d_<name>_play<i>": CYCLE's playing cycle); "above": a thicker blue bar in
 //            the gap above the row instead (SONG's playing entry, between its rows)
+//   fit      a renamed row ("marks") only as wide as its choices need (each as wide as the
+//            longest's text and some padding), not the whole row: set by the script
 //   lines    a tab row's choices on that many lines
 //   dy       moves the row up or down (px): SONG's bars row sits right under its patterns
 //   marks    "used": a pattern slot's choice reads "3*" while the slot holds a pattern;
@@ -49,7 +53,8 @@
 //            entry's pattern on top ("P3"), its bars under it ("x4"), "+" after the last;
 //            "songPages": as many SONG pages as there are entries for
 //
-// "dialPages": the page a dial's turn shows (Rack's "display follows knobs").
+// "dialPages": the page a dial's turn shows (Rack's "display follows knobs"), while DEVICE's
+// PAGE LOCK is off.
 // "diagrams": the pages with a diagram in the band under their rows
 // (jezric_talea_diagram.js), and which; "boards": the pages drawn under their first row
 // (the same script, a bigger box).
@@ -78,9 +83,9 @@ module.exports = {
 	"views": {
 		"TRACK": [
 			{"name": "trackInfo", "kind": "text", "text": "trackInfo", "labelW": 0},
-			{"name": "trackStepPage", "label": "PAGE", "kind": "tab", "items": ["1-16", "17-32", "33-48", "49-64"], "action": "stepPage", "x": 278, "row": 0, "labelW": 0, "width": 116,
+			{"name": "trackStepPage", "label": "PAGE", "kind": "tab", "items": ["1-16", "17-32", "33-48", "49-64"], "action": "stepPage", "x": 278, "row": 0, "labelW": 0, "width": 116, "anchor": "right",
 				"marks": "stepPages", "showWhen": "stepPages"},
-			{"name": "trackFollow", "kind": "toggle", "text": "FOLLOW", "action": "follow", "x": 398, "row": 0, "labelW": 0, "width": 56,
+			{"name": "trackFollow", "kind": "toggle", "text": "FOLLOW", "action": "follow", "x": 398, "row": 0, "labelW": 0, "width": 56, "anchor": "right",
 				"showWhen": "stepPages"}
 		],
 		"LOCKS": [
@@ -95,7 +100,7 @@ module.exports = {
 			{"name": "cycleSelect", "label": "CYCLE", "kind": "tab", "items": ["1", "2", "3", "4", "5", "6", "7", "8"], "action": "cycleSelect", "mods": true, "marks": "cycles", "playBars": true},
 			{"name": "cycleEdit", "label": "EDIT", "kind": "tab", "items": ["OFF", "ON"], "action": "cycleEdit", "width": 60},
 			{"name": "cycleMute", "label": "MUTE", "kind": "tab", "items": ["OFF", "ON"], "action": "cycleMute", "width": 60},
-			{"name": "cycleClear", "label": "CLEAR", "kind": "buttons", "items": ["ALL", "HITS"], "action": "cycleClear", "marks": "cycleClear"},
+			{"name": "cycleClear", "label": "CLEAR", "kind": "buttons", "items": ["ALL", "HITS"], "action": "cycleClear", "marks": "cycleClear", "fit": true},
 			{"name": "cyclePlaying", "kind": "text", "text": "cyclePlaying", "labelW": 0}
 		],
 		"KEYS": [
@@ -199,7 +204,10 @@ module.exports = {
 			{"name": "channel", "label": "CHANNEL", "kind": "num", "min": 1, "max": 16, "field": "channel", "x": 180, "row": 0, "width": 44}
 		],
 		"DEVICE": [
-			{"name": "tempTiming", "label": "TEMP OFF", "kind": "tab", "items": ["NOW", "BEAT", "BAR", "PATTERN"], "action": "tempTiming", "width": 200}
+			{"name": "tempTiming", "label": "TEMP OFF", "kind": "tab", "items": ["NOW", "BEAT", "BAR", "PATTERN"], "action": "tempTiming", "width": 200},
+			{"name": "winZoom", "label": "WINDOW", "kind": "tab", "items": ["100%", "125%", "150%", "175%", "200%"], "action": "winZoom", "width": 220},
+			{"name": "pageLock", "label": "PAGE LOCK", "kind": "tab", "items": ["OFF", "ON"], "action": "pageLock", "x": 290, "row": 0, "labelW": 60, "width": 100},
+			{"name": "pageSync", "label": "PAGE SYNC", "kind": "tab", "items": ["OFF", "ON"], "action": "pageSync", "x": 290, "row": 1, "labelW": 60, "width": 100}
 		],
 		"MUTE": [
 			{"name": "muteTiming", "label": "APPLY", "kind": "tab", "items": ["NOW", "BEAT", "BAR", "PATTERN"], "setting": "muteTiming", "width": 200},

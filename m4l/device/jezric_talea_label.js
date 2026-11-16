@@ -30,11 +30,18 @@ function anything() {
 	if (a.length >= 3) color.apply(null, a.slice(0, 4));
 }
 
+// "scale z": the floating window's copy, sized up by DEVICE's WINDOW.
+var SCALE = 1;
+function scale(z) {
+	SCALE = Number(z) > 0 ? Number(z) : 1;
+	mgraphics.redraw();
+}
+
 function paint() {
 	var size = mgraphics.size || [box.rect[2] - box.rect[0], box.rect[3] - box.rect[1]];
 	var w = size[0], h = size[1];
 	mgraphics.select_font_face("Arial Bold");
-	mgraphics.set_font_size(9);
+	mgraphics.set_font_size(9 * SCALE);
 	var m = mgraphics.text_measure(text); // [width, height]
 	mgraphics.set_source_rgba(rgba);
 	// The text's baseline runs up the box, centred both ways.

@@ -205,8 +205,17 @@ function anything() {
 	mgraphics.redraw();
 }
 
+// "scale z": the floating window's copy, sized up by DEVICE's WINDOW: everything is drawn
+// and clicked in the same coordinates as at 100%, scaled.
+var SCALE = 1;
+function scale(z) {
+	SCALE = Number(z) > 0 ? Number(z) : 1;
+	mgraphics.redraw();
+}
+
 function size() {
-	return mgraphics.size || [box.rect[2] - box.rect[0], box.rect[3] - box.rect[1]];
+	var s = mgraphics.size || [box.rect[2] - box.rect[0], box.rect[3] - box.rect[1]];
+	return [s[0] / SCALE, s[1] / SCALE];
 }
 
 // The plotting area, under the corner label.
@@ -214,6 +223,7 @@ var TOP = 12, PAD = 2;
 
 function paint() {
 	var s = size(), w = s[0], h = s[1];
+	if (SCALE !== 1) mgraphics.scale(SCALE, SCALE);
 	if (kind === "clear") return;
 	if (kind === "steps") return paintSteps(w, h);
 	if (kind === "lanes") return paintLanes(w, h);
@@ -447,8 +457,8 @@ var KEY_OCTAVES = 4, SCALE_KEYS_X = 56;
 
 // The keys' rectangles, white keys first so the black ones draw over them: [note, x, y, w, h].
 function keyRects(w, h) {
-	var ww = (w - 2 * PAD) / (7 * KEY_OCTAVES), out = [], blacks = [], wi = 0;
-	var x0 = kind === "keys" ? PAD : SCALE_KEYS_X, top = kind === "keys" ? TOP : PAD, kh = h - top - PAD;
+	var ww = (w - 2 * PAD) / (7 * (kind === "keys" ? keyOctaves : KEY_OCTAVES)), out = [], blacks = [], wi = 0;
+	var x0 = kind === "keys" ? PAD : SCALE_KEYS_X, top = kind === "keys" && label ? TOP : PAD, kh = h - top - PAD;
 	for (var n = keyFirst; n < keyFirst + 12 * keyOctaves; n++) {
 		if (BLACK[n % 12]) blacks.push([n, x0 + wi * ww - ww * 0.3, top, ww * 0.6, kh * 0.6]);
 		else out.push([n, x0 + (wi++) * ww, top, ww, kh]);
@@ -537,6 +547,8 @@ function edit(x, y) {
 }
 
 function onclick(x, y, but, cmd, shift, caps, option, ctrl) {
+	x /= SCALE;
+	y /= SCALE;
 	lastSent = "";
 	if (kind === "lanes") {
 		laneDrag = -1;
@@ -570,6 +582,8 @@ function onclick(x, y, but, cmd, shift, caps, option, ctrl) {
 }
 
 function ondrag(x, y, but) {
+	x /= SCALE;
+	y /= SCALE;
 	if (kind === "lanes") {
 		if (but && laneDrag >= 0) laneEdit(x, y, false);
 		else if (!but) laneDrag = -1;

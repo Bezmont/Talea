@@ -7,29 +7,24 @@ starts; done items move to the list at the bottom. The README describes what's b
 
 1. ~~Commit~~ done (REC / OVD, SONG, COPY / PASTE / CLEAR, channels, groups; then step
    pools, the rest of cycles, Temp and the DEVICE page).
-2. **The pop-out window** (being designed): the full step grid (a row per 16 steps), track
-   select along the top, the KEYS click keyboard along the bottom.
+2. **The floating window** (in testing; with DEVICE's WINDOW size, PAGE LOCK and PAGE
+   SYNC): a copy of the whole panel in a window floating
+   over Live, so it stays when another track is chosen; stacked (panel, display at the
+   panel's width, an always-there keyboard). The window button right of On (TRACKS label
+   now TRK). Later, if wanted: the full step grid in it.
 
 ## Then: the panel
 
 3. Saved with the set: the pad mode, the KEYS octave.
-4. A "display follows dials" switch (Rack's setting), on by default: on the DEVICE page.
-5. Mouse wheel on the dials, through `[mousestate]` (as the pads' right-click).
-6. Tidying the display's tabs and rows.
-
-## Then: Info View text (only once all UI work is done)
-
-- Every control gets Live Info View text (`annotation_name` / `annotation`), taken from
-  the Rack version's established tooltips and adapted to what the control does in Live.
-  Not before the UI work above is finished. (COPY, PASTE, CLEAR and Apply have
-  placeholder text for now.)
+4. Mouse wheel on the dials, through `[mousestate]` (as the pads' right-click).
+5. Tidying the display's tabs and rows.
 
 ## Then: release
 
-7. Freezing the devices (the `.js` files inside the `.amxd`, not beside it).
-8. Testing on macOS.
-9. Merging branch `m4l` into `main`.
-10. The manual in JezricWeb (the user's).
+6. Freezing the devices (the `.js` files inside the `.amxd`, not beside it).
+7. Testing on macOS.
+8. Merging branch `m4l` into `main`.
+9. The manual in JezricWeb (the user's).
 
 ## Waiting or open
 
@@ -57,6 +52,8 @@ starts; done items move to the list at the bottom. The README describes what's b
 - Groups: track buttons in place of the tab; dials and page settings edit the
   group; COPY / PASTE / CLEAR of a group, pasted on tracks or into pattern slots.
 - Step pools (KEYS with steps selected; LOCKS' POOL lane).
+- Info View text for every control, device and window (`device/jezric_talea_info.js`,
+  adapted from Rack's tooltips).
 - Cycles: a cycle's own scale, root, pool, phrase and random amounts in Cycle edit;
   TRACK's cycle lanes (a label click edits that cycle), PAGE / FOLLOW there.
 - Temp (TEMP right of Follow; TEMP TO); the DEVICE page (the gear): TEMP OFF, Instance,

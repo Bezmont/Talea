@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18">
+  <!-- The floating window's button (Talea Sequencer): one colour, which live.text remaps to
+       its text colour. A window with its title bar, padded inside the 18 x 18 button. -->
+  <path fill="#000000" fill-rule="evenodd" d="M3.5 4 H14.5 V14 H3.5 Z M5 7 H13 V12.5 H5 Z"/>
+</svg>
