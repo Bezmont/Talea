@@ -82,68 +82,78 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
   dials and display pages edit. **Groups**, as on Rack: Ctrl+click adds a track to the
   group or takes it out, Shift+click adds the range from the edit track, a plain click ends
   the group. A plain dial turn moves every grouped track by the same amount, each clamped to
-  its range; a display page setting (SCALE, KEYS' pool, PHRASE, VOICING, GROOVE, RANDOM,
-  SETUP) goes to every grouped track. Step pads, locks, the CYCLE page and Cycle edit stay
-  on the edit track. Plain buttons like the pads (not a Live tab, which can only show one
-  choice), lit as on Rack: red the edit track, dim red the group, white on a note,
-  blue-grey muted, dim orange holding something other than defaults. The edit track and
+  its range; a display page setting (SCALE, KEYS' pool, VOICING, PHRASE, GROOVE, RANDOM,
+  SETUP) goes to every grouped track. Steps, locks, the CYCLE page and Cycle edit stay
+  on the edit track. Plain buttons (not a Live tab, which can only show one
+  choice), lit: red the edit track, dim red the group, blue-grey muted, dim orange holding
+  something other than defaults; on a note the button's own border goes white (rounded
+  with it; "trkp i 0/1", the theme's `live_contrast_frame` back after), so its colour, and the edit track, still show on a busy track. The edit track and
   group are saved with the bank (read back when the set loads), not as parameters: a track
   click isn't an undo step.
-- **Pads** under the sections, in the mode chosen in the **Pad mode** menu beside them.
-  They are plain buttons, not Live parameters, and light as on the Rack module. Shift and
-  Ctrl (Cmd on the Mac) are read with `[modifiers]`, polled by each press.
-  - **Step**: a pad turns a step of the edit track off or on, taken on the next 16th like
-    a dial. Ctrl+click selects steps for **locks** (blue; again deselects): the dials that
-    can lock (not Steps, Pulses, Rotate, Division, Length, which dim) show the first
-    selected step's value and set it on every selected step. A step with locks has a
-    light-blue bar along the bottom of its pad (a panel over the pad, clicks going
-    through), and on the display (TRACK's grid, LOCKS' STEPS row) too. Another edit track, another pad mode, a pattern switch or Cycle edit ends the
-    selection. In Cycle edit locks go to the edited cycle, over the track's. Orange is a hit, white the playing step, dark past Length. The **step page**
-    tabs 1-4 in the left column show steps 1-16 ... 49-64 (a page past the track's Steps
-    doesn't take); **Follow** moves the page with the playing step, and choosing a page
-    turns it off, as on Rack. **TEMP**, right of Follow, is Rack's Temp: while it's on every
-    pattern edit is temporary; clicking it off reverts them, Ctrl+click off keeps them.
-    Mutes are never reverted (mutes staged meanwhile apply as it ends), the pattern stored
-    with the set never has Temp's changes, and a pattern switch (or Live's undo, or a paste
-    onto the playing slot) ends it, reverting. A Live parameter, so a controller button or
-    automation can hold it, as Rack's Temp gate; its stored value is ignored as the set
-    loads (Temp starts off).
-  - **Mute**: a pad per track. A click stages a change (the pad blinks slowly);
-    the **A** (Apply) button right of the menu, shown only while changes are staged, or
-    choosing Mute again in the menu, commits them for the next mute boundary (blinking
-    fast until then). The script shows and hides it through `[thispatcher]`. Ctrl+click mutes or
-    unmutes at once. Leaving Mute mode drops what's staged. Orange plays (white on a note),
-    blue-grey is muted. Stopped, Apply and Ctrl+click both mute at once.
-  - **Pattern**: a pad per pattern slot. A click queues the pattern for the next pattern
-    boundary (blinking), Shift+click adds it to the chain, Ctrl+click switches at once.
-    Stopped, a click switches at once, the pattern starting with the song. Orange plays,
-    dim red is in the chain, dim orange holds a pattern, dark is the default (silent)
-    pattern. The dials and step pads follow the switch.
-  - The mute timing and the pattern quantization are the engine's defaults for now
-    (mutes Immediately, so on the next step; patterns at the end of the pattern). Their
-    settings come with the display.
-- **COPY, PASTE, CLEAR** (stacked under REC and OVD), as on Rack: one is armed at a time
+- **Pattern buttons** (1-16) along the very top, over the track buttons (patterns hold the
+  tracks), PATTERNS to their left (the PATTERN page is gone: they do its work): a click queues
+  (at the DEVICE page's PAT SWITCH timing), Ctrl+click adds to the chain, Shift+click
+  chains the range from the playing (or just queued) one; a COPY / PASTE / CLEAR target
+  (CPY on the playing one copies it as it plays, Temp's changes included). Orange the playing pattern, dim orange a slot holding one, dark empty; the
+  chain's have a white border (the button's own, "patb i 0/1"), the queued one's blinking.
+- **The left column**, a row each (`COL_ROWS` in `build.py`): On (a power sign) and the
+  PATTERNS label; the window button and the TRACKS label (level with the pattern and track
+  buttons); the pin, **REC** and **OVD** (dimmed while the edit track isn't in SEQ mode,
+  "recactive 0/1"); **CPY, PST, CLR**; **MUTE TRACKS**; **APPLY MUTES**; **TEMP MODE**.
+  From the third row they spread from the first dial row's top to the second's bottom
+  (`ROW_Y`). The step pads, the pad
+  mode menu, the step page tabs and Follow are gone: STEPS' board takes step clicks (as
+  the pads did, whatever mode), STEPS has its own PAGE and FOLLOW, the pattern buttons
+  take the Pattern pads' clicks, SONG's PATTERN row adds entries (Ctrl+click), and mutes are on the track
+  buttons. Shift and Ctrl (Cmd on the Mac) are read with `[modifiers]`, polled by each press.
+  - **Steps** (STEPS' board): a click turns a step of the edit track off or on, taken on
+    the next 16th like a dial. Ctrl+click selects steps for **locks** (blue; again
+    deselects): the dials that can lock (not Steps, Pulses, Rotate, Division, Length, which
+    dim) show the first selected step's value and set it on every selected step. A step
+    with locks has a light-blue bar along its bottom. Another edit track, MUTE TRACKS, a
+    pattern switch or Cycle edit ends the selection. In Cycle edit locks go to the edited
+    cycle, over the track's. Orange is a hit, white the playing step, dark past Length.
+  - **TEMP MODE** is Rack's Temp: while it's on every pattern edit is temporary; clicking
+    it off reverts them, Ctrl+click off keeps them. Mutes are never reverted (mutes staged
+    meanwhile apply as it ends), the pattern stored with the set never has Temp's changes,
+    and a pattern switch (or Live's undo, or a paste onto the playing slot) ends it,
+    reverting. A Live parameter, so a controller button or automation can hold it, as
+    Rack's Temp gate; its stored value is ignored as the set loads (Temp starts off).
+  - **MUTE TRACKS** (Mute mode, "padModeSelect 0/1"): the track buttons mute instead of
+    choosing the edit track (a red frame blinks round MUTE TRACKS meanwhile, `d_mutemode`).
+    A click stages a change (the button blinks slowly); **APPLY MUTES** under it, always
+    there and dimmed while nothing is staged ("apply 0/1": its `active`), commits them for
+    the next mute boundary (blinking fast until then).
+    Ctrl+click mutes or unmutes at once. Turning it off drops what's staged; so does a
+    page tab (the display shows the Mute view meanwhile). Orange plays, blue-grey is
+    muted (dim orange, so it doesn't read as the edit track's colour); a note still lights
+    the button's white border. Stopped, APPLY and Ctrl+click
+    both mute at once.
+  - **Patterns** (the pattern buttons): a click queues the pattern for the next pattern
+    boundary (the chain cleared), Ctrl+click adds it to the chain, Shift+click makes the
+    chain every pattern from the playing one to it. No click switches at once. Stopped, a click
+    switches at once, the pattern starting with the song. The dials follow the switch.
+- **CPY, PST, CLR** (COPY, PASTE, CLEAR; side by side under OVERDUB), as on Rack: one is armed at a time
   (lit; what each does, and its targets, is in Live's Info View), and the next click on
   a target acts on the clipboard: a **track button** (the whole track: values, steps, pool,
   scale, channel, cycles, random, locks, sequence, mute; a grouped track stands for its
-  group, so COPY takes the group and CLEAR clears it; the edit track stays), a pad in
-  **Mute** mode (the same, by track), a pad in **Step** mode
-  (the step: on or off, its locks and pool, in SEQ mode its notes; the edited cycle's in
-  Cycle edit), a pad in **Pattern** mode (the slot as it plays; copied tracks paste into
-  the slot on their own track numbers, its other tracks staying), a cell of CYCLE's **CYCLE**
+  group, so COPY takes the group and CLEAR clears it; the edit track stays), a step on
+  STEPS' board (the step: on or off, its locks and pool, in SEQ mode its notes; the edited
+  cycle's in Cycle edit), a **pattern button** (the slot as it plays; copied
+  tracks paste into the slot on their own track numbers, its other tracks staying), a cell of CYCLE's **CYCLE**
   row (the cycle's overrides, step edits, locks and mute; the selection stays; pasting past
   the last adds cycles), or a **dial** (COPY: the value it shows, the selected steps' lock or
   the edited cycle's; CLEAR: the default and no random amount, or the cycle's override, or
   that lock on the selected steps). COPY and CLEAR disarm after one target (Ctrl+click CLEAR:
   it stays armed until clicked again); PASTE pastes on the next matching target and disarms
   too, and a Ctrl+click on the target pastes and keeps it armed for more, until PASTE is
-  clicked again (dimmed while there's nothing to paste). CYCLE's cells read the modifier
-  keys for this as the pads do.
+  clicked again (dimmed while there's nothing to paste). CYCLE's cells and PLAY read the
+  modifier keys for this.
   Copied tracks paste from the track clicked on, keeping their spacing (tracks 1, 2 and 4
   pasted on track 5: 5, 6 and 8). A dial's value pastes on track buttons (a group: all of
-  it), Mute pads and cycles. A dial clicked while armed
+  it) and cycles. A dial clicked while armed
   doesn't turn: a live.dial reports turns, not clicks, so `[mousestate]` gives the click's
-  place ("leftClick", "dialGeometry" from the patch), as for the pads' right-click. The
+  place ("leftClick", "dialGeometry" from the patch), as for a right-click. The
   clipboard is outside the patterns, so it pastes across them; edits are taken on the next
   16th like a dial's.
 - **The display**, the right half: dark, in Live's LCD colours (the controls in their LCD
@@ -153,13 +163,17 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
   once, in `device/jezric_talea_display.js`: `build.py` builds the controls from it (all
   hidden), and the script shows the page's through `[thispatcher]`, sets them from the
   edit track and takes their edits on the next 16th, like a dial's. Built so far:
-  - **TRACK**: the info line (steps, pulses, rotate, division, length; how many steps play
-    when Length cuts the loop) and the track's steps, 16 to a row, lit as the pads are.
+  - **STEPS** (was TRACK): the info line (steps, pulses, rotate, division, length; how many steps play
+    when Length cuts the loop) and the track's steps, 16 to a row, lit as the pads are and
+    clicked as they are in Step mode, whatever the pad mode ("stepclick" from the board,
+    `boardStep` in the script, the SEQ step selected green as on the pads). A right-click
+    reaches a v8ui as a plain click, so a board click waits 100 ms for `[mousestate]`'s
+    right button ("rightClick"): then it's a SEQ rest, nothing otherwise, as on the pads.
     With several cycles, Rack's cycle lanes instead: the step page as a row for what the
     pads edit (TRACK, or EDIT n in red in Cycle edit), then a lane per cycle with the same
     steps as that cycle plays them (C2* plays differently; white while playing, blue-grey
-    and dimmed while muted, the selected one boxed). In Cycle edit a lane's label edits
-    that cycle; the steps take no clicks. More than 16 steps: PAGE (the step page the pads
+    and dimmed while muted, in Cycle edit the edited one boxed red). In Cycle edit a lane's label edits
+    that cycle; the edit row's steps click as the pads, the lanes' take no clicks. More than 16 steps: PAGE (the step page the pads
     edit) and a FOLLOW toggle, the same as the transport's, at the right of the top line.
     Rack's clock and tempo aren't here.
   - **LOCKS** (Rack's STEP page: its step locks): SELECT (NONE, PAGE: the step page's
@@ -181,7 +195,7 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
     saying which cycle plays. While playing, a bar under the CYCLE row marks the playing
     cycle (a panel per choice, shown by the script). **EDIT** on: the dials and the step pads edit the selected
     cycle (a dial overrides its value there; a step pad gives it step edits of its own),
-    that cycle plays alone, TRACK shows it, and the CYCLE tab's red frame blinks on every
+    that cycle plays alone, STEPS shows it, and the CYCLE tab's red frame blinks on every
     page. LOCKS edits the cycle's own locks; SCALE, KEYS and PHRASE its own scale, root,
     pool and phrase (one copy of all four, made from the track's on the first edit); RANDOM
     its own amounts (Variance, Rate, Slew, Lock and the buttons stay the track's; CLEAR
@@ -208,15 +222,9 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
     Steps, Division, Length) has its amount (-100..100 %) and R/C: a new value per Random
     Rate tick or per cycle loop. Then Variance, Rate, Slew, Lock (locks the sequences where
     they are now), and REGEN, PHASE -/+, PROB -/+ and CLEAR ALL.
-  - **PATTERN**: Play (queues, as a pattern pad), Copy to, Clear, Switch timing. While
-    Temp is on COPY TO reads TEMP TO: it copies the pattern as it plays, Temp's changes
-    included, and onto the playing slot it keeps them (Temp ends). COPY on a Pattern pad
-    copies it as it plays too. A slot
-    holding a pattern reads "3*" in all three rows: the script renames the choices
-    (`_parameter_range`), and ignores what a row sends within 100 ms of a rename, in case
-    Live echoes it as a click.
   - **DEVICE** (the gear right of the page tabs): the device's own settings, for every
-    track. PAGE LOCK (ON by default): a dial turned leaves the page as it is (OFF: it
+    track. PAT SWITCH (when a queued pattern switches: NOW, BEAT, BAR, PATTERN; the
+    engine's setting, saved in the bank; it was the PATTERN page's SWITCH). PAGE LOCK (ON by default): a dial turned leaves the page as it is (OFF: it
     shows its page). PAGE SYNC (ON by default): the device and the floating window show the
     same page; OFF, each its own (a tab, the gear or a dial in one moves that one only).
     Turned ON in one, the other takes its page (the gear page, where the setting is). Both stored with the set (the bank's "ui").
@@ -242,7 +250,7 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
     other's note, as on Rack.
   - **Mute mode** shows its settings over any page, as on Rack: Apply timing (Now, Beat,
     Bar, Pattern) and On mute (Finish or Cut). A page tab leaves Mute mode.
-  - **Diagrams**, in a band under the rows, and the TRACK and KEYS boards (`jezric_talea_diagram.js`, a `[v8ui]` in the
+  - **Diagrams**, in a band under the rows, and the STEPS and KEYS boards (`jezric_talea_diagram.js`, a `[v8ui]` in the
     theme's LCD colours, from `[live.colors]`), as on Rack's display: GROOVE's accent
     shape over its span (dim the full shape, bright scaled by Accent) with a playhead;
     PHRASE's notes over the phrase, or for the User shape its grid, which a click or drag
@@ -257,7 +265,7 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
     coordinates, polling) gives the mouse position on a right-button press, and the script
     finds the pad under it ("padGeometry" from the patch). KEYS edits the selected steps' chord
     (keys in the scale; REST makes them rests); LOCKS' first lanes are N.VEL and GATE (1-16
-    steps; Ctrl+click puts the default back). Pulses, Rotate, Voicing and Range dim, and so
+    steps; Ctrl+click puts the default back). Pulses, Rotate, Voicing and Phrase dim, and so
     do the PHRASE and VOICING rows. A scale, root or scale-note change moves the stored
     notes onto the new scale (destructive, one undo step), as on Rack.
   - **REC and OVD** (the top of the left column): the notes played into the sequencer's
@@ -281,14 +289,17 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
     on/off, LOOP (after the last entry, back to the first; off, the sequencer is silent past
     the end, as an arrangement clip ends, rather than stopping Live as Rack stops), the
     entries, 16 across: two tabs one over the other, each entry's pattern on top ("P3") and
-    its bars under it ("x4"), both showing the selected entry ("+" after the last adds the
+    its bars under it ("x4"), one button per entry with the two lines on it: drawn by the
+    diagram script (a `[v8ui]`, kind "draw" in the spec, "entries sel play t0 b0 ..."; a
+    click: "entry i", `songEntryClick`), as two Live tabs can't be one button. Showing the selected entry ("+" after the last adds the
     playing pattern; pages 1-16 ... 49-64 once there are more), PATTERN and BARS of the selected entry (a
     number, or 1 2 4 8 16 32, or PAT: the pattern's own length; a new pattern brings its
     length), EDIT (ADD the playing pattern, INSERT a copy before the selected entry, DELETE,
-    CLEAR SONG) and an info line (entry, pattern, bar). A blue bar between an entry's two
-    rows marks the one playing. In Pattern pad mode with SONG shown, a pattern pad adds its pattern to the
-    song. Turning the song on, and every edit, takes effect on the next bar line; stopped,
-    at once. A pattern switch of the player's (a pad, PATTERN's PLAY) takes over, as
+    CLEAR SONG) and an info line (entry, pattern, bar). A bar along the bottom of an entry
+    marks the one playing. Ctrl+click on PATTERN adds that pattern as a new entry after the
+    selected one (the first, on an empty song), selected; PATTERN isn't dimmed on an empty
+    song for this. Turning the song on, and every edit, takes effect on the next bar line; stopped,
+    at once. A pattern switch of the player's (a pattern button) takes over, as
     launching a clip takes over from Live's arrangement: **BACK TO SONG** appears, and
     returns the song, where the timeline is, on the next bar line. The engine does this with
     `Engine::songTimeline` (Rack keeps its own way: the song starts where it's turned on and
@@ -296,8 +307,8 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
     them with the module.
   - With DEVICE's PAGE LOCK off, turning a dial shows its page, as Rack's "display follows
     knobs" (on, the default, the page stays as the user left it): the shape dials
-    TRACK, the repeat dials SETUP (Choke / Tail), the groove dials GROOVE, Pitch SCALE, Voicing VOICING,
-    Range PHRASE (`dialPages` in the spec). In Mute mode the Mute view stays.
+    STEPS, the repeat dials SETUP (Choke / Tail), the groove dials GROOVE, Pitch SCALE, Voicing VOICING,
+    Phrase (the engine's `range`) PHRASE (`dialPages` in the spec). In Mute mode the Mute view stays.
   The mute and switch timings are saved in the bank, as Rack saves them.
 - **The floating window** must stay in step with the device: every UI change goes to both
   copies (both built by `panel()` and `display()`), and where they differ (KEYS, the
@@ -317,11 +328,19 @@ and sends each new whole number as CC on channel 1. A chord is one entry per not
   its controls' state kept apart; what both copies have (the pad lock bars, TEMP's frame,
   the gear, Instance, Ahead) goes to both. The
   device's window button opens and closes it, the window's closes it.
+  On is a power sign (`jezric_talea_power.svg`, 18 px). The **pin** right of the window
+  button (`jezric_talea_pin.svg`, Stored Only, `PinButton`, lit by default) keeps the
+  window on top of every window (Max's `window flags float`); off, it's an ordinary
+  window (`nofloat`) that Live covers, and the device's window button then brings it to
+  the front ("win front") instead of closing it. Max has nothing in between (on top of
+  Live only). The script sends "win pin/unpin" before "win open", and at once while open.
   Live's Zoom doesn't reach a Max window (and a device can't read it), so DEVICE's
   **WINDOW** (100-200%, saved with the set) sizes it up: the script scales
   the window's controls itself: each one's place, size and font size times the factor,
   the drawings told their scale (`scale z`: they draw and take clicks in their 100%
-  coordinates), the window sized to fit, its clicks scaled back. Max's own zoom (the
+  coordinates), the window sized to fit, its clicks scaled back. A `live.dial` draws its
+  knob at one size whatever its box (only its text grows), so from 150% the panel's dials
+  take the Large appearance (the display's keep theirs). Max's own zoom (the
   patcher's `zoomfactor`) scales the view about its middle, the controls sliding past the
   window's top and left edges, and nothing scrolls a view back, so it isn't used. A size
   is reached a step at a time (each WINDOW size between, 50 ms apart): straight from 100%
@@ -405,8 +424,8 @@ values are the pattern's and the script sets them from it. As stored parameters,
 them at load marked the set as changed, and each turn was an undo step of its own. The
 Edit track menu, Instance and Look-ahead are stored as usual. The script never sets a
 stored parameter of the device's as the set loads (that marks the set changed too): the
-floating window's copies of On, the window button, TEMP, Instance and Ahead are Hidden and
-set on their own ("won", "wwin", "wtemp", outlet 7's "d_instance" ...); the device's own
+floating window's copies of On, the window button, the pin, TEMP, Instance and Ahead are Hidden and
+set on their own ("won", "wwin", "wpin", "wtemp", outlet 7's "d_instance" ...); the device's own
 only for a change made in the window, and TEMP's only when it shows otherwise.
 
 ## Messages and debugging

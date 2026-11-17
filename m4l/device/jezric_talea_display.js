@@ -14,7 +14,7 @@
 //   values   the engine value of each choice, if not 0, 1, 2 ...
 //   field    a track setting (jezric_talea_core.js FIELDS), for the edit track
 //   setting  one of the sequencer's own settings (jezric_talea_core.js SETTINGS)
-//   action   what a click does ("queue", "copy", "clear": pattern slots)
+//   action   what a click does (the script's handler for it)
 //   mods     the modifier keys are read before a click ("padMods", as for a pad press):
 //            CYCLE's cells, where Ctrl+click on a PASTE target keeps PASTE armed
 //   min, max a numbox's range
@@ -71,17 +71,17 @@
 
 module.exports = {
 	"diagrams": {"GROOVE": "groove", "PHRASE": "phrase", "VOICING": "style", "SCALE": "scale"},
-	"boards": {"TRACK": "steps", "KEYS": "keys", "LOCKS": "lanes"},
+	"boards": {"STEPS": "steps", "KEYS": "keys", "LOCKS": "lanes"},
 	"dialPages": {
-		"steps": "TRACK", "pulses": "TRACK", "rotate": "TRACK", "division": "TRACK", "length": "TRACK",
+		"steps": "STEPS", "pulses": "STEPS", "rotate": "STEPS", "division": "STEPS", "length": "STEPS",
 		"repeats": "SETUP", "ramp": "SETUP", "repeatTime": "SETUP", "pace": "SETUP",
 		"velocity": "GROOVE", "probability": "GROOVE", "sustain": "GROOVE", "accent": "GROOVE", "timing": "GROOVE", "delay": "GROOVE",
 		"pitch": "SCALE", "voicing": "VOICING", "range": "PHRASE"
 	},
 	"gear": "DEVICE",
-	"pages": ["TRACK", "LOCKS", "CYCLE", "KEYS", "SCALE", "PHRASE", "VOICING", "GROOVE", "RANDOM", "PATTERN", "SONG", "SETUP"],
+	"pages": ["STEPS", "CYCLE", "SCALE", "KEYS", "GROOVE", "VOICING", "PHRASE", "LOCKS", "RANDOM", "SONG", "SETUP"],
 	"views": {
-		"TRACK": [
+		"STEPS": [
 			{"name": "trackInfo", "kind": "text", "text": "trackInfo", "labelW": 0},
 			{"name": "trackStepPage", "label": "PAGE", "kind": "tab", "items": ["1-16", "17-32", "33-48", "49-64"], "action": "stepPage", "x": 278, "row": 0, "labelW": 0, "width": 116, "anchor": "right",
 				"marks": "stepPages", "showWhen": "stepPages"},
@@ -170,12 +170,6 @@ module.exports = {
 			{"name": "rndLock", "label": "LOCK", "kind": "tab", "items": ["OFF", "ON"], "random": "locked", "x": 291, "row": 3, "labelW": 32, "width": 60},
 			{"name": "rndSeq", "label": "SEQ", "kind": "buttons", "items": ["REGEN", "PHASE -", "PHASE +", "PROB -", "PROB +", "CLEAR ALL"], "randomAction": [0, 2, 3, 4, 5, 6], "row": 4, "labelW": 32}
 		],
-		"PATTERN": [
-			{"name": "patternPlay", "label": "PLAY", "kind": "tab", "items": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"], "action": "queue", "marks": "used"},
-			{"name": "patternCopy", "label": "COPY TO", "alt": "TEMP TO", "altWhen": "@temp", "kind": "buttons", "items": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"], "action": "copy", "marks": "used"},
-			{"name": "patternClear", "label": "CLEAR", "kind": "buttons", "items": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"], "action": "clear", "marks": "used"},
-			{"name": "patternQuantize", "label": "SWITCH", "kind": "tab", "items": ["NOW", "BEAT", "BAR", "PATTERN"], "setting": "patternQuantize", "width": 200}
-		],
 		"SONG": [
 			{"name": "songOn", "label": "SONG", "kind": "tab", "items": ["OFF", "ON"], "action": "songOn", "width": 60},
 			{"name": "songLoop", "label": "LOOP", "kind": "tab", "items": ["OFF", "ON"], "action": "songLoop", "x": 128, "row": 0, "labelW": 30, "width": 60},
@@ -183,12 +177,9 @@ module.exports = {
 				"showWhen": "songOverridden"},
 			{"name": "songPage", "kind": "tab", "items": ["1-16", "17-32", "33-48", "49-64"], "action": "songPage", "x": 326, "row": 0, "labelW": 0, "width": 128,
 				"marks": "songPages", "showWhen": "songPages"},
-			{"name": "songSelect", "label": "ENTRIES", "kind": "tab", "items": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"],
-				"action": "songSelect", "marks": "songEntries", "row": 1},
-			{"name": "songCount", "kind": "tab", "items": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"],
-				"action": "songSelect", "marks": "songCounts", "playBars": "above", "row": 2},
+			{"name": "songEntries", "label": "ENTRIES", "kind": "draw", "row": 1, "height": 35},
 			{"name": "songSlot", "label": "PATTERN", "kind": "tab", "items": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"],
-				"action": "songSlot", "marks": "used", "activeWhen": "@songEntry", "row": 3},
+				"action": "songSlot", "marks": "used", "mods": true, "row": 3},
 			{"name": "songBars", "label": "BARS", "kind": "num", "min": 1, "max": 999, "action": "songBars", "activeWhen": "@songEntry", "width": 44, "row": 4},
 			{"name": "songBarsSet", "kind": "buttons", "items": ["1", "2", "4", "8", "16", "32", "PAT"], "action": "songBarsSet", "activeWhen": "@songEntry",
 				"x": 112, "row": 4, "labelW": 0, "width": 220},
@@ -204,8 +195,9 @@ module.exports = {
 			{"name": "channel", "label": "CHANNEL", "kind": "num", "min": 1, "max": 16, "field": "channel", "x": 180, "row": 0, "width": 44}
 		],
 		"DEVICE": [
-			{"name": "tempTiming", "label": "TEMP OFF", "kind": "tab", "items": ["NOW", "BEAT", "BAR", "PATTERN"], "action": "tempTiming", "width": 200},
-			{"name": "winZoom", "label": "WINDOW", "kind": "tab", "items": ["100%", "125%", "150%", "175%", "200%"], "action": "winZoom", "width": 220},
+			{"name": "patternQuantize", "label": "PAT SWITCH", "kind": "tab", "items": ["NOW", "BEAT", "BAR", "PATTERN"], "setting": "patternQuantize", "labelW": 64, "width": 200},
+			{"name": "tempTiming", "label": "TEMP OFF", "kind": "tab", "items": ["NOW", "BEAT", "BAR", "PATTERN"], "action": "tempTiming", "labelW": 64, "width": 200},
+			{"name": "winZoom", "label": "WINDOW", "kind": "tab", "items": ["100%", "125%", "150%", "175%", "200%"], "action": "winZoom", "labelW": 64, "width": 220},
 			{"name": "pageLock", "label": "PAGE LOCK", "kind": "tab", "items": ["OFF", "ON"], "action": "pageLock", "x": 290, "row": 0, "labelW": 60, "width": 100},
 			{"name": "pageSync", "label": "PAGE SYNC", "kind": "tab", "items": ["OFF", "ON"], "action": "pageSync", "x": 290, "row": 1, "labelW": 60, "width": 100}
 		],

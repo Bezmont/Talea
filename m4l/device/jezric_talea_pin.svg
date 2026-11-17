@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18">
+  <!-- The floating window's pin (Talea Sequencer): kept on top or not. One colour, which
+       live.text remaps to its text colour, padded inside the 18 x 18 button. -->
+  <path fill="#000000" d="M6.5 3 H11.5 V4.5 H10.75 V8 L12.5 10 V11 H5.5 V10 L7.25 8 V4.5 H6.5 Z"/>
+  <path fill="#000000" d="M8.4 11 H9.6 V15 L9 16 L8.4 15 Z"/>
+</svg>

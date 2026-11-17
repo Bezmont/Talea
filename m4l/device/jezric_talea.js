@@ -68,7 +68,6 @@ var ops = [];
 // The step pads: the edit track's steps, 16 to a page.
 var stepPage = 0;
 var follow = true; // the page follows the playing step
-var padKeys = []; // the colour each pad shows, to send only changes
 // Pad modes, as on the Rack module: Step (the edit track's steps), Mute (a pad per track),
 // Pattern (a pad per pattern slot).
 var MODE_STEP = 0, MODE_MUTE = 1, MODE_PATTERN = 2, MODE_NAMES = ["Step", "Mute", "Pattern"];
@@ -250,8 +249,8 @@ function init() {
 		loopChanged();
 		cueChanged();
 		readOn();
+		readPin();
 		showEdits();
-		padKeys = [];
 		outlet(5, "mode", padMode);
 		outlet(5, "apply", 0);
 		showPageTab();
@@ -280,6 +279,11 @@ function init() {
 		clipShown = null;
 		showClip();
 		trackKeys = [];
+		trackPulse = [];
+		muteFrameShown = null;
+		recActiveShown = null;
+		patKeys = [];
+		patBorders = [];
 		showPads();
 		send("announce");
 	} else {
@@ -934,7 +938,7 @@ function cycleEditSelect(v) {
 }
 
 // Picks a cycle (the CYCLE page); one past the last adds cycles, as on Rack.
-// TRACK's cycle lanes: a lane's label clicked ("cycleLaneClick c"). In Cycle edit it
+// STEPS' cycle lanes: a lane's label clicked ("cycleLaneClick c"). In Cycle edit it
 // edits that cycle, as the CYCLE page's choice.
 function cycleLaneClick(c) {
 	if (!BRAIN || !stepper || !cycleEdit) return;
@@ -985,7 +989,7 @@ function deviceView() {
 // Drawn as the device's, to outlet 7, for its own view: the device's, but while the device
 // shows KEYS the window stays on the page it had (its keyboard is always there). Its
 // controls' state is kept apart (dispShown, shownView swapped in while it's drawn).
-var viewFor = null, DOUT = 6, lastWinView = "TRACK", WIN_DISP = { shown: {}, view: null };
+var viewFor = null, DOUT = 6, lastWinView = "STEPS", WIN_DISP = { shown: {}, view: null };
 function winView() {
 	if (!DISPLAY) return null;
 	if (!pageSync) {
@@ -1139,6 +1143,7 @@ function viewItems(view) {
 		if (r.showWhen || r.kind === "toggle") return; // shown by showDisplay when it applies
 		if (r.label) out.push("dl_" + r.name);
 		out.push("d_" + r.name);
+		if (r.joined) for (var k = 0; k < r.items.length; k++) out.push("d_" + r.name + "_frame" + k); // round each column
 	});
 	if (view === DISPLAY.gear) out.push("dl_instance", "d_instance", "dl_lookahead", "d_lookahead", "d_status");
 	if (DISPLAY.diagrams && DISPLAY.diagrams[view]) out.push("d_diagram");
@@ -1278,7 +1283,6 @@ function rowValue(row) {
 	if (row.field) v = stepper.getField(editTrack, row.field, editC());
 	else if (row.setting) v = stepper.getSetting(row.setting);
 	else if (row.random) v = Math.round(stepper.getRandom(editTrack, row.random, row.param, editC()));
-	else if (row.action === "queue") v = perfShown().current;
 	else if (row.action === "cycleCount") v = stepper.cycleCount(editTrack) - 1;
 	else if (row.action === "cycleSelect") v = selCycle;
 	else if (row.action === "cycleMute") v = stepper.cycleState(editTrack, selCycle).muted ? 1 : 0;
@@ -1335,6 +1339,7 @@ function renderDisplay() {
 			}
 			if (!vis) return;
 		}
+		if (row.kind === "draw") return showEntries();
 		if (row.kind === "text") {
 			var line = textOf(row);
 			if (dispShown["d_" + row.name] !== line) {
@@ -1359,8 +1364,6 @@ function renderDisplay() {
 			} else if (row.marks === "lanePages") names = lanePageNames();
 			else if (row.marks === "stepPages") names = row.items.slice(0, pageCount());
 			else if (row.marks === "songPages") names = row.items.slice(0, songPages());
-			else if (row.marks === "songEntries") names = songCellNames(0);
-			else if (row.marks === "songCounts") names = songCellNames(1);
 			else names = cycleClearEntries().map(function (e) { return e.name; });
 			if (dispShown["dr_" + row.name] !== names.join(" ")) {
 				dispShown["dr_" + row.name] = names.join(" ");
@@ -1443,15 +1446,34 @@ function showPlayBars() {
 	var want = null;
 	if (currentView() === "CYCLE" && lastStep >= 0 && on && onIn === 0)
 		want = "d_cycleSelect_play" + stepper.cycleAt(editTrack, lastStep / 4 + 1e-6);
-	else if (currentView() === "SONG" && lastStep >= 0 && on) {
-		// SONG: under the entry playing, if it's on the page shown.
-		var k = songShown().playing - songPage * SONG_PAGE;
-		if (k >= 0 && k < SONG_PAGE) want = "d_songCount_play" + k;
-	}
+	showEntries(); // SONG: drawn with its entries
 	if (dispShown.playbar === want) return;
 	if (dispShown.playbar) dout("script", "hide", dispShown.playbar);
 	if (want) dout("script", "show", want);
 	dispShown.playbar = want;
+}
+
+// SONG's entries (drawn): each its pattern over its bars, the selected one lit, the playing
+// one with a bar.
+function showEntries() {
+	if (currentView() !== "SONG") return;
+	var play = -1;
+	if (lastStep >= 0 && on) {
+		var k = songShown().playing - songPage * SONG_PAGE;
+		if (k >= 0 && k < SONG_PAGE) play = k;
+	}
+	var top = songCellNames(0), bot = songCellNames(1), msg = ["d_songEntries", "entries", songSel - songPage * SONG_PAGE, play];
+	for (var i = 0; i < SONG_PAGE; i++) msg.push(top[i], bot[i]);
+	var key = msg.join(" ");
+	if (dispShown.entries === key) return;
+	dispShown.entries = key;
+	dout(msg);
+}
+
+// A click on SONG's entries ("songEntryClick i"): the entry chosen, "+" adds one.
+function songEntryClick(i) {
+	if (!BRAIN || !stepper) return;
+	songAction({ action: "songSelect" }, Math.round(Number(i)));
 }
 
 // The blue frame over the RANDOM tab: shown while the edit track has a random amount.
@@ -1592,12 +1614,12 @@ function laneValue(t, c, pos, key) {
 	return stepper.lockGet(t, c, pos, key);
 }
 
-// TRACK with several cycles, as Rack's: the step page as a row for what the pads edit (the
+// STEPS with several cycles, as Rack's: the step page as a row for what the pads edit (the
 // track, or EDIT n: the edited cycle), then a lane per cycle with the same steps as that
 // cycle plays them. Cells as LOCKS' (1 + 2 hit + 4 selected + 8 locked + 16 cut off); a
 // lane's flags: 1 playing, 2 muted, 4 selected; its label "C2*" while it plays differently.
 function cycleLanesMessage(t) {
-	var first = stepPage * 16, now = playingStep(), n = stepper.cycleCount(t);
+	var first = stepPage * 16, now = playingStep(), n = stepper.cycleCount(t), seq = isSeq();
 	var playCycle = now >= 0 ? stepper.cycleAt(t, lastStep / 4 + 1e-6) : -1;
 	var row = function (c, sel) {
 		var steps = c >= 0 ? stepper.cycleSteps(t, c) : stepper.steps(t);
@@ -1607,7 +1629,8 @@ function cycleLanesMessage(t) {
 			var step = first + i;
 			if (step >= steps) { cells.push(0); continue; }
 			var pos = stepper.unrotated(t, c, step);
-			cells.push(1 + (hits[step] ? 2 : 0) + (sel && lockSel[pos] ? 4 : 0) + (stepper.locksAt(t, c, pos) ? 8 : 0) + (step >= played ? 16 : 0));
+			cells.push(1 + (hits[step] ? 2 : 0) + (sel && lockSel[pos] ? 4 : 0) + (stepper.locksAt(t, c, pos) ? 8 : 0) + (step >= played ? 16 : 0) +
+				(sel && seq && pos === seqSel ? 32 : 0));
 		}
 		return cells;
 	};
@@ -1642,7 +1665,7 @@ function showsNow(row) {
 	return true;
 }
 
-// The board under TRACK's and KEYS' first row: the steps, or the keyboard.
+// The board under STEPS' and KEYS' first row: the steps, or the keyboard.
 function showBoard() {
 	var which = DISPLAY.boards ? DISPLAY.boards[currentView()] : null;
 	if (!which) return;
@@ -1650,10 +1673,12 @@ function showBoard() {
 	if (which === "lanes") msg = lanesMessage(t);
 	else if (which === "steps" && stepper.cycleCount(t) > 1) msg = cycleLanesMessage(t);
 	else if (which === "steps") {
-		var n = stepsOf(t), sc = cycleEdit ? selCycle : -1;
+		// (16: step recording's cursor, blinking, stopped with RECORD on.)
+		var n = stepsOf(t), sc = cycleEdit ? selCycle : -1, seq = isSeq(), cursorOn = rec && lastStep < 0 && slowBlinkOn();
 		var hits = hitsOf(t).slice(0, n).map(function (h, i) {
 			var pos = stepper.unrotated(t, sc, i);
-			return (h ? 1 : 0) + (stepper.locksAt(t, sc, pos) ? 2 : 0) + (lockSel[pos] ? 4 : 0);
+			return (h ? 1 : 0) + (stepper.locksAt(t, sc, pos) ? 2 : 0) + (lockSel[pos] ? 4 : 0) +
+				(seq && pos === seqSel ? 8 : 0) + (seq && cursorOn && pos === stepper.recCursor() ? 16 : 0);
 		});
 		msg = ["d_board", "steps", n, playedOf(t), playingStep()].concat(hits);
 	} else {
@@ -1737,8 +1762,8 @@ function fromWin() {
 var WIN_MESSAGES = ["param", "pad", "disp", "padMods", "trackButton", "displayPage", "gearSelect", "clipSelect",
 	"tempSelect", "recSelect", "ovdSelect", "followSelect", "stepPageSelect", "padModeSelect", "applyMutes", "enable",
 	"instanceSelect", "lookahead", "phraseGrid", "poolKey", "scaleKey", "lane", "laneClear", "lockStepClick",
-	"cycleLaneClick", "dialGeometry", "padGeometry", "leftClick", "rightClick", "winSelect", "winActive", "winSize",
-	"seqRest", "trackPool", "kbdOctaveMove", "winClosed"];
+	"cycleLaneClick", "boardStep", "songEntryClick", "dialGeometry", "padGeometry", "leftClick", "rightClick", "winSelect", "winActive", "winSize",
+	"seqRest", "trackPool", "kbdOctaveMove", "winClosed", "pinSelect", "patternButton"];
 var GLOBAL_FNS = this; // the script's top level: its message handlers
 
 // The window button: on the device it opens the window (or brings it to the front), in the
@@ -1749,6 +1774,13 @@ function winSelect(v, internal) {
 	// WINDOW's size, has come): ignored; readWin decides once it's in.
 	if (!internal && fromSrc !== 1 && (!stepper || winWaiting)) return;
 	var want = fromSrc !== 1 && Number(v) !== 0; // the window's button only closes it
+	// Unpinned, Live may have covered it: the device's button brings it to the front (and
+	// stays lit); it's closed from the window.
+	if (!internal && fromSrc !== 1 && !want && winOpen && !winPinned) {
+		outlet(5, "winstate", 1);
+		outlet(5, "win", "front");
+		return;
+	}
 	outlet(5, "wwin", want ? 1 : 0);
 	if (fromSrc === 1) outlet(5, "winstate", 0); // the window's button closed it: the device's off
 	if (want === winOpen) return;
@@ -1758,6 +1790,28 @@ function winSelect(v, internal) {
 		showDisplay();
 		openWindow();
 	} else outlet(5, "win", "close");
+}
+
+// The pin: the window on top of everything (lit, default) or an ordinary window. Read at
+// init by name ("PinButton"), as the window button; the other copy set to match (the
+// device's only for a change made in the window).
+var winPinned = true;
+function pinSelect(v, internal) {
+	if (!BRAIN) return;
+	if (!internal && fromSrc !== 1 && !stepper) return; // its value as the set loads: readPin takes it
+	winPinned = Number(v) !== 0;
+	outlet(5, "wpin", winPinned ? 1 : 0);
+	if (fromSrc === 1) outlet(5, "pinstate", winPinned ? 1 : 0);
+	if (winOpen) { // (else as it opens)
+		outlet(5, "win", winPinned ? "pin" : "unpin");
+		outlet(5, "win", "front");
+		later(checkWinZoom, 300); // its size, if re-making the window lost it
+	}
+}
+
+function readPin() {
+	var o = patcherNow() && patcherNow().getnamed ? patcherNow().getnamed("PinButton") : null;
+	pinSelect(o && typeof o.getvalueof === "function" ? Number(o.getvalueof()) : 1, true);
 }
 
 // At init: the window button as the set has it (a Stored Only parameter, read by name as
@@ -1798,6 +1852,7 @@ function winScale() {
 
 function openWindow() {
 	log("window: opening (size wanted " + winScale() + ", applied " + winApplied + ")");
+	outlet(5, "win", winPinned ? "pin" : "unpin"); // on top or not, then opened
 	outlet(5, "win", "open");
 	later(applyWinZoom, 60);
 	later(checkWinZoom, 1200);
@@ -1892,6 +1947,7 @@ function windowRowsAgain() {
 				if (r.kind === "toggle") dout("script", "hide", "d_" + r.name + "_on");
 				if (r.label && r.showWhen) dout("script", "hide", "dl_" + r.name);
 				if (r.playBars) for (var k = 0; k < r.items.length; k++) dout("script", "hide", "d_" + r.name + "_play" + k);
+				if (r.chainMarks) for (k = 0; k < r.items.length; k++) dout("script", "hide", "d_" + r.name + "_chain" + k);
 			});
 		});
 		shownView = null;
@@ -1905,7 +1961,6 @@ function windowRowsAgain() {
 	showGear();
 	kbdShown = null;
 	showKbd();
-	padLocks = [];
 	tempShown = null;
 	tempWaitShown = null;
 	showTemp();
@@ -1956,9 +2011,17 @@ function zoomWindow(zAt) {
 			// Moving a hidden control showed it (TRACK's rows over the page shown): its hidden
 			// state put back after.
 			var hid = it.o.hidden;
+			// The panel's dials: live.dial draws its knob at one size whatever its box, so
+			// from 150% the Large appearance (the display's dials keep theirs).
+			if (it.o.maxclass === "live.dial" && /^dial_/.test(it.o.varname || "")) {
+				var ap = z >= 1.5 ? 3 : 0;
+				if (it.ap !== ap) { it.o.setattr("appearance", ap); it.ap = ap; }
+			}
+			// The font first, then the box: a live.comment refits its box to a new font size
+			// (from the size it had), so the box is set last, the same at every size.
+			if (it.f) it.o.setattr("fontsize", it.f * z);
 			it.o.setboxattr("presentation_rect", it.r[0] * z, it.r[1] * z, it.r[2] * z, it.r[3] * z);
 			if (it.o.hidden !== hid) it.o.hidden = hid;
-			if (it.f) it.o.setattr("fontsize", it.f * z);
 			if (it.draws) it.o.message("scale", z);
 			n++;
 		} catch (e) { failed++; }
@@ -2095,7 +2158,6 @@ function disp(name, value) {
 			fn: function () { stepper.randomAction(t, a, Math.max(0, changeTime(false)), ec); } };
 	}
 	else if (row.setting) op = { desc: row.setting + " " + v, fn: function () { stepper.setSetting(row.setting, v); } };
-	else if (row.action === "queue") return patternPad(v, false, false);
 	else if (row.action === "cycleCount") {
 		var n = v + 1;
 		selCycle = Math.min(selCycle, n - 1);
@@ -2146,7 +2208,7 @@ function disp(name, value) {
 		queueSave();
 		return showDisplay();
 	}
-	else if (row.action === "follow") { // TRACK's FOLLOW: a click flips it; the transport's too
+	else if (row.action === "follow") { // STEPS' FOLLOW: a click flips it; the transport's too
 		follow = !follow;
 		outlet(5, "follow", follow ? 1 : 0);
 		return showPads();
@@ -2165,8 +2227,6 @@ function disp(name, value) {
 		keysOctave = Math.max(0, Math.min(5, keysOctave + (v === 0 ? -1 : 1)));
 		return showDisplay();
 	}
-	else if (row.action === "copy") op = { desc: "pattern copied to " + (v + 1), fn: function () { stepper.copyPattern(v); } };
-	else if (row.action === "clear") op = { desc: "pattern " + (v + 1) + " cleared", fn: function () { stepper.clearPattern(v); } };
 	if (!op) return;
 	op.store = true;
 	ops.push(op);
@@ -2177,7 +2237,7 @@ function disp(name, value) {
 //
 // The song follows Live's timeline: its bar 1 is Live's bar 1, and wherever Live plays (a
 // loop wrapping, Play from elsewhere) the song plays what it has there. A pattern switch of
-// the player's (a pad, the PATTERN page) takes over until BACK TO SONG; past the end without
+// the player's (a pattern button) takes over until BACK TO SONG; past the end without
 // LOOP the sequencer is silent. Edits are taken on the next 16th like a dial's, heard from
 // the next bar line, and stored with the set.
 
@@ -2245,14 +2305,25 @@ function songAction(row, v) {
 				songSel = i;
 				return showDisplay();
 			}
-			forget("d_songSelect"); // "-": the selection stays where it was
-			forget("d_songCount");
+
 			if (i === song.count && i < SONG_MAX) return songAdd(perfShown().current);
 			return showDisplay();
 		}
-		case "songSlot":
+		case "songSlot": {
+			// Ctrl+click: the pattern as a new entry after the selected one (the first, with
+			// none), selected.
+			var sc = mods.ctrl;
+			mods = { shift: false, ctrl: false, alt: false };
+			if (sc) {
+				forget("d_songSlot");
+				if (song.count >= SONG_MAX) return showDisplay();
+				var at = song.count ? Math.min(sel + 1, song.count) : 0;
+				return songOp("pattern " + (v + 1) + " added after entry " + at, function (now) { stepper.songInsert(at, v, 0, now); },
+					function () { songSelect(at); });
+			}
 			if (!has) return showDisplay();
 			return songOp("entry " + (sel + 1) + " plays pattern " + (v + 1), function (now) { stepper.songSet(sel, v, -1, now); });
+		}
 		case "songBars":
 			if (!has || v === song.entries[sel].bars) return;
 			return songOp("entry " + (sel + 1) + " " + v + " bars", function (now) { stepper.songSet(sel, -1, v, now); });
@@ -2281,7 +2352,7 @@ function songAction(row, v) {
 function songInfo() {
 	var s = songShown(), total = s.count + (s.count === 1 ? " ENTRY, " : " ENTRIES, ") + s.bars + (s.bars === 1 ? " BAR" : " BARS");
 	if (!s.on) return "SONG OFF   " + total;
-	if (!s.count) return "SONG ON: ADD ENTRIES (+, ADD, OR PATTERN PADS IN PATTERN MODE)";
+	if (!s.count) return "SONG ON: ADD ENTRIES (+, ADD, OR CTRL+CLICK A PATTERN)";
 	if (s.overridden) return "A PATTERN SWITCH TOOK OVER: BACK TO SONG RETURNS ON THE NEXT BAR";
 	if (s.pending && lastStep >= 0) return "TO THE SONG ON THE NEXT BAR   " + total;
 	if (s.over && lastStep >= 0) return "PAST THE SONG'S END: SILENT   " + total;
@@ -2320,6 +2391,7 @@ function trackButton(i) {
 		clipTrack(i); // COPY / PASTE / CLEAR: the track (its group) is the target
 		return showTrackButtons();
 	}
+	if (padMode === MODE_MUTE) return mutePad(i, ctrl); // MUTE TRACKS: as the Mute pads were
 	if (ctrl) {
 		if (i !== editTrack) group ^= 1 << i;
 	} else if (shift) {
@@ -2332,18 +2404,32 @@ function trackButton(i) {
 	showTrackButtons();
 }
 
-// The track buttons' colours, as Rack lights them: white on a note, red the edit track, dim
-// red the group, blue-grey muted, dim orange holding something other than defaults.
-var TRACK_COLOURS = { note: [1, 1, 1], edit: [0.9, 0.22, 0.16], group: [0.45, 0.1, 0.07], muted: [0.12, 0.17, 0.28],
+// The track buttons' colours: red the edit track, dim red the group, blue-grey muted, dim
+// orange holding something other than defaults. A note played: the button's border white
+// ("trkp t 1"), its colour kept, so the edit track still shows on a busy track.
+var TRACK_COLOURS = { edit: [0.9, 0.22, 0.16], group: [0.45, 0.1, 0.07], muted: [0.12, 0.17, 0.28],
 	used: [0.24, 0.14, 0.04], empty: [0.06, 0.06, 0.07] };
-var trackKeys = [];
+var trackKeys = [], trackPulse = [];
 function showTrackButtons() {
 	if (!BRAIN || !stepper) return;
 	var perf = perfShown(), gates = lastStep >= 0 && playing ? playing.gates : 0;
+	var mute = padMode === MODE_MUTE, fast = blinks % 2 === 1, slow = Math.floor(blinks / 4) % 2 === 1;
+	showMuteFrame();
+	showRecActive();
 	for (var t = 0; t < TRACKS; t++) {
-		var bit = 1 << t, c = gates & bit ? TRACK_COLOURS.note : t === editTrack ? TRACK_COLOURS.edit
+		var bit = 1 << t, muted = (perf.muted & bit) !== 0;
+		// MUTE TRACKS: orange plays, blue-grey muted; a staged change blinks slowly to what it
+		// will become, a committed one quickly.
+		if (mute && perf.scheduled & bit) muted = muted !== fast;
+		else if (mute && staged & bit) muted = muted !== slow;
+		var c = mute ? (muted ? MUTE_COLOURS.muted : MUTE_COLOURS.on) : t === editTrack ? TRACK_COLOURS.edit
 			: group & bit ? TRACK_COLOURS.group : perf.muted & bit ? TRACK_COLOURS.muted
 			: stepper.trackUsed(t) ? TRACK_COLOURS.used : TRACK_COLOURS.empty;
+		var p = gates & bit ? 1 : 0;
+		if (trackPulse[t] !== p) {
+			trackPulse[t] = p;
+			outlet(5, "trkp", t, p);
+		}
 		var key = c.join(" ");
 		if (trackKeys[t] === key) continue;
 		trackKeys[t] = key;
@@ -2406,13 +2492,13 @@ function showClip() {
 	if (armed) log(clipInfo());
 }
 
-var CLIP_TARGETS = "A TRACK BUTTON, A DIAL, A PAD, OR A CYCLE (CYCLE PAGE)";
+var CLIP_TARGETS = "A TRACK BUTTON, A PATTERN BUTTON, A STEP, A DIAL, OR A CYCLE (CYCLE PAGE)";
 function clipInfo() {
 	if (armed === "copy") return "COPY: CLICK " + CLIP_TARGETS;
 	if (armed === "clear") return "CLEAR: CLICK " + CLIP_TARGETS + (clearSticky ? "  (STAYS ARMED)" : "");
-	var where = clip.kind === "track" ? "TRACK BUTTONS, MUTE PADS OR PATTERN PADS" : clip.kind === "step" ? "STEP PADS"
-		: clip.kind === "cycle" ? "CYCLES (CYCLE PAGE)" : clip.kind === "pattern" ? "PATTERN PADS"
-		: "TRACK BUTTONS, MUTE PADS OR CYCLES";
+	var where = clip.kind === "track" ? "TRACK BUTTONS OR PATTERN BUTTONS" : clip.kind === "step" ? "STEPS"
+		: clip.kind === "cycle" ? "CYCLES (CYCLE PAGE)" : clip.kind === "pattern" ? "PATTERN BUTTONS"
+		: "TRACK BUTTONS OR CYCLES";
 	return "PASTE " + clipName() + ": CLICK " + where + "  (CTRL+CLICK: MORE AFTER IT)";
 }
 
@@ -2479,8 +2565,8 @@ function trackReplaced(t) {
 }
 
 // A pad in Step mode: its step (on/off, locks, pool; in SEQ mode its notes).
-function clipStep(i) {
-	var t = editTrack, c = cycleEdit ? selCycle : -1, step = stepPage * 16 + i;
+function clipStep(step) {
+	var t = editTrack, c = cycleEdit ? selCycle : -1;
 	if (step >= stepsOf(t)) return;
 	if (armed === "copy") {
 		clip = { kind: "step", source: step };
@@ -2602,22 +2688,58 @@ function pad(i, v) {
 		clipCtrl = ctrl;
 		if (padMode === MODE_MUTE) clipTrack(i);
 		else if (padMode === MODE_PATTERN) clipPattern(i);
-		else clipStep(i);
+		else clipStep(stepPage * 16 + i);
 		return;
 	}
-	if (alt && padMode === MODE_STEP && isSeq()) return restPad(i); // Alt+click: a rest
 	if (padMode === MODE_MUTE) return mutePad(i, ctrl);
 	if (padMode === MODE_PATTERN && currentView() === "SONG") return songAdd(i); // SONG: adds the pattern
 	if (padMode === MODE_PATTERN) return patternPad(i, shift, ctrl);
+	stepPress(stepPage * 16 + i, ctrl, alt);
+}
+
+// STEPS' board: a step clicked as its pad would be in Step mode, whatever the pad mode
+// ("boardStep step ctrl alt right"; step -1 - i: step i of the step page, the cycle lanes'
+// edit row). Right-click or Alt+click: a rest in SEQ mode.
+// A right-click reaches the board as a plain click, so the click waits a moment for
+// [mousestate]'s right button ("rightClick", rightAt): then it's a rest in SEQ mode, nothing
+// otherwise, as on the pads.
+var rightAt = -1e9, RIGHT_MS = 150, BOARD_WAIT_MS = 100;
+function boardStep(step, ctrl, alt, right) {
+	if (!BRAIN || !stepper) return;
+	step = Math.round(Number(step));
+	if (step < 0) step = stepPage * 16 + (-1 - step);
+	mods = { shift: false, ctrl: false, alt: false };
+	var at = Date.now(), src = fromSrc;
+	later(function () {
+		var keep = fromSrc;
+		fromSrc = src;
+		try {
+			if (Number(right) !== 0 || Math.abs(rightAt - at) < RIGHT_MS) {
+				if (isSeq() && !armed) restStep(step);
+				return;
+			}
+			if (armed) {
+				clipCtrl = Number(ctrl) !== 0;
+				return clipStep(step);
+			}
+			stepPress(step, Number(ctrl) !== 0, Number(alt) !== 0);
+		} finally { fromSrc = keep; }
+	}, BOARD_WAIT_MS);
+}
+
+// A step pressed (a pad in Step mode, or STEPS' board): Ctrl selects it for locks, SEQ
+// mode selects it for KEYS (Alt: a rest), else its hit toggles.
+function stepPress(step, ctrl, alt) {
+	if (alt && isSeq()) return restStep(step); // Alt+click: a rest
 	if (ctrl) {
 		// A plain-clicked SEQ step joins the lock selection it starts.
 		if (!selCount() && seqSel >= 0) lockSel[seqSel] = true;
 		seqSel = -1;
-		return selectStep(stepPage * 16 + i);
+		return selectStep(step);
 	}
-	if (isSeq()) return selectSeqStep(stepPage * 16 + i);
-	var t = editTrack, step = stepPage * 16 + i, c = cycleEdit ? selCycle : -1;
-	log("pad " + (Math.round(i) + 1) + " pressed (" + v + "): track " + (t + 1) + " step " + (step + 1) + " of " + stepsOf(t));
+	if (isSeq()) return selectSeqStep(step);
+	var t = editTrack, c = cycleEdit ? selCycle : -1;
+	log("step " + (step + 1) + " pressed: track " + (t + 1) + " of " + stepsOf(t));
 	if (step < 0 || step >= stepsOf(t)) return;
 	ops.push({ desc: "track " + (t + 1) + (c >= 0 ? " cycle " + (c + 1) : "") + " step " + (step + 1) + " toggled", store: true,
 		fn: function () { if (c >= 0) stepper.toggleCycleStep(t, c, step); else stepper.toggleStep(t, step); } });
@@ -2631,8 +2753,7 @@ function pad(i, v) {
 // The TEMP button (a parameter: MIDI-mappable, automatable): on, every pattern edit is
 // temporary; off reverts them, Ctrl+click off keeps them. Mutes are never reverted; mutes
 // staged meanwhile apply as it ends. A pattern switch ends it (reverting), as do Live's
-// undo and a paste onto the playing slot; PATTERN's COPY TO (TEMP TO while on) onto the
-// playing slot keeps the changes. The pattern stored with the set never has them.
+// undo and a paste onto the playing slot. The pattern stored with the set never has them.
 //
 // DEVICE's TEMP OFF (0 now, 1 beat, 2 bar, 3 the pattern's loop; default bar): while
 // playing, a revert waits for that boundary (TEMP's frame blinks); a click meanwhile
@@ -2724,7 +2845,6 @@ function showTemp() {
 	var dev = patcherNow() && patcherNow().getnamed ? patcherNow().getnamed("Temp") : null, now = null;
 	try { now = dev && typeof dev.getvalueof === "function" ? Number(dev.getvalueof()) : null; } catch (e) { now = null; }
 	if (now !== (on ? 1 : 0)) outlet(5, "temp", on ? 1 : 0);
-	if (DISPLAY && currentView() === "PATTERN") showDisplay(); // COPY TO / TEMP TO
 }
 
 function padMods(shift, ctrl, alt) {
@@ -2741,6 +2861,7 @@ function padGeometry(x, y, cell, h) {
 // A right-click somewhere on the device (from [mousestate]): on a step pad in SEQ mode, the
 // step becomes a rest, as on Rack.
 function rightClick(x, y) {
+	if (clickHere()) rightAt = Date.now(); // (a board click waiting: a rest)
 	var padArea = padAreas[fromSrc];
 	if (!BRAIN || !stepper || !padArea || padMode !== MODE_STEP || !clickHere()) return;
 	x = Number(x) / (fromSrc === 1 ? winScale() : 1);
@@ -2748,13 +2869,13 @@ function rightClick(x, y) {
 	if (y < padArea.y || y >= padArea.y + padArea.h) return;
 	var i = Math.floor((x - padArea.x) / padArea.cell);
 	if (i < 0 || i >= 16) return;
-	restPad(i);
+	restStep(stepPage * 16 + i);
 }
 
-// SEQ mode: pad i's step becomes a rest (right-click, or Alt+click).
-function restPad(i) {
+// SEQ mode: a step becomes a rest (right-click, or Alt+click, on its pad or on STEPS).
+function restStep(step) {
 	if (!isSeq()) return;
-	var t = editTrack, c = cycleEdit ? selCycle : -1, step = stepPage * 16 + i;
+	var t = editTrack, c = cycleEdit ? selCycle : -1;
 	if (step >= stepsOf(t)) return;
 	var pos = stepper.unrotated(t, c, step);
 	if (!stepper.seqStep(t, c, pos)) return;
@@ -2775,7 +2896,7 @@ function changeTime(atOnce) {
 // the staged changes; choosing Mute again applies them.
 function padModeSelect(i) {
 	if (!BRAIN) return;
-	i = Math.max(0, Math.min(2, Math.round(i)));
+	i = Math.max(0, Math.min(1, Math.round(i))); // MUTE TRACKS: 0 off (Step), 1 on (Mute)
 	if (i === MODE_MUTE && padMode === MODE_MUTE) return applyMutes();
 	if (padMode === MODE_MUTE && staged) {
 		log("left Mute mode: staged changes dropped");
@@ -2843,6 +2964,63 @@ function bitList(bits) {
 // Pattern mode: a click queues the slot for the next pattern boundary, Shift+click adds it
 // to the chain, Ctrl+click switches at once. Stopped, everything switches at once, the
 // pattern starting with the song.
+// A pattern button (the top row): a click queues the pattern; Ctrl+click adds it to the
+// chain; Shift+click chains every pattern from the playing (or just queued) one to it; COPY
+// / PASTE / CLEAR armed: the slot is the target ("patternButton i", after "padMods").
+function patternButton(i) {
+	if (!BRAIN || !stepper) return;
+	var shift = mods.shift, ctrl = mods.ctrl;
+	mods = { shift: false, ctrl: false, alt: false };
+	i = Math.max(0, Math.min(15, Math.round(Number(i))));
+	if (armed) {
+		clipCtrl = ctrl;
+		clipPattern(i);
+	} else if (shift) chainRange(i);
+	else patternPad(i, ctrl, false);
+	showPads();
+}
+
+// The pattern buttons: orange playing, dim orange holding a pattern, dark empty; a white
+// border on the chain's, blinking on the queued one.
+var PATTERN_COLOURS = { playing: [0.94, 0.54, 0.14], used: [0.24, 0.14, 0.04], empty: [0.06, 0.06, 0.07] };
+var patKeys = [], patBorders = [];
+function showPatternButtons() {
+	if (!BRAIN || !stepper) return;
+	var pf = perfShown(), lit = Math.floor(blinks / 2) % 2 === 1;
+	for (var i = 0; i < 16; i++) {
+		var c = i === pf.current ? PATTERN_COLOURS.playing : pf.used & (1 << i) ? PATTERN_COLOURS.used : PATTERN_COLOURS.empty;
+		var key = c.join(" ");
+		if (patKeys[i] !== key) {
+			patKeys[i] = key;
+			outlet(5, "patc", i, c[0], c[1], c[2], 1);
+		}
+		var b = pf.chain.indexOf(i) >= 0 ? 1 : 0;
+		if (i === pf.queued && pf.queued !== pf.current) b = b ? (lit ? 0 : 1) : (lit ? 1 : 0);
+		if (patBorders[i] !== b) {
+			patBorders[i] = b;
+			outlet(5, "patb", i, b);
+		}
+	}
+}
+
+// Shift+click on a pattern button: the chain becomes the patterns from the playing one to the slot.
+function chainRange(slot) {
+	// From the pattern just queued (not yet playing), else the playing one.
+	var pf = perfShown(), from = pf.queued >= 0 && !pf.chain.length ? pf.queued : pf.current, step = slot >= from ? 1 : -1;
+	ops.push({ desc: "chain " + (from + 1) + " to " + (slot + 1), store: false, fn: function () {
+		var t = Math.max(0, changeTime(false));
+		if (from === stepper.perf().current) stepper.selectPattern(from, false, false, t); // (the chain cleared, nothing queued)
+		else stepper.selectPattern(stepper.perf().current, false, false, t);
+		if (slot === from) return stepper.selectPattern(from, false, lastStep < 0, t);
+		for (var p = from; ; p += step) {
+			stepper.selectPattern(p, true, lastStep < 0, t);
+			if (p === slot) break;
+		}
+		if (lastStep < 0) stepper.cut = false;
+	} });
+	if (lastStep < 0) takeEdits(-1);
+}
+
 function patternPad(slot, shift, ctrl) {
 	ops.push({ desc: "pattern " + (slot + 1) + (shift ? " chained" : ctrl ? " at once" : " queued"), store: false,
 		fn: function () {
@@ -2891,6 +3069,7 @@ function blink() {
 	blinks++;
 	if (padMode !== MODE_STEP || (rec && lastStep < 0)) showPads(); // staged mutes, a queue, the cursor
 	if (tempEndAt >= 0) showTemp(); // the frame of a revert waiting
+	if (stepper && perfShown().queued >= 0) showPatternButtons(); // the pattern buttons' too
 	if (DISPLAY && stepper && (selCount() || cycleEdit || dispShown.stepmark || dispShown.cycmark)) showRandomMark(); // the tab frames
 }
 
@@ -2917,31 +3096,6 @@ function followSelect(v) {
 	showPads();
 }
 
-// Rack's pad colours (Step mode).
-var PAD_COLOURS = {
-	none: [0.06, 0.06, 0.07],     // past the track's Steps
-	cut: [0.02, 0.02, 0.02],      // cut off by Length
-	cutHit: [0.24, 0.14, 0.04],
-	off: [0.06, 0.06, 0.07],
-	hit: [0.94, 0.54, 0.14],
-	play: [0.35, 0.35, 0.35],     // the playing step
-	playHit: [1, 1, 1],
-	sel: [0.08, 0.2, 0.5],        // selected for locks (a step with locks has a bar instead)
-	selHit: [0.3, 0.6, 1],
-	cursor: [1, 0.12, 0.08],      // step recording's cursor (blinking)
-	seq: [0.05, 0.3, 0.1],        // SEQ mode: the step selected for KEYS
-	seqHit: [0.25, 0.95, 0.4],
-};
-
-// The bar along the bottom of a pad whose step has locks (Step mode only).
-var padLocks = [];
-function setPadLock(i, on) {
-	on = !!on;
-	if (padLocks[i] === on) return;
-	padLocks[i] = on;
-	both("script", on ? "show" : "hide", "d_padlock" + i);
-}
-
 // The edit track's step playing now, or -1 (stopped, off, or waiting to start).
 function playingStep() {
 	if (!stepper || lastStep < 0 || !on || onIn > 0) return -1;
@@ -2957,12 +3111,9 @@ function showPads() {
 	showTemp();
 	showDisplay();
 	showTrackButtons();
-	if (padMode !== MODE_STEP) for (var b = 0; b < 16; b++) setPadLock(b, false);
-	if (padMode === MODE_MUTE) return showMutePads(perf);
-	if (padMode === MODE_PATTERN) return showPatternPads(perf);
-	var t = editTrack, n = stepsOf(t), played = playedOf(t);
-	var hits = hitsOf(t), now = playingStep();
-	var pages = pageCount();
+	showPatternButtons();
+	// (The step pads are gone: STEPS' board shows the steps. The step page still follows.)
+	var now = playingStep(), pages = pageCount();
 	if (follow && now >= 0 && Math.floor(now / 16) !== stepPage) {
 		stepPage = Math.floor(now / 16);
 		outlet(5, "page", stepPage);
@@ -2971,55 +3122,25 @@ function showPads() {
 		stepPage = pages - 1;
 		outlet(5, "page", stepPage);
 	}
-	var lc = cycleEdit ? selCycle : -1, seq = isSeq();
-	for (var i = 0; i < 16; i++) {
-		var step = stepPage * 16 + i, hit = step < n && hits[step], key, pos = step < n ? stepper.unrotated(t, lc, step) : -1;
-		if (step >= n) key = "none";
-		else if (step >= played) key = hit ? "cutHit" : "cut";
-		else if (step === now) key = hit ? "playHit" : "play";
-		else if (rec && lastStep < 0 && seq && pos === stepper.recCursor()) key = slowBlinkOn() ? "cursor" : hit ? "hit" : "off";
-		else if (lockSel[pos]) key = hit ? "selHit" : "sel";
-		else if (pos === seqSel && seq) key = hit ? "seqHit" : "seq";
-		else key = hit ? "hit" : "off";
-		setPad(i, PAD_COLOURS[key]);
-		setPadLock(i, step < n && stepper.locksAt(t, lc, pos));
-	}
 }
 
-function setPad(i, c) {
-	var key = c.join(" ");
-	if (padKeys[i] === key) return;
-	padKeys[i] = key;
-	outlet(5, "pad", i, c[0], c[1], c[2], 1);
+// RECORD and OVERDUB: dimmed while the edit track isn't in SEQ mode.
+var recActiveShown = null;
+function showRecActive() {
+	var want = isSeq() ? 1 : 0;
+	if (recActiveShown === want) return;
+	recActiveShown = want;
+	outlet(5, "recactive", want);
 }
 
-// Mute mode, as Rack's: orange plays (white on a note), blue-grey is muted. A staged change
-// blinks slowly to the state it will become, a committed one quickly.
-var MUTE_COLOURS = { on: [0.94, 0.54, 0.14], note: [1, 1, 1], muted: [0.12, 0.17, 0.28] };
-function showMutePads(perf) {
-	var fast = blinks % 2 === 1, slow = Math.floor(blinks / 4) % 2 === 1;
-	var gates = lastStep >= 0 && playing ? playing.gates : 0;
-	for (var t = 0; t < 16; t++) {
-		var bit = 1 << t, muted = (perf.muted & bit) !== 0;
-		if (perf.scheduled & bit) muted = muted !== fast;
-		else if (staged & bit) muted = muted !== slow;
-		setPad(t, muted ? MUTE_COLOURS.muted : gates & bit ? MUTE_COLOURS.note : MUTE_COLOURS.on);
-	}
-}
-
-// Pattern mode, as Rack's: orange plays, blinking is queued, dim red is in the chain, dim
-// orange holds a pattern, dark is the default pattern.
-var PATTERN_COLOURS = { playing: [0.94, 0.54, 0.14], chain: [0.5, 0.06, 0.04], used: [0.24, 0.14, 0.04], empty: [0.06, 0.06, 0.07] };
-function showPatternPads(perf) {
-	var fast = blinks % 2 === 1;
-	for (var i = 0; i < 16; i++) {
-		var c;
-		if (i === perf.current || (i === perf.queued && fast)) c = PATTERN_COLOURS.playing;
-		else if (perf.chain.indexOf(i) >= 0) c = PATTERN_COLOURS.chain;
-		else if (perf.used & (1 << i)) c = PATTERN_COLOURS.used;
-		else c = PATTERN_COLOURS.empty;
-		setPad(i, c);
-	}
+// MUTE TRACKS' track button colours: dim orange plays, blue-grey muted.
+var MUTE_COLOURS = { on: [0.24, 0.14, 0.04], muted: [0.12, 0.17, 0.28] };
+var muteFrameShown = null;
+function showMuteFrame() {
+	var want = padMode === MODE_MUTE && blinks % 4 < 2; // blinking while MUTE TRACKS is on
+	if (muteFrameShown === want) return;
+	muteFrameShown = want;
+	both("script", want ? "show" : "hide", "d_mutemode");
 }
 
 function showEdits() {
@@ -3438,8 +3559,8 @@ function guarded(name, fn) {
 	["init", "instanceSelect", "channelSelect", "lookahead", "tick", "hello", "ev", "cue", "mon", "noteTime", "noteIn", "recSelect", "ovdSelect",
 		"loopinfo", "look", "announce", "anything", "status", "reset", "param",
 		"editTrackSelect", "debug", "savepattern", "restore", "enable", "pad", "stepPageSelect", "followSelect", "padMods", "padModeSelect",
-		"applyMutes", "blink", "displayPage", "disp", "phraseGrid", "poolKey", "scaleKey", "cycleEditSelect", "lane", "laneClear", "lockStepClick", "cycleLaneClick", "padGeometry", "rightClick",
-		"clipSelect", "leftClick", "dialGeometry", "trackButton", "tempSelect", "gearSelect", "fromWin", "winSelect", "winActive", "winSize"].forEach(function (n) {
+		"applyMutes", "blink", "displayPage", "disp", "phraseGrid", "poolKey", "scaleKey", "cycleEditSelect", "lane", "laneClear", "lockStepClick", "cycleLaneClick", "boardStep", "songEntryClick", "padGeometry", "rightClick",
+		"clipSelect", "leftClick", "dialGeometry", "trackButton", "patternButton", "tempSelect", "gearSelect", "fromWin", "winSelect", "winActive", "winSize"].forEach(function (n) {
 		if (typeof g[n] !== "function") return;
 		var f = guarded(n, g[n]);
 		if (g[n].immediate) f.immediate = g[n].immediate; // keep scheduler-thread handlers there

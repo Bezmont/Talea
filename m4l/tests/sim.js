@@ -96,14 +96,20 @@ World.prototype.device = function (role, trackNo, saved, restoreAfterInit, noTes
 				else if (a[0] === "temp") d.temp = a[1];
 				else if (a[0] === "wtemp") d.wtemp = a[1];
 				else if (a[0] === "onstate") d.onstate = a[1];
-				else if (a[0] === "win") d.win = a[1];
+				else if (a[0] === "win") { d.win = a[1]; (d.winLog = d.winLog || []).push(a[1]); }
 				else if (a[0] === "winstate") d.winstate = a[1];
 				else if (a[0] === "won") d.won = a[1];
 				else if (a[0] === "wwin") d.wwin = a[1];
+				else if (a[0] === "wpin") d.wpin = a[1];
+				else if (a[0] === "pinstate") d.pinstate = a[1];
 				else if (/^(dshow|dhide)$/.test(a[0])) (d.dshown = d.dshown || {})[a[1]] = a[0] === "dshow";
 				else if (/^(wshow|whide)$/.test(a[0])) (d.wshown = d.wshown || {})[a[1]] = a[0] === "wshow";
 				else if (/^(copy|paste|clear|pasteactive)$/.test(a[0])) (d.clipBtn = d.clipBtn || {})[a[0]] = a[1];
 				else if (a[0] === "trk") (d.trk = d.trk || [])[a[1]] = a.slice(2, 5).join(" ");
+				else if (a[0] === "trkp") (d.trkp = d.trkp || [])[a[1]] = a[2];
+				else if (a[0] === "recactive") d.recactive = a[1];
+				else if (a[0] === "patc") (d.patc = d.patc || [])[a[1]] = a.slice(2, 5).join(" ");
+				else if (a[0] === "patb") (d.patb = d.patb || [])[a[1]] = a[2];
 			} else if (n === 6 && role === "brain") {
 				// the display: [thispatcher] shows and hides; the rest sets controls
 				d.shown = d.shown || {};
@@ -690,7 +696,7 @@ function turn(brain, track, key, v) {
 	turn(s.brain, 1, "steps", 32);
 	var before = b.stepper.hits(1).slice();
 	b.stepPageSelect(1); // steps 17-32: Follow goes off
-	b.pad(3, 1);         // step 20
+	press(s.brain, 3);   // step 20
 	var after = b.stepper.hits(1);
 	check("pad on page 2 toggles step 20 (" + before[19] + " -> " + after[19] + "), and only it",
 		after[19] === !before[19] && after.every(function (h, i) { return i === 19 || h === before[i]; }));
@@ -698,9 +704,6 @@ function turn(brain, track, key, v) {
 		s.brain.follow === 0 && s.brain.page === 1);
 	b.stepPageSelect(3); // past the track's 32 steps: stays on page 2
 	check("a page past the track's Steps doesn't take (page " + s.brain.page + ")", s.brain.page === 1);
-	var hitColour = "0.94 0.54 0.14", ok = true;
-	for (var i = 0; i < 16; i++) ok = ok && (s.brain.pads[i] === hitColour) === after[16 + i];
-	check("the pads show the page's hits", ok);
 	var t0 = s.w.now;
 	s.w.play(range(0, 64));
 	var st = new core.Stepper(M, preset), want = emptyWant();
@@ -719,13 +722,8 @@ function turn(brain, track, key, v) {
 	turn(s.brain, 0, "steps", 48);
 	b.followSelect(1);
 	s.w.play(range(0, 96), function (i) {
-		if (i > 2) {
-			var lit = (s.brain.pads || []).filter(function (c) { return c === "1 1 1" || c === "0.35 0.35 0.35"; }).length;
-			if (lit === 1) seen++;
-			pages[s.brain.page] = true;
-		}
+		if (i > 2) pages[s.brain.page] = true;
 	});
-	check("one pad lit for the playing step on each tick (" + seen + " of 93)", seen === 93);
 	check("Follow moves through the pages (" + Object.keys(pages).join(",") + ")", Object.keys(pages).length === 3);
 	done(s);
 })();
@@ -761,10 +759,19 @@ function trackPress(b, i, shift, ctrl) {
 	b.ctx.trackButton(i);
 }
 
-// A pad press as the patch sends it: the modifier keys first, then the press.
+// What a step pad press was, now (the pads are gone): with MUTE TRACKS on, a track
+// button; else step i of the step page on STEPS' board.
 function press(b, i, shift, ctrl, alt) {
-	b.ctx.padMods(shift ? 1 : 0, ctrl ? 1 : 0, alt ? 1 : 0);
-	b.ctx.pad(i, "bang");
+	var c = b.ctx;
+	if (c.padMode === c.MODE_MUTE) return trackPress(b, i, shift, ctrl);
+	c.boardStep(c.stepPage * 16 + i, ctrl ? 1 : 0, alt ? 1 : 0, 0);
+}
+
+// A pattern button clicked (Ctrl+click adds to the chain, Shift+click chains a range), as
+// the patch sends it: the modifier keys first.
+function playPress(b, i, shift, ctrl) {
+	b.ctx.padMods(shift ? 1 : 0, ctrl ? 1 : 0, 0);
+	b.ctx.patternButton(i);
 }
 
 // What the engine plays over `steps`, with actions[i](stepper) done after step i (as the
@@ -803,10 +810,10 @@ function loadBankStopped(s, bank) {
 	var s = setup(), b = s.brain.ctx, steps = range(0, 96), t0 = s.w.now, shown = {};
 	s.w.play(steps, function (i) {
 		if (i === 10) { b.padModeSelect(1); press(s.brain, 2); press(s.brain, 0); }
-		if (i === 14) shown.staged = s.brain.pads[2];
+		if (i === 14) shown.staged = s.brain.trk[2];
 		if (i === 16) b.applyMutes();
 		if (i === 30) press(s.brain, 4, false, true);
-		if (i === 40) shown.muted = [s.brain.pads[0], s.brain.pads[2], s.brain.pads[4], s.brain.pads[1]];
+		if (i === 40) shown.muted = [s.brain.trk[0], s.brain.trk[2], s.brain.trk[4], s.brain.trk[1]];
 		if (i === 50) { press(s.brain, 0); b.padModeSelect(1); } // Mute again: applies too
 	});
 	var want = refRun(steps, {
@@ -819,7 +826,7 @@ function loadBankStopped(s, bank) {
 	check("muted tracks go quiet, repeats under way finishing (track 3 " + after(2, 6) + ", track 5 " + after(4, 8) + " notes after; track 1 " + after(0, 13) + " after unmuting)",
 		after(2, 6) === 0 && after(4, 8) === 0 && after(0, 13) > 0);
 	var blue = "0.12 0.17 0.28";
-	check("the pads show the mutes (" + JSON.stringify(shown) + ")",
+	check("the track buttons show the mutes (" + JSON.stringify(shown) + ")",
 		shown.muted[0] === blue && shown.muted[1] === blue && shown.muted[2] === blue && shown.muted[3] !== blue);
 	check("mutes: no misses (" + misses(s.rx) + "), no hanging notes (" + hanging(s.rx) + ")", misses(s.rx) === 0 && hanging(s.rx) === 0);
 	done(s);
@@ -868,11 +875,11 @@ function loadBankStopped(s, bank) {
 	loadBankStopped(s, bank);
 	var steps = range(0, 200), t0 = s.w.now, seen = {};
 	s.w.play(steps, function (i) {
-		if (i === 6) { b.padModeSelect(2); press(s.brain, 1); }
+		if (i === 6) playPress(s.brain, 1);
 		if (i === 8) seen.queued = b.stepper.perf().queued;
 		if (i === 150) seen.before = b.stepper.getParam(0, "pulses");
-		if (i === 150) press(s.brain, 0, false, true);
-		if (i === 160) seen.after = [b.stepper.perf().current, b.stepper.getParam(0, "pulses"), s.brain.pads[0], s.brain.pads[1]];
+		if (i === 150) s.brain.ctx.patternPad(0, false, true); // at once (the script can; no click does it now)
+		if (i === 160) seen.after = [b.stepper.perf().current, b.stepper.getParam(0, "pulses")];
 	});
 	var want = refRun(steps, {
 		6: function (st) { st.selectPattern(1, false, false, 6 / 4 + 0.125); },
@@ -884,7 +891,7 @@ function loadBankStopped(s, bank) {
 		t3.filter(function (q) { return q < 16; }).length + ", " + t3.filter(function (q) { return q >= 16 && q < 37.5; }).length + ")",
 		t3.filter(function (q) { return q < 16; }).length > 0 && t3.filter(function (q) { return q >= 16.5 && q < 37.5; }).length === 0);
 	check("queued shown (" + seen.queued + "), dials follow the switch (" + seen.before + " then " + JSON.stringify(seen.after) + ")",
-		seen.queued === 1 && seen.before === 13 && seen.after[0] === 0 && seen.after[1] === 9 && seen.after[2] === "0.94 0.54 0.14" && seen.after[3] === "0.24 0.14 0.04");
+		seen.queued === 1 && seen.before === 13 && seen.after[0] === 0 && seen.after[1] === 9);
 	check("patterns: no misses (" + misses(s.rx) + "), no hanging notes (" + hanging(s.rx) + ")", misses(s.rx) === 0 && hanging(s.rx) === 0);
 	s.w.stop();
 	s.w.wait(SAVE_PAUSE_MS + 10);
@@ -901,11 +908,10 @@ function loadBankStopped(s, bank) {
 (function () {
 	var bank = twoPatternBank(), s = setup(), b = s.brain.ctx;
 	loadBankStopped(s, bank);
-	b.padModeSelect(2);
-	press(s.brain, 1);
+	playPress(s.brain, 1);
 	check("stopped: pattern 2 at once (" + b.stepper.perf().current + ")", b.stepper.perf().current === 1);
-	press(s.brain, 0, true);
-	press(s.brain, 1, true);
+	playPress(s.brain, 0, false, true); // Ctrl+click: each added to the chain
+	playPress(s.brain, 1, false, true);
 	var steps = range(0, 400), t0 = s.w.now;
 	s.w.play(steps);
 	var st = new core.Stepper(M, preset), want = emptyWant();
@@ -936,7 +942,7 @@ function loadBankStopped(s, bank) {
 	for (var k = 0; k < 3; k++) steps = steps.concat(range(0, 32));
 	var t0 = s.w.now;
 	s.w.play(steps, function (i) {
-		if (i === 10) { b.padModeSelect(2); press(s.brain, 1, false, true); }
+		if (i === 10) s.brain.ctx.patternPad(1, false, true); // at once
 	});
 	var want = refRun(steps, { 10: function (st) { st.selectPattern(1, false, true, 11 / 4 - 1e-9); } }, bank);
 	compare("a loop back past a switch: every note as the engine plays it", s.rx, t0, 120, want, 0);
@@ -963,6 +969,10 @@ function loadBankStopped(s, bank) {
 // ---- the display ----
 
 // The display's controls shown now (not the tab frames and pad bars, which come and go).
+// A page's number by name: the device's tabs (P), the window's (W: no KEYS).
+function P(b, name) { return b.DISPLAY.pages.indexOf(name); }
+function W(b, name) { return b.winPages().indexOf(name); }
+
 // The page tab lit (-1: none) on a copy, from its buttons shown ("d_tab<i>_on").
 function tabOf(shown) {
 	for (var i = 0; i < 13; i++) if (shown && shown["d_tab" + i + "_on"]) return i;
@@ -970,7 +980,7 @@ function tabOf(shown) {
 }
 
 function shownNames(d) {
-	return Object.keys(d.shown).filter(function (k) { return d.shown[k] && !/^d_(padlock|stepmark|cycmark|rndmark|pages|gear|tempwait|tab\d)/.test(k); }).sort().join(" ");
+	return Object.keys(d.shown).filter(function (k) { return d.shown[k] && !/^d_(padlock|stepmark|cycmark|rndmark|pages|gear|tempwait|mutemode|tab\d)/.test(k); }).sort().join(" ");
 }
 
 // Pages: a page shows its rows (or the note for one not built yet), set from the edit
@@ -978,7 +988,7 @@ function shownNames(d) {
 (function () {
 	var s = setup(), b = s.brain.ctx, d = s.brain;
 	check("at load the TRACK page: its info line and steps (" + shownNames(d) + ")", shownNames(d) === "d_board d_trackInfo");
-	b.displayPage(4); // SCALE
+	b.displayPage(P(b, "SCALE")); // SCALE
 	check("SCALE shows its rows and notes (" + shownNames(d) + ")", shownNames(d) === "d_diagram d_root d_scale dl_root dl_scale");
 	check("SCALE set from the edit track (root " + d.disp.d_root + ", scale " + d.disp.d_scale + ")", d.disp.d_root === 0 && d.disp.d_scale === 0);
 	b.disp("scale", 1);
@@ -1006,7 +1016,7 @@ function shownNames(d) {
 // Settings while playing: taken on the next 16th, heard from the next step.
 (function () {
 	var s = setup(), b = s.brain.ctx, steps = range(0, 96), t0 = s.w.now;
-	b.displayPage(6); // VOICING
+	b.displayPage(P(b, "VOICING")); // VOICING
 	b.editTrackSelect(4); // the chord track
 	s.w.play(steps, function (i) {
 		if (i === 20) b.disp("style", 2);
@@ -1025,13 +1035,13 @@ function shownNames(d) {
 // PHRASE: its list leaves out Rack's CV input, so USER is the engine's 9.
 (function () {
 	var s = setup(), b = s.brain.ctx, d = s.brain;
-	b.displayPage(7);
+	b.displayPage(P(b, "GROOVE"));
 	check("GROOVE: BARS dimmed for AGOGO (" + d.disp.da_grooveLength + ")", d.disp.da_grooveLength === 0);
 	b.disp("groove", 4);
 	check("GROOVE: BARS active for SAW (" + d.disp.da_grooveLength + ")", d.disp.da_grooveLength === 1);
 	b.disp("grooveLoop", 1);
 	check("GROOVE: SYNC LOOP relabels BARS as LOOPS (" + d.disp.dl_grooveLength + ")", d.disp.dl_grooveLength === "LOOPS");
-	b.displayPage(5);
+	b.displayPage(P(b, "PHRASE"));
 	b.disp("phrase", 8);
 	check("PHRASE: USER is the engine's 9, shown as the 9th choice (" + b.stepper.getField(0, "phrase") + ", " + d.disp.d_phrase + ")",
 		b.stepper.getField(0, "phrase") === 9 && d.disp.d_phrase === 8);
@@ -1042,7 +1052,7 @@ function shownNames(d) {
 // line; a page tab leaves Mute mode, back to the mode before it.
 (function () {
 	var s = setup(), b = s.brain.ctx, d = s.brain, steps = range(0, 64), t0 = s.w.now;
-	b.displayPage(4);
+	b.displayPage(P(b, "SCALE"));
 	b.padModeSelect(1);
 	check("Mute mode: the MUTE view (" + shownNames(d) + ")", shownNames(d) === "d_muteCuts d_muteTiming dl_muteCuts dl_muteTiming");
 	b.disp("muteTiming", 2);
@@ -1059,9 +1069,9 @@ function shownNames(d) {
 		t1.filter(function (q) { return q >= 4.01; }).length + " after)", t1.filter(function (q) { return q >= 1.5 && q < 4; }).length > 0 &&
 		t1.filter(function (q) { return q >= 4.01; }).length === 0);
 	s.w.stop();
-	b.displayPage(9);
-	check("a page tab leaves Mute mode (mode " + d.mode + "), PATTERN shown (" + shownNames(d) + ")",
-		d.mode === 0 && shownNames(d) === "d_patternClear d_patternCopy d_patternPlay d_patternQuantize dl_patternClear dl_patternCopy dl_patternPlay dl_patternQuantize");
+	b.displayPage(P(b, "SONG"));
+	check("a page tab leaves Mute mode (mode " + d.mode + "), SONG shown (" + shownNames(d) + ")",
+		d.mode === 0 && / d_songEntries /.test(" " + shownNames(d) + " "));
 	s.w.wait(SAVE_PAUSE_MS + 10);
 	var r = setup({ saved: s.brain.pattr });
 	check("the mute timing is saved with the set (" + r.brain.ctx.stepper.getSetting("muteTiming") + ")", r.brain.ctx.stepper.getSetting("muteTiming") === 2);
@@ -1074,40 +1084,36 @@ function shownNames(d) {
 	var s = setup(), b = s.brain.ctx, d = s.brain;
 	turn(s.brain, 0, "pace", -20);
 	check("a Repeats dial shows SETUP, where Choke / Tail is (" + tabOf(d.shown) + ", " + shownNames(d) + ")",
-		tabOf(d.shown) === 11 && / d_repeatTail /.test(" " + shownNames(d) + " ") && !/ d_instance /.test(" " + shownNames(d) + " "));
+		tabOf(d.shown) === P(b, "SETUP") && / d_repeatTail /.test(" " + shownNames(d) + " ") && !/ d_instance /.test(" " + shownNames(d) + " "));
 	turn(s.brain, 0, "pitch", 3);
-	check("Pitch shows SCALE (" + tabOf(d.shown) + ")", tabOf(d.shown) === 4);
+	check("Pitch shows SCALE (" + tabOf(d.shown) + ")", tabOf(d.shown) === P(b, "SCALE"));
 	b.padModeSelect(1);
 	turn(s.brain, 0, "voicing", 2);
 	check("in Mute mode the Mute view stays (" + shownNames(d) + "), the page moves under it (" + tabOf(d.shown) + ")",
-		shownNames(d) === "d_muteCuts d_muteTiming dl_muteCuts dl_muteTiming" && tabOf(d.shown) === 6);
+		shownNames(d) === "d_muteCuts d_muteTiming dl_muteCuts dl_muteTiming" && tabOf(d.shown) === P(b, "VOICING"));
 	b.padModeSelect(0);
 	check("leaving Mute mode: VOICING (" + shownNames(d) + ")", /d_style/.test(shownNames(d)));
 	done(s);
 })();
 
-// PATTERN: COPY TO and CLEAR; PLAY queues and shows the playing pattern.
+// The pattern buttons: CPY / PST copy a pattern into a slot, a click while stopped plays it
+// at once, slots holding a pattern dim orange, CLR clears one.
 (function () {
 	var s = setup(), b = s.brain.ctx, d = s.brain;
-	b.displayPage(9);
-	s.w.wait(200); // a click comes a while after the page shows (and renames its choices)
-	b.disp("patternCopy", 3);
-	check("COPY TO 4: slot 4 holds the pattern (" + b.stepper.perf().used + ")", (b.stepper.perf().used & 8) !== 0);
-	b.disp("patternCopy", 5); // at once: the echo of the rename COPY TO 4 caused
-	check("an echo just after a rename is ignored (slot 6 " + ((b.stepper.perf().used & 32) ? "copied" : "untouched") + ")",
-		(b.stepper.perf().used & 32) === 0);
-	s.w.wait(200);
-	b.disp("patternPlay", 3);
-	check("PLAY 4 while stopped: playing at once, shown (" + b.stepper.perf().current + ", " + d.disp.d_patternPlay + ")",
-		b.stepper.perf().current === 3 && d.disp.d_patternPlay === 3 && b.stepper.getParam(0, "pulses") === 9);
-	check("filled slots marked in PLAY, COPY TO and CLEAR (" + d.disp.dr_patternPlay.slice(0, 5).join(" ") + ")",
-		d.disp.dr_patternPlay[0] === "1*" && d.disp.dr_patternPlay[3] === "4*" && d.disp.dr_patternPlay[1] === "2" &&
-		d.disp.dr_patternCopy[3] === "4*" && d.disp.dr_patternClear[0] === "1*");
-	s.w.wait(200);
-	b.disp("patternClear", 3);
-	check("CLEAR 4: the playing pattern back to the default (pulses " + b.stepper.getParam(0, "pulses") + "), dials follow",
+	b.clipSelect(0, 1);
+	playPress(d, 0);
+	b.clipSelect(1, 1);
+	playPress(d, 3);
+	check("CPY 1, PST 4: slot 4 holds the pattern (" + b.stepper.perf().used + ")", (b.stepper.perf().used & 8) !== 0);
+	playPress(d, 3);
+	check("a click while stopped: pattern 4 at once, orange (" + b.stepper.perf().current + ", " + d.patc[3] + ")",
+		b.stepper.perf().current === 3 && d.patc[3] === "0.94 0.54 0.14" && b.stepper.getParam(0, "pulses") === 9);
+	check("slot 1 holds a pattern: dim orange; slot 2 empty: dark (" + d.patc[0] + ", " + d.patc[1] + ")",
+		d.patc[0] === "0.24 0.14 0.04" && d.patc[1] === "0.06 0.06 0.07");
+	b.clipSelect(2, 1);
+	playPress(d, 3);
+	check("CLR 4: the playing pattern back to the default (pulses " + b.stepper.getParam(0, "pulses") + ")",
 		b.stepper.getParam(0, "pulses") === 0 && (b.stepper.perf().used & 8) === 0);
-	check("cleared slot unmarked (" + d.disp.dr_patternPlay[3] + ")", d.disp.dr_patternPlay[3] === "4");
 	done(s);
 })();
 
@@ -1115,7 +1121,7 @@ function shownNames(d) {
 // (edited by clicking), VOICING's next notes.
 (function () {
 	var s = setup(), b = s.brain.ctx, d = s.brain;
-	b.displayPage(7);
+	b.displayPage(P(b, "GROOVE"));
 	check("GROOVE shows the diagram (" + shownNames(d) + ")", /d_diagram/.test(shownNames(d)));
 	check("GROOVE: the accent shape, 129 values, one bar repeated (" + d.diagram.slice(0, 3).join(" ") + ")",
 		d.diagram[0] === "groove" && d.diagram[1] === "1 BAR, REPEATED" && d.diagram.length === 3 + 129);
@@ -1127,10 +1133,10 @@ function shownNames(d) {
 	s.w.play(range(0, 40), function (i) { if (i > 0) seen[d.play] = true; });
 	check("playing: the playhead moves (" + Object.keys(seen).length + " places)", Object.keys(seen).length > 30);
 	s.w.stop();
-	b.displayPage(6);
+	b.displayPage(P(b, "VOICING"));
 	check("VOICING: the next 16 notes, as dashes (" + d.diagram.slice(0, 3).join(" ") + ")",
 		d.diagram[0] === "notes" && d.diagram[1] === "NEXT 16 NOTES" && d.diagram[2] === 1 && d.diagram.length === 3 + 16);
-	b.displayPage(5);
+	b.displayPage(P(b, "PHRASE"));
 	check("PHRASE: the phrase's notes (" + d.diagram.slice(0, 3).join(" ") + ", " + (d.diagram.length - 3) + ")",
 		d.diagram[0] === "notes" && d.diagram[1] === "4 BARS" && d.diagram.length === 3 + 64);
 	b.disp("phrase", 8); // USER
@@ -1233,7 +1239,7 @@ function shownNames(d) {
 	b.editTrackSelect(1);
 	check("TRACK follows the edit track (" + d.disp.d_board[1] + " steps)", d.disp.d_board[1] === 12 && /^TRACK 2 /.test(d.disp.d_trackInfo));
 	b.editTrackSelect(0);
-	b.displayPage(3);
+	b.displayPage(P(b, "KEYS"));
 	check("KEYS: octave buttons, help line, keyboard (" + shownNames(d) + ")", shownNames(d) === "d_board d_keysHelp d_keysOctave dl_keysOctave");
 	var pool0 = b.stepper.pool(0);
 	check("KEYS: from C2, the track's pool (" + d.disp.d_board.slice(0, 9).join(" ") + ")",
@@ -1254,7 +1260,7 @@ function shownNames(d) {
 	st.destroy();
 	compare("pool notes added while stopped: Play plays them", s.rx, t0, 120, want, 0);
 	s.w.stop();
-	b.displayPage(4);
+	b.displayPage(P(b, "SCALE"));
 	b.disp("scale", 1); // Major
 	b.scaleKey(1);      // C#: into the scale, which becomes User
 	check("SCALE: a note click makes the User scale (" + b.stepper.getField(0, "scale") + ", notes " + b.stepper.scaleNotes(0).toString(2) + ")",
@@ -1266,32 +1272,32 @@ function shownNames(d) {
 // amounts (the track's left alone), heard at Play; CYCLE's CLEAR lists and drops them.
 (function () {
 	var s = setup(), b = s.brain.ctx, d = s.brain;
-	b.displayPage(2);
+	b.displayPage(P(b, "CYCLE"));
 	s.w.wait(150);
 	b.disp("cycleCount", 1);
 	s.w.wait(150);
 	b.disp("cycleSelect", 1);
 	b.disp("cycleEdit", 1);
 	var pool0 = b.stepper.pool(0);
-	b.displayPage(3);
+	b.displayPage(P(b, "KEYS"));
 	b.poolKey(72);
 	check("Cycle edit, KEYS: the key goes in cycle 2's pool (" + b.stepper.pool(0, 1).join(" ") + "; track " + b.stepper.pool(0).join(" ") + ")",
 		b.stepper.pool(0, 1).indexOf(72) >= 0 && b.stepper.pool(0).join() === pool0.join() && b.stepper.pool(0, 0).join() === pool0.join());
 	check("KEYS shows cycle 2's pool", d.disp.d_board[6] === pool0.length + 1);
-	b.displayPage(4);
+	b.displayPage(P(b, "SCALE"));
 	s.w.wait(150);
 	b.disp("root", 2);
 	check("Cycle edit, SCALE: cycle 2's root (" + b.stepper.getField(0, "root", 1) + ", track " + b.stepper.getField(0, "root") + ")",
 		b.stepper.getField(0, "root", 1) === 2 && b.stepper.getField(0, "root") === 0 && d.disp.d_root === 2);
-	b.displayPage(8);
+	b.displayPage(P(b, "RANDOM"));
 	s.w.wait(150);
 	b.disp("rnd_pulses", 50);
 	check("Cycle edit, RANDOM: cycle 2's amount (" + b.stepper.getRandom(0, "amount", "pulses", 1) + ", track " + b.stepper.getRandom(0, "amount", "pulses") + ")",
 		b.stepper.getRandom(0, "amount", "pulses", 1) === 50 && b.stepper.getRandom(0, "amount", "pulses") === 0 && d.disp.d_rnd_pulses === 50);
-	b.displayPage(2);
+	b.displayPage(P(b, "CYCLE"));
 	check("CYCLE's CLEAR lists SCALE and R.PULSE (" + d.disp.dr_cycleClear.join(" ") + ")", d.disp.dr_cycleClear.join() === "ALL,HITS,SCALE,R.PULSE");
 	b.disp("cycleEdit", 0);
-	b.displayPage(3);
+	b.displayPage(P(b, "KEYS"));
 	check("Cycle edit off: KEYS shows the track's pool again", d.disp.d_board[6] === pool0.length);
 	var t0 = s.w.now;
 	s.w.play(range(0, 64));
@@ -1304,7 +1310,7 @@ function shownNames(d) {
 	st.destroy();
 	compare("cycle 2's own pool, root and random: Play plays them in its turn", s.rx, t0, 120, want, 0);
 	s.w.stop();
-	b.displayPage(2);
+	b.displayPage(P(b, "CYCLE"));
 	s.w.wait(150);
 	b.disp("cycleClear", 2); // SCALE
 	s.w.wait(150);
@@ -1320,7 +1326,7 @@ function shownNames(d) {
 // POOL takes it away.
 (function () {
 	var s = setup(), b = s.brain.ctx, d = s.brain;
-	b.displayPage(3);
+	b.displayPage(P(b, "KEYS"));
 	var pool0 = b.stepper.pool(0), want0 = pool0.concat([72]).sort(function (x, y) { return x - y; });
 	check("KEYS, nothing selected: no TRACK POOL (" + d.disp.d_keysHelp + ")",
 		d.shown.d_trackPool !== true && d.disp.d_keysHelp === "CLICK = ADD / REMOVE A POOL NOTE");
@@ -1338,7 +1344,7 @@ function shownNames(d) {
 		/OWN POOL/.test(d.disp.d_keysHelp) && d.shown.d_trackPool === true &&
 		d.disp.d_board[6] === want0.length && d.disp.d_board[d.disp.d_board.length - 1] === 1);
 	check("a step pool is a lock: the pads mark it", b.stepper.locksAt(0, -1, 0) && b.stepper.locksAt(0, -1, 2));
-	b.displayPage(1);
+	b.displayPage(P(b, "LOCKS"));
 	var bd = d.disp.d_board;
 	check("LOCKS: a POOL lane marking the steps with their own pool (" + bd.slice(19, 26).join(" ") + ")",
 		bd[0] === "lanes" && bd[19] === 1 && bd[20] === "POOL" && bd[21] === bd[22] && bd[23] === 1 && bd[24] === "x" && bd[25] === 1);
@@ -1346,7 +1352,7 @@ function shownNames(d) {
 	b.laneClear(0, 0);
 	check("the POOL lane can't be edited", b.stepper.stepPool(0, -1, 1).length === 0 && b.stepper.stepPool(0, -1, 0).length === 2 &&
 		b.stepper.locksUsed(0, -1).length === 0);
-	b.displayPage(3);
+	b.displayPage(P(b, "KEYS"));
 	var t0 = s.w.now;
 	s.w.play(range(0, 64));
 	var st = new core.Stepper(M, preset), want = emptyWant();
@@ -1359,9 +1365,9 @@ function shownNames(d) {
 	b.disp("trackPool", "bang");
 	check("TRACK POOL: the steps play the track's again (" + b.stepper.stepPool(0, -1, 0).length + ")",
 		b.stepper.stepPool(0, -1, 0).length === 0 && b.stepper.stepPool(0, -1, 2).length === 0 && d.shown.d_trackPool === false);
-	b.displayPage(11);
+	b.displayPage(P(b, "SETUP"));
 	b.disp("seqMode", 1);
-	b.displayPage(3);
+	b.displayPage(P(b, "KEYS"));
 	press(d, 0, false, true);
 	b.poolKey(72);
 	var sq = b.stepper.seqStep(0, -1, 0);
@@ -1375,7 +1381,7 @@ function shownNames(d) {
 // saved with the set.
 (function () {
 	var s = setup(), b = s.brain.ctx, d = s.brain;
-	b.displayPage(8);
+	b.displayPage(P(b, "RANDOM"));
 	var shown = shownNames(d).split(" ");
 	check("RANDOM shows 15 amounts, their switches and the rest (" + shown.length + " controls)",
 		shown.length === 15 * 3 + 4 * 2 + 2 && shown.indexOf("d_rnd_pulses") >= 0 && shown.indexOf("d_rndc_pulses") >= 0 &&
@@ -1385,9 +1391,9 @@ function shownNames(d) {
 	check("no random amounts: the RANDOM tab unmarked (" + d.shown.d_rndmark + ")", !d.shown.d_rndmark);
 	b.disp("rnd_velocity", -35);
 	check("a random amount: the RANDOM tab marked", d.shown.d_rndmark === true);
-	b.displayPage(4);
+	b.displayPage(P(b, "SCALE"));
 	check("the mark stays on other pages", d.shown.d_rndmark === true);
-	b.displayPage(8);
+	b.displayPage(P(b, "RANDOM"));
 	b.disp("rndc_velocity", 1);
 	b.disp("rndVariance", 25);
 	check("stopped: amounts and settings in the engine (" + b.stepper.getRandom(0, "amount", "velocity") + ", " +
@@ -1430,7 +1436,7 @@ function shownNames(d) {
 // edit the selected cycle, which plays alone), the Cycle pads; Play plays the cycles in turn.
 (function () {
 	var s = setup(), b = s.brain.ctx, d = s.brain;
-	b.displayPage(2);
+	b.displayPage(P(b, "CYCLE"));
 	check("CYCLE shows its rows (" + shownNames(d) + ")",
 		shownNames(d) === "d_cycleClear d_cycleCount d_cycleEdit d_cycleMute d_cyclePlaying d_cycleSelect dl_cycleClear dl_cycleCount dl_cycleEdit dl_cycleMute dl_cycleSelect");
 	check("one cycle at first (" + d.disp.d_cycleCount + ", " + d.disp.dr_cycleClear.join(" ") + ")", d.disp.d_cycleCount === 0 && d.disp.dr_cycleClear.join() === "ALL,HITS");
@@ -1439,17 +1445,17 @@ function shownNames(d) {
 	s.w.wait(200);
 	b.disp("cycleSelect", 1);
 	check("CYCLE tab unframed (" + d.shown.d_cycmark + ")", !d.shown.d_cycmark);
-	b.displayPage(0);
+	b.displayPage(P(b, "STEPS"));
 	var bd = d.disp.d_board;
 	check("TRACK with 2 cycles: the edit row and a lane per cycle, cycle 2 boxed (" + bd.slice(0, 4).join(" ") + " ... " + bd.slice(21, 25).join(" ") + ")",
 		bd[0] === "cycles" && bd[1] === "TRACK" && bd[2] === 0 && bd[20] === 2 && bd[21] === "C1" && bd[22] === 0 && bd[40] === "C2" && bd[41] === 4);
-	b.displayPage(2);
+	b.displayPage(P(b, "CYCLE"));
 	b.disp("cycleEdit", 1);
 	var cyc = {};
 	for (var k = 0; k < 8; k++) { b.blink(); cyc[d.shown.d_cycmark] = true; }
 	check("EDIT on: the CYCLE tab's red frame blinks, the line says so (" + d.disp.d_cyclePlaying + ")",
 		cyc["true"] && cyc["false"] && /^EDIT: CYCLE 2 PLAYS ALONE/.test(d.disp.d_cyclePlaying));
-	b.displayPage(0);
+	b.displayPage(P(b, "STEPS"));
 	b.cycleLaneClick(0);
 	check("Cycle edit, TRACK: a lane's label edits that cycle (" + b.selCycle + ", " + d.disp.d_board[1] + ")", b.selCycle === 0 && d.disp.d_board[1] === "EDIT 1");
 	b.cycleLaneClick(1);
@@ -1457,12 +1463,12 @@ function shownNames(d) {
 	b.cycleLaneClick(0);
 	check("out of Cycle edit a label click does nothing (" + b.selCycle + ")", b.selCycle === 1);
 	b.cycleEditSelect(1);
-	b.displayPage(2);
+	b.displayPage(P(b, "CYCLE"));
 	check("Cycle edit: the dials show cycle 2's values (pulses " + b.dialValue(0, "pulses") + ")", b.dialValue(0, "pulses") === 9);
 	turn(s.brain, 0, "pulses", 3);
 	check("Cycle edit: a dial overrides cycle 2 only (" + b.stepper.getCycleParam(0, 1, "pulses") + ", track " + b.stepper.getParam(0, "pulses") + ")",
 		b.stepper.getCycleParam(0, 1, "pulses") === 3 && b.stepper.getParam(0, "pulses") === 9 && b.stepper.getCycleParam(0, 0, "pulses") === 9);
-	b.displayPage(2);
+	b.displayPage(P(b, "CYCLE"));
 	check("cycle 2 marked as changed, CLEAR lists its override (" + d.disp.dr_cycleSelect.slice(0, 2).join(" ") + "; " + d.disp.dr_cycleClear.join(" ") + ")",
 		d.disp.dr_cycleSelect[1] === "2*" && d.disp.dr_cycleClear.join() === "ALL,HITS,PULSE");
 	b.pad(0, "bang"); // step 1, in cycle 2 only
@@ -1479,7 +1485,7 @@ function shownNames(d) {
 	steps.forEach(function (p, i) { addStep(want, st.step(p), i); });
 	compare("Cycle edit while playing: the edited cycle plays alone", s.rx, t0, 120, want, 0);
 	s.w.stop();
-	b.displayPage(2);
+	b.displayPage(P(b, "CYCLE"));
 	b.disp("cycleEdit", 0);
 	check("EDIT off: the frame goes", d.shown.d_cycmark === false);
 	check("Cycle edit off: the dials show the track's values", b.dialValue(0, "pulses") === 9);
@@ -1487,7 +1493,7 @@ function shownNames(d) {
 	st.setSoloCycle(0, -1);
 	st.forget();
 	want = emptyWant();
-	b.displayPage(2);
+	b.displayPage(P(b, "CYCLE"));
 	var bars = {};
 	s.w.play(range(0, 32), function (i) {
 		var on = Object.keys(d.shown).filter(function (k) { return /^d_cycleSelect_play/.test(k) && d.shown[k]; });
@@ -1507,7 +1513,7 @@ function shownNames(d) {
 	check("the cycles differ (track 1: " + loop1 + " notes in cycle 1's loop, " + loop2 + " in cycle 2's)", loop1 === 9 && loop2 < 9 && loop2 > 0);
 	s.w.stop();
 	// CLEAR PULSE, then the Cycle pads.
-	b.displayPage(2);
+	b.displayPage(P(b, "CYCLE"));
 	s.w.wait(200);
 	check("CLEAR lists the step edits too (" + d.disp.dr_cycleClear.join(" ") + ")", d.disp.dr_cycleClear.join() === "ALL,HITS,PULSE");
 	b.disp("cycleClear", d.disp.dr_cycleClear.indexOf("PULSE"));
@@ -1536,12 +1542,10 @@ function shownNames(d) {
 	var s = setup(), b = s.brain.ctx, d = s.brain;
 	press(s.brain, 1, false, true);
 	press(s.brain, 4, false, true);
-	check("Ctrl+click selects steps 2 and 5: blue pads (" + d.pads[1] + ", " + d.pads[4] + ")",
-		b.selList().join() === "1,4" && /^0\.(3|08) 0\.(6|2) /.test(d.pads[1]) && /^0\.(3|08) 0\.(6|2) /.test(d.pads[4]));
-	var seen = {}, frames = {};
-	for (var k = 0; k < 8; k++) { b.blink(); seen[d.pads[4]] = true; frames[d.shown.d_stepmark] = true; }
-	check("a selected pad stays blue; the LOCKS tab frame blinks (" + Object.keys(seen).join(" | ") + "; " + Object.keys(frames).join(" | ") + ")",
-		Object.keys(seen).join() === "0.08 0.2 0.5" && frames["true"] && frames["false"]);
+	check("Ctrl+click selects steps 2 and 5 (" + b.selList().join() + ")", b.selList().join() === "1,4");
+	var frames = {};
+	for (var k = 0; k < 8; k++) { b.blink(); frames[d.shown.d_stepmark] = true; }
+	check("the LOCKS tab frame blinks (" + Object.keys(frames).join(" | ") + ")", frames["true"] && frames["false"]);
 	check("the dials that can't lock dim (pulses " + d.dials.a_pulses + ", velocity " + d.dials.a_velocity + ")",
 		d.dials.a_pulses === 0 && d.dials.a_velocity === 1);
 	b.param("velocity", 30); // the edit track already chosen (choosing it ends a selection)
@@ -1550,16 +1554,14 @@ function shownNames(d) {
 		b.stepper.lockGet(0, -1, 1, "velocity") === 30 && b.stepper.lockGet(0, -1, 4, "velocity") === 30 &&
 		b.stepper.lockGet(0, -1, 2, "velocity") === null && b.stepper.getParam(0, "velocity") !== 30);
 	check("the dial shows the lock, the display LOCKS (" + d.dials.velocity + ", page " + tabOf(d.shown) + ", " + shownNames(d) + ")",
-		d.dials.velocity === 30 && tabOf(d.shown) === 1 && shownNames(d) === "d_board d_lockSelect dl_lockSelect");
+		d.dials.velocity === 30 && tabOf(d.shown) === P(b, "LOCKS") && shownNames(d) === "d_board d_lockSelect dl_lockSelect");
 	var bd = d.disp.d_board;
 	check("LOCKS: a VEL lane, the locked steps' bars (" + bd.slice(0, 2).join(" ") + " ... " + bd.slice(19, 26).join(" ") + ")",
 		bd[0] === "lanes" && bd[1] === "STEPS" && bd[19] === 1 && bd[20] === "VEL" && bd[23] === "x" && bd[24] === 30 && bd[27] === 30);
-	check("locked steps: a bar on their pads (" + d.shown.d_padlock1 + ", " + d.shown.d_padlock4 + ", " + d.shown.d_padlock2 + "), no colour of their own",
-		d.shown.d_padlock1 === true && d.shown.d_padlock4 === true && !d.shown.d_padlock2);
-	b.displayPage(0);
+	b.displayPage(P(b, "STEPS"));
 	check("TRACK: locked steps marked (+2), selected (+4) (" + d.disp.d_board.slice(4, 10).join(" ") + ")",
 		d.disp.d_board[4 + 1] === 6 && d.disp.d_board[4 + 4] === 6 && d.disp.d_board[4 + 2] < 2);
-	b.displayPage(1);
+	b.displayPage(P(b, "LOCKS"));
 	b.lane(0, 7, 1);
 	check("a lane click sets a lock (step 8 velocity " + b.stepper.lockGet(0, -1, 7, "velocity") + ")", b.stepper.lockGet(0, -1, 7, "velocity") === 127);
 	b.laneClear(0, 7);
@@ -1577,24 +1579,24 @@ function shownNames(d) {
 	var r = setup({ saved: s.brain.pattr });
 	check("locks saved with the set", r.brain.ctx.stepper.lockGet(0, -1, 4, "velocity") === 30);
 	done(r);
-	b.displayPage(1);
+	b.displayPage(P(b, "LOCKS"));
 	b.disp("lockSelect", 2); // CLEAR LOCKS
 	check("CLEAR LOCKS: the selected steps' locks gone", b.stepper.lockGet(0, -1, 1, "velocity") === null && !b.stepper.locksAt(0, -1, 4));
 	b.editTrackSelect(1);
 	check("another track ends the selection (dials " + d.dials.a_pulses + ")", b.selList().length === 0 && d.dials.a_pulses === 1);
 	b.editTrackSelect(0);
-	b.displayPage(1);
+	b.displayPage(P(b, "LOCKS"));
 	check("no locks: no lanes (" + d.disp.d_board[19] + "); 16 steps: no step pages (" + d.shown.d_lockStepPage + ")",
 		d.disp.d_board[19] === 0 && !d.shown.d_lockStepPage);
 	turn(s.brain, 0, "steps", 40);
-	b.displayPage(1);
+	b.displayPage(P(b, "LOCKS"));
 	check("40 steps: the step pages, 3 of them (" + d.shown.d_lockStepPage + ", " + d.disp.dr_lockStepPage + ")",
 		d.shown.d_lockStepPage === true && d.disp.dr_lockStepPage.join() === "1-16,17-32,33-48");
 	s.w.wait(200);
 	b.disp("lockStepPage", 2);
 	check("a step page chosen: the lanes and pads show it, Follow off (" + b.stepPage + ", " + d.page + ", follow " + d.follow + ")",
 		b.stepPage === 2 && d.page === 2 && d.follow === 0);
-	b.displayPage(0);
+	b.displayPage(P(b, "STEPS"));
 	check("TRACK with 40 steps: PAGE and FOLLOW, off (" + d.disp.dr_trackStepPage + ", " + d.disp.d_trackStepPage + ", " + d.shown.d_trackFollow + " " + d.shown.d_trackFollow_on + ")",
 		d.shown.d_trackStepPage === true && d.shown.d_trackFollow === true && !d.shown.d_trackFollow_on && d.disp.dr_trackStepPage.join() === "1-16,17-32,33-48"
 		&& d.disp.d_trackStepPage === 2);
@@ -1614,10 +1616,10 @@ function shownNames(d) {
 	check("the transport's Follow shows on TRACK (" + d.shown.d_trackFollow_on + ")", d.shown.d_trackFollow_on === true && d.shown.d_trackFollow === false);
 	b.followSelect(0);
 	turn(s.brain, 0, "steps", 16);
-	b.displayPage(0);
+	b.displayPage(P(b, "STEPS"));
 	check("16 steps: no PAGE or FOLLOW (" + d.shown.d_trackStepPage + ", " + d.shown.d_trackFollow + ")",
 		d.shown.d_trackStepPage === false && d.shown.d_trackFollow === false && !d.shown.d_trackFollow_on);
-	b.displayPage(1);
+	b.displayPage(P(b, "LOCKS"));
 	b.editTrackSelect(0);
 	// More than 6 lanes: LANES shows, a dial's lock shows its group; the STEP tab framed.
 	check("no selection: LOCKS tab unframed, no LANES (" + d.shown.d_stepmark + ", " + d.shown.d_lanePage + ")", !d.shown.d_stepmark && !d.shown.d_lanePage);
@@ -1643,7 +1645,7 @@ function shownNames(d) {
 	check("a plain click selects just that step (" + b.selList().join() + ")", b.selList().join() === "9");
 	b.lockStepClick(9, 0);
 	check("clicking the only selected step deselects it", b.selList().length === 0);
-	b.displayPage(0);
+	b.displayPage(P(b, "STEPS"));
 	check("another page: LANES hidden", d.shown.d_lanePage === false);
 	done(s);
 })();
@@ -1654,7 +1656,7 @@ function shownNames(d) {
 (function () {
 	var s = setup(), b = s.brain.ctx, d = s.brain;
 	var hitsBefore = b.stepper.hits(0).slice(0, 16).join();
-	b.displayPage(11);
+	b.displayPage(P(b, "SETUP"));
 	check("SETUP shows MODE (EUCLID at first: " + d.disp.d_seqMode + ")", / d_seqMode /.test(" " + shownNames(d) + " ") && d.disp.d_seqMode === 0);
 	b.disp("seqMode", 1);
 	check("SEQ mode: the sequence from the hits, the same rhythm (" + b.stepper.seqMode(0, -1) + ")",
@@ -1663,16 +1665,17 @@ function shownNames(d) {
 		d.dials.a_pulses === 0 && d.dials.a_voicing === 0 && d.dials.a_pitch === 1);
 	check("TRACK's line in SEQ (" + b.stepper.trackInfo(0) + ")", /SEQ  STEPS 16  9 WITH NOTES/.test(b.stepper.trackInfo(0)));
 	press(s.brain, 2);
-	check("a pad click selects the step, green; nothing toggled (" + d.pads[2] + ")",
-		b.seqSel === 2 && /^0\.(25|05) 0\.(95|3) /.test(d.pads[2]) && b.stepper.hits(0).slice(0, 16).join() === hitsBefore);
-	b.displayPage(3);
+	b.displayPage(P(b, "STEPS"));
+	check("a step click selects the step, green on STEPS (+8); nothing toggled (" + d.disp.d_board[4 + 2] + ")",
+		b.seqSel === 2 && (d.disp.d_board[4 + 2] & 8) && b.stepper.hits(0).slice(0, 16).join() === hitsBefore);
+	b.displayPage(P(b, "KEYS"));
 	check("KEYS: the step's chord, REST shown (" + d.disp.d_keysHelp + ", " + d.shown.d_seqRest + ")",
 		/^SEQ: /.test(d.disp.d_keysHelp) && d.shown.d_seqRest === true);
 	b.poolKey(64);
 	b.poolKey(67);
 	var chord = b.stepper.seqStep(0, -1, 2);
 	check("KEYS adds notes to the step's chord (" + (chord ? chord.notes.join(" ") : "rest") + ")", chord && chord.notes.indexOf(64) >= 0 && chord.notes.indexOf(67) >= 0);
-	b.displayPage(1);
+	b.displayPage(P(b, "LOCKS"));
 	var bd = d.disp.d_board;
 	check("LOCKS: N.VEL and GATE first (" + bd[19] + " lanes: " + bd[20] + ", " + bd[20 + 3 + 16] + ")", bd[19] === 2 && bd[20] === "N.VEL" && bd[39] === "GATE");
 	b.lane(1, 2, 3 / 15); // gate 4 on step 3
@@ -1700,18 +1703,18 @@ function shownNames(d) {
 	b.rightClick(88 + 29 * rc + 10, 120); // above the pads: nothing
 	check("right-click and Alt+click make steps rests (steps " + (ra + 1) + ", " + (rb + 1) + "; " + (rc + 1) + " kept)",
 		b.stepper.seqStep(0, -1, ra) === null && b.stepper.seqStep(0, -1, rb) === null && b.stepper.seqStep(0, -1, rc) !== null);
-	b.displayPage(3);
+	b.displayPage(P(b, "KEYS"));
 	b.disp("seqRest", "bang");
 	check("REST: the step a rest (" + b.stepper.seqStep(0, -1, 2) + ")", b.stepper.seqStep(0, -1, 2) === null);
 	// A scale change moves the notes onto it.
-	b.displayPage(4);
+	b.displayPage(P(b, "SCALE"));
 	var before = b.stepper.seqStep(0, -1, 0).notes.slice();
 	b.stepper.seqToggleNote(0, -1, 0, 61, 100); // C#: in the Chromatic scale
 	b.disp("scale", 1); // Major: C# moves (up, a tie) to D
 	var after = b.stepper.seqStep(0, -1, 0).notes;
 	check("a scale change moves the notes onto it (" + before.join(" ") + " + 61 -> " + after.join(" ") + ")",
 		after.indexOf(61) < 0 && after.indexOf(62) >= 0);
-	b.displayPage(11);
+	b.displayPage(P(b, "SETUP"));
 	b.disp("seqMode", 0);
 	check("back to EUCLID: the dials undimmed (" + d.dials.a_pulses + ")", !b.stepper.seqMode(0, -1) && d.dials.a_pulses === 1);
 	s.w.wait(SAVE_PAUSE_MS + 10);
@@ -1732,7 +1735,7 @@ function playNote(b, pitch, vel, step) {
 	var s = setup(), b = s.brain.ctx, d = s.brain;
 	b.recSelect(1);
 	check("REC refused outside SEQ mode (" + b.rec + ", button " + d.rec + ")", b.rec === false && d.rec === 0);
-	b.displayPage(11);
+	b.displayPage(P(b, "SETUP"));
 	b.disp("seqMode", 1);
 	s.w.wait(SAVE_PAUSE_MS + 10); // the mode change stored before the take
 	press(s.brain, 0); // step 1 selected: step recording starts there
@@ -1779,7 +1782,7 @@ function playNote(b, pitch, vel, step) {
 		heard.length >= 3 && heard.indexOf(9) >= 0 && heard.indexOf(13) >= 0);
 	check("recording: no misses (" + misses(s.rx) + "), no hanging notes (" + hanging(s.rx) + ")", misses(s.rx) === 0 && hanging(s.rx) === 0);
 	s.w.stop();
-	b.displayPage(11);
+	b.displayPage(P(b, "SETUP"));
 	b.disp("seqMode", 0);
 	check("leaving SEQ mode: REC off (" + b.rec + ", " + d.rec + ")", b.rec === false && d.rec === 0);
 	var n = s.rx[0].played.length;
@@ -1790,7 +1793,9 @@ function playNote(b, pitch, vel, step) {
 
 // SONG's entry cells: the patterns' row over the bars' row, as "P1 x1" ("+ +", "- -").
 function songCells(d) {
-	return d.disp.dr_songSelect.map(function (n, k) { return n + " " + d.disp.dr_songCount[k]; });
+	var m = d.disp.d_songEntries, out = []; // "entries sel play t0 b0 ..."
+	for (var k = 0; k < 16; k++) out.push(m[3 + 2 * k] + " " + m[4 + 2 * k]);
+	return out;
 }
 
 // The song (SONG page): on Live's timeline, bar 1 is Live's bar 1. Pattern 1 for a bar,
@@ -1798,20 +1803,26 @@ function songCells(d) {
 // the player's takes over until BACK TO SONG; saved with the set.
 (function () {
 	var s = setup(), b = s.brain.ctx, d = s.brain;
-	b.displayPage(9); // PATTERN: pattern 1 copied to slot 2
-	b.disp("patternCopy", 1);
-	b.displayPage(10);
-	check("SONG shows its rows (" + shownNames(d) + ")", / d_songSelect /.test(" " + shownNames(d) + " ") &&
+	b.stepper.copyPattern(1); // pattern 1 copied to slot 2
+	b.displayPage(P(b, "SONG"));
+	check("SONG shows its rows (" + shownNames(d) + ")", / d_songEntries /.test(" " + shownNames(d) + " ") &&
 		/ d_songInfo /.test(" " + shownNames(d) + " ") && !d.shown.d_soon && !d.shown.d_songResume && !d.shown.d_songPage);
-	check("an empty song: a + cell, PATTERN and BARS dimmed (" + songCells(d).slice(0, 3).join(" ") + ")",
-		songCells(d)[0] === "+ +" && songCells(d)[1] === "- -" && d.disp.da_songSlot === 0 && d.disp.da_songBars === 0);
+	check("an empty song: a + cell, BARS dimmed, PATTERN not (Ctrl+click adds) (" + songCells(d).slice(0, 3).join(" ") + ")",
+		songCells(d)[0] === "+ +" && songCells(d)[1] === "- -" && d.disp.da_songSlot !== 0 && d.disp.da_songBars === 0);
+	b.padMods(0, 1, 0);
+	delete b.relabelled.songSlot; // (just relabelled: the simulator's clock stands still)
+	b.disp("songSlot", 4);
+	check("Ctrl+click PATTERN 5 on an empty song: entry 1 plays pattern 5, selected (" + songCells(d)[0] + ", " + b.songSel + ")",
+		b.stepper.song().count === 1 && b.stepper.song().entries[0].slot === 4 && b.songSel === 0);
+	b.disp("songEdit", 2); // DELETE: empty again
 	b.disp("songEdit", 0); // ADD: the playing pattern (1)
 	b.disp("songBars", 1);
-	b.padModeSelect(2);
-	press(s.brain, 1); // Pattern mode on SONG: pad 2 adds pattern 2
-	check("ADD and a pattern pad add entries, the new one selected (" + songCells(d).slice(0, 3).join(" ") + ", " + d.disp.d_songSelect + ")",
+	b.padMods(0, 1, 0);
+	delete b.relabelled.songSlot;
+	b.disp("songSlot", 1); // Ctrl+click PATTERN 2: added after the selected entry
+	check("ADD and a Ctrl+click on PATTERN add entries, the new one selected (" + songCells(d).slice(0, 3).join(" ") + ", " + d.disp.d_songEntries[1] + ")",
 		songCells(d)[0] === "P1 x1" && /^P2 x/.test(songCells(d)[1]) && songCells(d)[2] === "+ +" &&
-		d.disp.d_songSelect === 1 && b.stepper.perf().current === 0);
+		d.disp.d_songEntries[1] === 1 && b.stepper.perf().current === 0);
 	b.disp("songBarsSet", 1); // 2 bars
 	b.disp("songOn", 1);
 	check("entry 2 two bars, the song on (" + songCells(d)[1] + ", " + d.disp.d_songOn + ")", songCells(d)[1] === "P2 x2" && d.disp.d_songOn === 1);
@@ -1840,7 +1851,7 @@ function songCells(d) {
 	s.w.play(range(48, 80), function (i) {
 		var st = 48 + i;
 		if (st % 16 === 8) cur[bar(st)] = b.perfShown().current;
-		if (st === 52) quiet = d.shown.d_songCount_play0 === true;
+		if (st === 52) quiet = d.disp.d_songEntries[2] === 0;
 	});
 	check("LOOP: from bar 4, entry 1 again, then entry 2 (" + cur.slice(3, 5).join(" ") + "), its bar shown", cur[3] === 0 && cur[4] === 1 && quiet);
 	var heardLoop = 0;
@@ -1848,25 +1859,23 @@ function songCells(d) {
 	check("LOOP: notes past the old end (" + heardLoop + ")", heardLoop > 0);
 	// A pattern click takes over: BACK TO SONG appears; clicked, the song is back on the bar line.
 	s.w.stop();
-	b.displayPage(9);
-	s.w.wait(200); // (a click right after its choices are renamed is taken as their echo)
-	b.disp("patternPlay", 1); // stopped: pattern 2 at once
-	b.displayPage(10);
+	playPress(d, 1); // stopped: pattern 2 at once
+	b.displayPage(P(b, "SONG"));
 	check("an override shows BACK TO SONG (" + d.disp.d_songInfo + ")", d.shown.d_songResume === true && /TOOK OVER/.test(d.disp.d_songInfo));
 	b.disp("songResume", "bang");
 	check("BACK TO SONG: gone, the song back (" + d.disp.d_songInfo + ")", d.shown.d_songResume === false && !/TOOK OVER/.test(d.disp.d_songInfo));
 	// DELETE, INSERT; saved with the set.
 	s.w.wait(200);
-	b.disp("songSelect", 0);
+	b.songEntryClick(0);
 	b.disp("songEdit", 1); // INSERT a copy of entry 1
 	s.w.wait(200);
-	b.disp("songSelect", 2);
+	b.songEntryClick(2);
 	b.disp("songSlot", 2); // entry 3 plays pattern 3
 	check("INSERT and PATTERN (" + songCells(d).slice(0, 4).join(" ") + ")",
 		songCells(d).slice(0, 3).join() === "P1 x1,P1 x1,P3 x1" && songCells(d)[3] === "+ +");
 	b.disp("songEdit", 2); // DELETE entry 3
-	check("DELETE: the selection on the last entry (" + songCells(d).slice(0, 3).join(" ") + ", " + d.disp.d_songSelect + ")",
-		songCells(d).slice(0, 3).join() === "P1 x1,P1 x1,+ +" && d.disp.d_songSelect === 1);
+	check("DELETE: the selection on the last entry (" + songCells(d).slice(0, 3).join(" ") + ", " + d.disp.d_songEntries[1] + ")",
+		songCells(d).slice(0, 3).join() === "P1 x1,P1 x1,+ +" && d.disp.d_songEntries[1] === 1);
 	s.w.wait(SAVE_PAUSE_MS + 10);
 	var r = setup({ saved: d.pattr }), rs = r.brain.ctx.stepper.song();
 	check("the song saved with the set (" + JSON.stringify(rs.entries) + ", on " + rs.on + ", loop " + rs.loop + ")",
@@ -1948,19 +1957,18 @@ function songCells(d) {
 	check("a cycle pasted past the last: 4 cycles, cycle 4 pulses 7, cycle 1 still selected (" + st.cycleCount(0) + ", " +
 		st.getCycleParam(0, 3, "pulses") + ", " + d.disp.d_cycleSelect + ")",
 		st.cycleCount(0) === 4 && st.getCycleParam(0, 3, "pulses") === 7 && b.selCycle === 0 && d.disp.d_cycleSelect === 0);
-	// A pattern: Pattern pads; Ctrl+click CLEAR stays armed.
-	b.padModeSelect(2);
+	// A pattern: PATTERN's PLAY slots; Ctrl+click CLEAR stays armed.
 	b.clipSelect(0, 1);
-	press(d, 0);
+	playPress(d, 0);
 	b.clipSelect(1, 1);
-	press(d, 5, false, true);
-	press(d, 6);
+	playPress(d, 5, false, true);
+	playPress(d, 6);
 	check("pattern 1 pasted on 6 (Ctrl+click) and 7, then disarmed", (st.perf().used & 96) === 96 && d.clipBtn.paste === 0);
 	b.padMods(0, 1, 0);
 	b.clipSelect(2, 1);
 	check("Ctrl+click CLEAR: stays armed (" + b.clipInfo() + ")", /STAYS ARMED/.test(b.clipInfo()));
-	press(d, 5);
-	press(d, 6);
+	playPress(d, 5);
+	playPress(d, 6);
 	check("both cleared, CLEAR still armed", (st.perf().used & 96) === 0 && d.clipBtn.clear === 1);
 	b.clipSelect(2, 0);
 	check("a plain click: disarmed", d.clipBtn.clear === 0 && b.armed === null);
@@ -2017,6 +2025,17 @@ function songCells(d) {
 	trackPress(d, 2, false, true);
 	check("Ctrl+click: track 3 grouped, track 1 still edited (" + b.group + ", " + b.editTrack + "), lit dim red (" + d.trk[2] + ")",
 		b.group === 4 && b.editTrack === 0 && d.trk[2] === C.group.join(" ") && d.trk[0] === C.edit.join(" "));
+	var keepPlaying = b.playing, keepStep = b.lastStep;
+	b.playing = { gates: 5 };
+	b.lastStep = 0;
+	b.showTrackButtons();
+	check("notes on tracks 1 and 3: their pulse frames lit, their colours kept (" + d.trkp + "; " + d.trk[0] + ")",
+		d.trkp[0] === 1 && d.trkp[2] === 1 && d.trkp[1] === 0 && d.trk[0] === C.edit.join(" ") && d.trk[2] === C.group.join(" "));
+	b.playing = { gates: 0 };
+	b.showTrackButtons();
+	check("no notes: the frames off", d.trkp[0] === 0 && d.trkp[2] === 0);
+	b.playing = keepPlaying;
+	b.lastStep = keepStep;
 	trackPress(d, 4, true);
 	check("Shift+click: tracks 2-5 grouped (" + b.group + ")", b.group === 30);
 	trackPress(d, 2, false, true);
@@ -2043,11 +2062,10 @@ function songCells(d) {
 	trackPress(d, 8);
 	check("pasted from track 9: tracks 9 and 10 (" + st.getParam(8, "pulses") + ", " + st.getParam(9, "pulses") + "), the edit track stays (" + b.editTrack + ")",
 		st.getParam(8, "pulses") === p0 + 2 && st.getParam(9, "pulses") === p1 + 2 && b.editTrack === 0);
-	b.padModeSelect(2);
 	b.clipSelect(1, 1); // the plain paste disarmed it
-	press(d, 3);
+	playPress(d, 3);
 	check("pasted into pattern 4 (" + (st.perf().used & 8) + ")", (st.perf().used & 8) !== 0 && st.perf().current === 0);
-	press(d, 3); // stopped: pattern 4 at once
+	playPress(d, 3); // stopped: pattern 4 at once
 	check("pattern 4: tracks 1 and 2 pasted, track 3 as it was there (" + st.getParam(0, "pulses") + ", " + st.getParam(1, "pulses") + ", " + st.getParam(2, "pulses") + ")",
 		st.perf().current === 3 && st.getParam(0, "pulses") === p0 + 2 && st.getParam(1, "pulses") === p1 + 2 && st.getParam(2, "pulses") === st.paramDefault("pulses"));
 	// Saved with the set.
@@ -2099,12 +2117,10 @@ function songCells(d) {
 	b.pad(1, "bang");
 	check("an edit in Temp plays (pulses " + b.stepper.getParam(0, "pulses") + "), the stored bank without it",
 		b.stepper.getParam(0, "pulses") === 3 && b.stepper.saveBank() === bank);
-	b.displayPage(9);
-	check("PATTERN: COPY TO reads TEMP TO (" + d.disp.dl_patternCopy + ")", d.disp.dl_patternCopy === "TEMP TO");
 	b.padMods(0, 0, 0);
 	b.tempSelect(0);
-	check("TEMP off: its changes reverted (pulses " + b.stepper.getParam(0, "pulses") + "), unlit, COPY TO again (" + d.disp.dl_patternCopy + ")",
-		b.stepper.getParam(0, "pulses") === before && !b.stepper.temp() && d.temp === 0 && d.disp.dl_patternCopy === "COPY TO"
+	check("TEMP off: its changes reverted (pulses " + b.stepper.getParam(0, "pulses") + "), unlit",
+		b.stepper.getParam(0, "pulses") === before && !b.stepper.temp() && d.temp === 0
 		&& b.dialValue(0, "pulses") === before && b.stepper.saveBank() === bank);
 	b.tempSelect(1);
 	turn(s.brain, 0, "pulses", 5);
@@ -2114,15 +2130,14 @@ function songCells(d) {
 		b.stepper.getParam(0, "pulses") === 5 && !b.stepper.temp() && d.temp === 0 && b.stepper.saveBank() !== bank);
 	b.tempSelect(1);
 	turn(s.brain, 0, "pulses", 7);
-	b.displayPage(9); // the dial showed TRACK
-	s.w.wait(150);
-	b.disp("patternCopy", 3);
-	check("TEMP TO slot 4: slot 4 holds a pattern, Temp still on (" + b.stepper.perf().used + ")",
+	b.clipSelect(0, 1);
+	playPress(d, 0);
+	b.clipSelect(1, 1);
+	playPress(d, 3);
+	check("in Temp, CPY 1 PST 4: slot 4 holds the pattern with Temp's edits, Temp still on (" + b.stepper.perf().used + ")",
 		b.stepper.temp() && b.stepper.getParam(0, "pulses") === 7 && (b.stepper.perf().used & 8) !== 0);
-	s.w.wait(150);
-	b.disp("patternCopy", 0);
-	check("TEMP TO the playing slot: its changes kept, Temp off (" + b.stepper.getParam(0, "pulses") + ", " + d.temp + ")",
-		!b.stepper.temp() && b.stepper.getParam(0, "pulses") === 7 && d.temp === 0);
+	b.padMods(0, 1, 0);
+	b.tempSelect(0); // Ctrl+click: kept
 	b.tempSelect(1);
 	turn(s.brain, 0, "pulses", 2);
 	b.patternPad(1, false, false);
@@ -2174,17 +2189,17 @@ function songCells(d) {
 	b.fromWin("poolKey", 64);
 	check("a key on the window's keyboard: the pool (" + st.pool(0) + ")", st.pool(0).indexOf(64) >= 0 && d.w.disp.d_kbd.join(" ").indexOf(" 64 ") >= 0);
 	// The window's tabs leave KEYS out: their own numbering, KEYS shows none of them.
-	b.displayPage(4);
-	check("SCALE: the window's tab 4 of its 11 (" + tabOf(d.w.shown) + ")", tabOf(d.w.shown) === 3 && tabOf(d.w.shown) >= 0 && tabOf(d.w.shown) !== -1);
-	b.displayPage(3);
+	b.displayPage(P(b, "SCALE"));
+	check("SCALE: the window's SCALE tab (" + tabOf(d.w.shown) + ")", tabOf(d.w.shown) === W(b, "SCALE") && tabOf(d.w.shown) >= 0 && tabOf(d.w.shown) !== -1);
+	b.displayPage(P(b, "KEYS"));
 	check("KEYS on the device: the window stays on SCALE, its tab chosen (" + tabOf(d.w.shown) + ", " + d.w.shown.d_scale + " " + d.shown.d_scale + ")",
-		tabOf(d.w.shown) === 3 && tabOf(d.w.shown) >= 0 && d.w.shown.d_scale === true && d.shown.d_scale === false && d.shown.d_keysHelp === true && !d.w.shown.d_keysHelp);
+		tabOf(d.w.shown) === W(b, "SCALE") && tabOf(d.w.shown) >= 0 && d.w.shown.d_scale === true && d.shown.d_scale === false && d.shown.d_keysHelp === true && !d.w.shown.d_keysHelp);
 	b.fromWin("disp", "scale", 2);
 	check("a SCALE click in the window while the device shows KEYS (" + st.getField(0, "scale") + ")", st.getField(0, "scale") === 2);
 	b.fromWin("kbdOctaveMove", 1);
 	check("the keyboard's > : C3 - B7 (" + d.w.disp.d_krange + ")", d.w.disp.d_krange === "C3 - B7" && d.w.disp.d_kbd[2] === 48);
-	b.fromWin("displayPage", 8);
-	check("the window's tab 9 (PATTERN): page 10 (" + b.dispPage + ")", b.dispPage === 9 && tabOf(d.w.shown) >= 0);
+	b.fromWin("displayPage", W(b, "SONG"));
+	check("the window's SONG tab: the device's SONG (" + b.dispPage + ")", b.dispPage === P(b, "SONG") && tabOf(d.w.shown) >= 0);
 	check("the keyboard's row: KEYS' help line (" + d.w.disp.d_khelp + "), no REST or TRACK POOL",
 		d.w.disp.d_khelp === "CLICK = ADD / REMOVE A POOL NOTE" && !d.wshown.k_rest && !d.wshown.k_pool);
 	b.fromWin("winSelect", 1);
@@ -2197,8 +2212,108 @@ function songCells(d) {
 	check("the window's close box: both buttons off (" + d.winstate + ")", !b.winOpen && d.winstate === 0 && d.wwin === 0);
 	b.winSelect(1);
 	check("opened again after the close box (" + d.win + ")", b.winOpen && d.win === "open" && d.wwin === 1);
+	check("pinned at init (on top): the window's pin lit, the device's not set (" + d.wpin + " " + d.pinstate + ")",
+		b.winPinned && d.wpin === 1 && d.pinstate === undefined);
+	b.fromWin("pinSelect", 0);
+	check("the window's pin off: unpinned, both pins unlit, brought to the front (" + d.win + ")",
+		!b.winPinned && d.wpin === 0 && d.pinstate === 0 && d.win === "front");
+	b.winSelect(0);
+	check("unpinned, the device's window button off: brought to the front, still open and lit (" + d.win + " " + d.winstate + ")",
+		b.winOpen && d.win === "front" && d.winstate === 1);
+	b.fromWin("winSelect", 1);
+	check("unpinned, the window's button: closed", !b.winOpen && d.win === "close");
+	b.pinSelect(1);
+	check("the device's pin on, the window closed: pinned, the window's lit, nothing sent to it (" + d.win + ")",
+		b.winPinned && d.wpin === 1 && d.win === "close");
+	b.winSelect(1);
+	check("opened: on top, then open (" + d.winLog.slice(-2) + ")", d.winLog.slice(-2).join() === "pin,open");
 	b.fromWin("restore", 1);
 	check("only the panel's messages come from the window (restore ignored)", true);
+	done(s);
+})();
+
+// PATTERN's PLAY: Ctrl+click adds a pattern to the chain, Shift+click chains the range from
+// the playing one; the chain is framed white. RECORD / OVERDUB dim off a SEQ track; APPLY
+// MUTES dims while nothing is staged; MUTE TRACKS' frame blinks.
+(function () {
+	var s = setup(), b = s.brain.ctx, d = s.brain;
+	playPress(d, 3, true, false);
+	check("Shift+click 4 (playing 1): the chain 1-4, bordered (" + b.stepper.perf().chain + "; " + d.patb.slice(0, 5) + ")",
+		b.stepper.perf().chain.join() === "0,1,2,3" && d.patb[0] === 1 && d.patb[3] === 1 && d.patb[4] === 0);
+	playPress(d, 6, false, true);
+	check("Ctrl+click 7: added to the chain (" + b.stepper.perf().chain + "), bordered", b.stepper.perf().chain.join() === "0,1,2,3,6" && d.patb[6] === 1);
+	playPress(d, 0);
+	check("a click: the chain gone, its borders off", b.stepper.perf().chain.length === 0 && d.patb[3] === 0);
+	b.padMods(0, 1, 0);
+	b.patternButton(4);
+	b.padMods(0, 1, 0);
+	b.patternButton(5);
+	check("the pattern buttons: Ctrl+click 5, 6 chained, their borders white (" + b.stepper.perf().chain + "; " + d.patb.slice(0, 7) + ")",
+		b.stepper.perf().chain.join() === "4,5" && d.patb[4] === 1 && d.patb[5] === 1 && d.patb[0] === 0);
+	check("the playing pattern's button orange (" + d.patc[b.stepper.perf().current] + ")", d.patc[b.stepper.perf().current] === "0.94 0.54 0.14");
+	b.patternButton(0);
+	check("RECORD and OVERDUB dimmed on a EUCLID track (" + d.recactive + ")", d.recactive === 0);
+	b.displayPage(P(b, "SETUP"));
+	b.disp("seqMode", 1);
+	check("lit on a SEQ track (" + d.recactive + ")", d.recactive === 1);
+	b.padModeSelect(1);
+	var frames = {};
+	for (var k = 0; k < 8; k++) { b.blink(); frames[d.shown.d_mutemode] = true; }
+	check("MUTE TRACKS: its red frame blinks", frames["true"] && frames["false"]);
+	check("APPLY MUTES dimmed, nothing staged (" + d.apply + ")", d.apply === 0);
+	trackPress(d, 2);
+	check("a staged mute: APPLY MUTES lit (" + d.apply + ")", d.apply === 1);
+	b.padModeSelect(0);
+	check("MUTE TRACKS off: the frame hidden", !d.shown.d_mutemode);
+	done(s);
+})();
+
+// A Shift+click chain keeps its first pattern: stopped, the chain from the pattern clicked
+// plays it first (Play doesn't jump to the second); playing, from a pattern just queued.
+(function () {
+	var s = setup(), b = s.brain.ctx, d = s.brain, cur = [];
+	b.patternButton(2);
+	b.padMods(1, 0, 0);
+	b.patternButton(4);
+	check("stopped: click 3, Shift+click 5: 3 still selected, the chain 3-5 (" + b.stepper.perf().current + "; " + b.stepper.perf().chain + ")",
+		b.stepper.perf().current === 2 && b.stepper.perf().chain.join() === "2,3,4");
+	s.w.play(range(0, 4), function () { cur.push(b.perfShown().current); });
+	check("Play: pattern 3 first (" + cur.join() + ")", cur.every(function (c) { return c === 2; }));
+	done(s);
+	var r = setup(), rb = r.brain.ctx, seen = null;
+	r.w.play(range(0, 12), function (i) {
+		if (i === 2) rb.patternButton(6);
+		if (i === 4) { rb.padMods(1, 0, 0); rb.patternButton(8); }
+		if (i === 6) seen = rb.stepper.perf();
+	});
+	check("playing: click 7 (queued), Shift+click 9: the chain 7-9, 7 queued (" + seen.chain + "; queued " + seen.queued + ", playing " + seen.current + ")",
+		seen.chain.join() === "6,7,8" && seen.queued === 6 && seen.current === 0);
+	done(r);
+})();
+
+// STEPS' board: its steps clicked as the pads (whatever the pad mode): a click toggles the
+// hit, Ctrl+click selects for locks, COPY / PASTE / CLEAR take the step; the cycle lanes'
+// edit row ("-1 - i") is the step page's step i.
+(function () {
+	var s = setup(), b = s.brain.ctx, st = b.stepper;
+	var h0 = !!st.hits(0)[5];
+	b.boardStep(5, 0, 0, 0);
+	check("a STEPS click: step 6's hit flipped (" + h0 + " -> " + !!st.hits(0)[5] + ")", !!st.hits(0)[5] === !h0);
+	b.padModeSelect(1);
+	b.boardStep(5, 0, 0, 0);
+	check("in Mute mode too: flipped back (" + !!st.hits(0)[5] + ")", !!st.hits(0)[5] === h0);
+	b.padModeSelect(0);
+	b.boardStep(7, 1, 0, 0);
+	check("Ctrl+click: step 8 selected for locks (" + b.selCount() + ")", b.selCount() === 1 && b.lockSel[st.unrotated(0, -1, 7)]);
+	b.clearLockSel();
+	var h3 = !!st.hits(0)[3];
+	b.boardStep(-1 - 3, 0, 0, 0);
+	check("the cycle lanes' edit row: the page's step 4 flipped", !!st.hits(0)[3] === !h3);
+	b.rightAt = b.Date.now(); // (the script's clock)
+	var h9 = !!st.hits(0)[9];
+	b.boardStep(9, 0, 0, 0);
+	check("a right-click (a plain click with the right button just down): not a toggle", !!st.hits(0)[9] === h9);
+	b.rightAt = -1e9;
 	done(s);
 })();
 
@@ -2206,27 +2321,27 @@ function songCells(d) {
 // device and the window each on their own page).
 (function () {
 	var s = setup({ pageLock: true }), b = s.brain.ctx, d = s.brain;
-	b.displayPage(5);
+	b.displayPage(P(b, "VOICING"));
 	turn(s.brain, 0, "pitch", 3);
-	check("PAGE LOCK on (a new device): a dial leaves the page (" + tabOf(d.shown) + ")", b.pageLock && tabOf(d.shown) === 5);
+	check("PAGE LOCK on (a new device): a dial leaves the page (" + tabOf(d.shown) + ")", b.pageLock && tabOf(d.shown) === P(b, "VOICING"));
 	b.gearSelect(0);
 	s.w.wait(150);
 	b.disp("pageLock", 0);
-	b.displayPage(5);
+	b.displayPage(P(b, "VOICING"));
 	turn(s.brain, 0, "pitch", 4);
-	check("PAGE LOCK off: a dial shows its page (SCALE: " + tabOf(d.shown) + ")", !b.pageLock && tabOf(d.shown) === 4);
+	check("PAGE LOCK off: a dial shows its page (SCALE: " + tabOf(d.shown) + ")", !b.pageLock && tabOf(d.shown) === P(b, "SCALE"));
 	b.winSelect(1);
 	b.gearSelect(0);
 	s.w.wait(150);
 	b.disp("pageSync", 0);
 	s.w.wait(600);
 	check("PAGE SYNC off, stored with the set", !b.pageSync && /"pageSync":0/.test(b.savedText) && /"pageLock":0/.test(b.savedText));
-	b.fromWin("displayPage", 6); // the window's GROOVE (its tabs have no KEYS)
+	b.fromWin("displayPage", W(b, "GROOVE")); // the window's GROOVE (its tabs have no KEYS)
 	check("off: a tab in the window moves the window only (device " + (tabOf(d.shown) < 0 ? "gear" : tabOf(d.shown)) + ", window " + tabOf(d.w.shown) + ")",
-		tabOf(d.shown) === -1 && tabOf(d.w.shown) === 6 && d.w.shown.d_grooveLength === true && !d.shown.d_grooveLength);
-	b.displayPage(0);
+		tabOf(d.shown) === -1 && tabOf(d.w.shown) === W(b, "GROOVE") && d.w.shown.d_grooveLength === true && !d.shown.d_grooveLength);
+	b.displayPage(P(b, "STEPS"));
 	check("off: a tab on the device moves the device only (" + tabOf(d.shown) + ", window " + tabOf(d.w.shown) + ")",
-		tabOf(d.shown) === 0 && tabOf(d.w.shown) === 6 && d.shown.d_trackInfo === true && !d.w.shown.d_trackInfo);
+		tabOf(d.shown) === P(b, "STEPS") && tabOf(d.w.shown) === W(b, "GROOVE") && d.shown.d_trackInfo === true && !d.w.shown.d_trackInfo);
 	b.fromWin("disp", "grooveLength", 2);
 	check("a GROOVE click in the window while the device shows TRACK (" + b.stepper.getField(0, "grooveLength") + ")", b.stepper.getField(0, "grooveLength") === 2);
 	b.fromWin("gearSelect", 0);
@@ -2235,8 +2350,8 @@ function songCells(d) {
 	check("PAGE SYNC on in the window: the device takes the window's page, the gear (" + tabOf(d.shown) + " " + d.shown.d_gear_on + ")",
 		b.pageSync && b.gearOpen && tabOf(d.shown) === -1 && d.shown.d_gear_on === true && d.w.shown.d_gear_on === true && !d.shown.d_trackInfo);
 	b.disp("pageSync", 0);
-	b.displayPage(0);
-	b.fromWin("displayPage", 6);
+	b.displayPage(P(b, "STEPS"));
+	b.fromWin("displayPage", W(b, "GROOVE"));
 	b.gearSelect(0);
 	b.disp("pageSync", 1);
 	check("PAGE SYNC on on the device: the window takes the device's page, the gear (" + d.w.shown.d_gear_on + ")",
@@ -2290,7 +2405,7 @@ function songCells(d) {
 		d.shown.d_gear === true && !d.shown.d_gear_on && tabOf(d.shown) >= 0 && tabOf(d.shown) !== -1);
 	b.gearSelect(0);
 	check("the gear: DEVICE's rows, the gear lit, no page tab chosen (" + shownNames(d) + ")",
-		shownNames(d) === "d_instance d_lookahead d_pageLock d_pageSync d_status d_tempTiming d_winZoom dl_instance dl_lookahead dl_pageLock dl_pageSync dl_tempTiming dl_winZoom"
+		shownNames(d) === "d_instance d_lookahead d_pageLock d_pageSync d_patternQuantize d_status d_tempTiming d_winZoom dl_instance dl_lookahead dl_pageLock dl_pageSync dl_patternQuantize dl_tempTiming dl_winZoom"
 		&& d.shown.d_gear === false && d.shown.d_gear_on === true && tabOf(d.shown) === -1 && tabOf(d.shown) === -1
 		&& d.disp.d_tempTiming === 2);
 	s.w.wait(150);
@@ -2303,19 +2418,19 @@ function songCells(d) {
 	check("WINDOW: 150%, stored with the set (" + b.winZoom + ", " + d.disp.d_winZoom + ")",
 		b.winZoom === 2 && d.disp.d_winZoom === 2 && /"winZoom":2/.test(b.savedText));
 	check("WINDOW 150%: reached a step at a time (" + b.winApplied + ")", b.winApplied === 1.5 && !b.winStepping);
-	var wshown = Object.keys(d.w.shown).filter(function (k) { return d.w.shown[k] && /^d_|^dl_/.test(k) && !/^d_(pages|gear|padlock|tempwait|rndmark|stepmark|cycmark|tab\d)/.test(k); }).sort().join(" ");
+	var wshown = Object.keys(d.w.shown).filter(function (k) { return d.w.shown[k] && /^d_|^dl_/.test(k) && !/^d_(pages|gear|padlock|tempwait|mutemode|rndmark|stepmark|cycmark|tab\d)/.test(k); }).sort().join(" ");
 	check("then the window's controls hidden but its page's (" + wshown + ")",
-		wshown === "d_instance d_lookahead d_pageLock d_pageSync d_status d_tempTiming d_winZoom dl_instance dl_lookahead dl_pageLock dl_pageSync dl_tempTiming dl_winZoom");
+		wshown === "d_instance d_lookahead d_pageLock d_pageSync d_patternQuantize d_status d_tempTiming d_winZoom dl_instance dl_lookahead dl_pageLock dl_pageSync dl_patternQuantize dl_tempTiming dl_winZoom");
 	s.w.wait(150);
 	b.disp("winZoom", 0);
 	check("WINDOW back to 100% (" + b.winApplied + ")", b.winApplied === 1);
-	b.displayPage(11);
+	b.displayPage(P(b, "SETUP"));
 	check("a page tab: that page, the gear unlit (" + shownNames(d) + ")",
 		/ d_repeatTail /.test(" " + shownNames(d) + " ") && !/ d_instance /.test(" " + shownNames(d) + " ")
-		&& d.shown.d_gear === true && !d.shown.d_gear_on && tabOf(d.shown) >= 0 && tabOf(d.shown) !== -1 && tabOf(d.shown) === 11);
+		&& d.shown.d_gear === true && !d.shown.d_gear_on && tabOf(d.shown) >= 0 && tabOf(d.shown) !== -1 && tabOf(d.shown) === P(b, "SETUP"));
 	b.gearSelect(0);
 	turn(s.brain, 0, "pitch", 3);
-	check("a dial turned: its page, the gear unlit (" + tabOf(d.shown) + ")", tabOf(d.shown) === 4 && d.shown.d_gear === true && tabOf(d.shown) >= 0);
+	check("a dial turned: its page, the gear unlit (" + tabOf(d.shown) + ")", tabOf(d.shown) === P(b, "SCALE") && d.shown.d_gear === true && tabOf(d.shown) >= 0);
 	done(s);
 })();
 

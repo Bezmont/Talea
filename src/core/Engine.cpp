@@ -438,17 +438,20 @@ void Engine::clearChain() {
 
 void Engine::rewind() {
 	origin_ = 0.0;
+	// A queued pattern starts with the song; but a chain's next entry, while the chain is
+	// on the pattern before it, waits for the end of that pattern.
 	if (queued_ >= 0)
-		switchTime_ = nextBoundary(queuedTiming_, -kEps);
+		switchTime_ = nextBoundary(queuedTiming_, queuedChainPos_ >= 0 && chainPos_ >= 0 ? 0.0 : -kEps);
 	clearBursts();
 }
 
 void Engine::jump(double t) {
 	if (t < origin_ - 1e-3)
 		origin_ = 0.0;
-	// Just before `t`, so a boundary at `t` is still to come.
+	// Just before `t`, so a boundary at `t` is still to come; but a chain's next entry, while
+	// the chain is on the pattern before it, waits for the end of that pattern.
 	if (queued_ >= 0)
-		switchTime_ = nextBoundary(queuedTiming_, t - kMuteLead);
+		switchTime_ = nextBoundary(queuedTiming_, queuedChainPos_ >= 0 && chainPos_ >= 0 ? t + kMuteLead : t - kMuteLead);
 	if (scheduled_)
 		scheduledTime_ = nextBoundary(muteTiming, t - kMuteLead);
 	clearBursts();

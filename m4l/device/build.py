@@ -43,28 +43,36 @@ DIAL_ROWS = [
      ("REPEATS", [("repeats", "Repeats"), ("ramp", "Ramp"), ("repeatTime", "Time"), ("pace", "Pace")])],
     [("GROOVE", [("velocity", "Velocity"), ("probability", "Prob"), ("sustain", "Sustain"),
                  ("accent", "Accent"), ("timing", "Timing"), ("delay", "Delay")]),
-     ("TONAL", [("pitch", "Pitch"), ("voicing", "Voicing"), ("range", "Range")])],
+     ("TONAL", [("pitch", "Pitch"), ("voicing", "Voicing"), ("range", "Phrase")])],
 ]
 # Panel layout (presentation px; the device is 169 tall). Each section is a shaded frame
 # with its name down its left side, turned counterclockwise (jezric_talea_label.js).
-LEFT_X = 88        # the sections' and pads' column, right of the transport column
+LEFT_X = 88        # the sections' column, right of the transport column
 COL_X = 6          # the transport column: its controls' left edge and width (room for
 COL_W = LEFT_X - 12  # two narrow buttons side by side)
-APPLY_W = 18       # the "A" (Apply) button, right of the pad mode menu
 DIAL_STEP = 47     # dial to dial
 SECTION_GAP = 8    # between sections in a row
 FRAME_PAD = 3      # frame edge to dials
 LABEL_W = 13       # the name's strip down the frame's left side
-TRACKS_Y = 2       # track select, like tabs over the sections, TRACKS to its left
-ROW_Y = [24, 82]   # the two rows' frames (live.dial: 44 x 48); the pads go under them
-ON_W = 30          # the On button, left of the TRACKS label in the top row
+TRACKS_Y = 2       # the top row: the pattern buttons (PATTERNS to their left), level with
+                   # the display's page tabs
+TRK_ROW_Y = 22     # the track buttons, under the pattern buttons (TRACKS to their left)
+ROW_Y = [44, 106]  # the two rows' frames (live.dial: 44 x 48): the first level with the
+                   # left column's third row, the second's bottom with its last (TEMP MODE)
+ON_W = 18          # the On button (a power sign), left of the TRK label in the top row
 TRACKS_H = 18
-PADS_Y = 142       # the step pads, under the sections, the size of the track buttons
-PAGE_Y = 104       # the step page tabs and Follow, in the left column
-FOLLOW_Y = 122
-REC_Y = 24         # REC and OVD, at the top of the left column
-CLIP_Y = 44        # COPY, PASTE and CLEAR, stacked under them
-CLIP_STEP = 19
+# The left column's rows: On and PATTERNS; the window and TRACKS (level with the pattern
+# and track buttons); the pin, REC and OVD; CPY, PST, CLR; MUTE TRACKS; APPLY MUTES; TEMP
+# MODE, spread from the first dial row's top to the second's bottom.
+COL_ROWS = [2, 22, 44, 68, 93, 117, 142]
+COL_H = 18
+
+
+def col_y(k):
+    """The left column's row k (0: the top row, level with the pattern buttons)."""
+    return COL_ROWS[k]
+
+
 LABEL_SCRIPT = "jezric_talea_label.js"
 DISPLAY_SCRIPT = "jezric_talea_display.js"  # the display's pages and rows, read by the script too
 DIAGRAM_SCRIPT = "jezric_talea_diagram.js"  # [v8ui]: the display's diagrams
@@ -73,7 +81,9 @@ GEAR_SVG = "jezric_talea_gear.svg"  # the DEVICE page's tab, right of the page t
 GEAR_W = 22
 WIN_SVG = "jezric_talea_window.svg"  # the floating window's button, right of On
 WIN_W = 18
-TRK_W = 26          # the TRK label, between the window button and the track buttons
+PIN_SVG = "jezric_talea_pin.svg"  # the window's pin (on top or not), right of the window button
+PIN_W = 18
+POWER_SVG = "jezric_talea_power.svg"  # On
 WIN_GAP = 6         # the window: the panel, then the display this far under it
 KBD_H = 58          # the window's keyboard, under its display and its row
 CELL = 29          # a track select button's width
@@ -135,7 +145,8 @@ def annotate(p, keyboard=False):
                 else:
                     raise SystemExit(f"{INFO_SCRIPT}: no Info View text for the display row {name}")
     fixed = {
-        "On": panel["on"], "WinButton": panel["windowWin" if p.mirror else "window"], "PadMode": panel["padMode"],
+        "On": panel["on"], "WinButton": panel["windowWin" if p.mirror else "window"], "PinButton": panel["pin"],
+        "MuteTracks": panel["muteTracks"],
         "Apply": panel["apply"], "Rec": panel["rec"], "Overdub": panel["ovd"], "Step page": panel["stepPage"],
         "Follow": panel["follow"], "Temp": panel["temp"],
         "d_gear": panel["gear"], "d_gear_on": panel["gear"],
@@ -153,6 +164,8 @@ def annotate(p, keyboard=False):
         pair = fixed.get(vn)
         if pair is None and vn.startswith("trk"):
             pair = panel["tracks"]
+        elif pair is None and vn.startswith("pat") and vn[3:].isdigit():
+            pair = panel["patterns"]
         elif pair is None and vn.startswith("pad") and vn[3:].isdigit():
             pair = panel["pads"]
         elif pair is None and vn.startswith("dial_"):
@@ -628,8 +641,10 @@ def panel(p, port, trig):
     # like any other; the script starts it at Live's next launch-quantization boundary.
     # Not banged at load like the others: a bang toggles a live.text. The script reads its
     # value at init instead, by its scripting name "On".
+    # A power sign (a picture, as the window button) in Live's toggle colours.
     on = p.param("live.text", [840, 440, 44, 20], [COL_X, TRACKS_Y, ON_W, TRACKS_H], "On", 2, enum=["off", "on"],
-                 initial=1, outlets=2, outlettype=["", ""], mode=1, text="On", texton="On")
+                 initial=1, outlets=2, outlettype=["", ""], mode=1, text="On", texton="On", usepicture=1,
+                 pictures=[POWER_SVG, POWER_SVG], remapsvgcolors=1, usesvgviewbox=1)
     prep = p.obj("prepend enable", [840, 520, 110, 22])
     p.connect(on, prep)
     p.connect(prep, port.inp)
@@ -639,18 +654,30 @@ def panel(p, port, trig):
     # Only parameter: saved with the set, so the window opens with it only if it was open
     # (the script reads it at init, as On). The window's copy closes the window; the script
     # sets both ("winstate 0/1").
-    wx = COL_X + ON_W + 2
-    winb = p.param("live.text", [960, 440, 24, 18], [wx, TRACKS_Y, WIN_W, TRACKS_H], "Window", 2,
+    winb = p.param("live.text", [960, 440, 24, 18], [COL_X, col_y(1), WIN_W, COL_H], "Window", 2,
                    enum=["off", "on"], initial=0, outlets=2, outlettype=["", ""], mode=1, usepicture=1,
                    pictures=[WIN_SVG, WIN_SVG], remapsvgcolors=1, usesvgviewbox=1, varname="WinButton",
                    stored_only=True, text="WINDOW", texton="WINDOW")
     towin = p.obj("prepend winSelect", [960, 470, 100, 22])
     p.connect(winb, towin)
     p.connect(towin, port.inp)
-    # Track select: the track the dials edit, along the top, named in the left column.
-    p.box("live.comment", [840, 570, 60, 18], "TRK", 1, 0, None,
-          [wx + WIN_W + 2, TRACKS_Y + 2, LEFT_X - (wx + WIN_W + 2), TRACKS_H],
-          fontsize=9.0, fontface=1, textjustification=2)
+    # The pin, right of the window button: the window kept on top (default, lit) or an
+    # ordinary window that Live can cover. A Stored Only parameter as the window button
+    # (read by name at init, "PinButton"); the script sets the other copy ("pinstate" /
+    # "wpin").
+    pinb = p.param("live.text", [1000, 440, 24, 18], [COL_X, col_y(2), PIN_W, COL_H], "Pin", 2,
+                   enum=["off", "on"], initial=1, outlets=2, outlettype=["", ""], mode=1, usepicture=1,
+                   pictures=[PIN_SVG, PIN_SVG], remapsvgcolors=1, usesvgviewbox=1, varname="PinButton",
+                   stored_only=True, text="PIN", texton="PIN")
+    topin = p.obj("prepend pinSelect", [1000, 470, 100, 22])
+    p.connect(pinb, topin)
+    p.connect(topin, port.inp)
+    # The rows' names in the left column: PATTERNS right of On, TRACKS right of the window
+    # button, right-aligned with the column's buttons under them.
+    for k, text in ((0, "PATTERNS"), (1, "TRACKS")):
+        p.box("live.comment", [840, 570 + k * 30, 60, 18], text, 1, 0, None,
+              [COL_X + ON_W, col_y(k) + 2, COL_W - ON_W, TRACKS_H],
+              fontsize=9.0, fontface=1, textjustification=2)
 
     # The dials, one per track parameter. Each sends "param key value" for the edit
     # track; the script sets them to a track's values ("key value" from outlet 3) when the
@@ -728,9 +755,12 @@ def panel(p, port, trig):
     # (19 "winstate", 13 "onstate": the device's window button and On, set only for a
     # change made in the window; 20 "won", 21 "wwin": the window's copies. The script never
     # sets the device's own as the set loads: a stored parameter set then marks the set
-    # changed.)
+    # changed.) (23 "pinstate", 24 "wpin": the pin, the same way.) (25 "trkp i 0/1": a
+    # track's pulse frame.) (26 "recactive 0/1": RECORD and OVERDUB dimmed off a SEQ track.)
+    # (27 "patc i r g b a", 28 "patb i 0/1": a pattern button's colour, its white border.)
     panel_out = p.obj("route pad page follow mode apply rec ovd copy paste clear pasteactive trk temp onstate win "
-                      "dshow dhide wshow whide winstate won wwin wtemp", [1500, 400, 640, 22], 1, 24)
+                      "dshow dhide wshow whide winstate won wwin wtemp pinstate wpin trkp recactive patc patb",
+                      [1500, 400, 820, 22], 1, 30)
     seton = p.obj("prepend set", [840, 490, 70, 22])
     port.out(5, panel_out)
     p.connect(panel_out, seton, 20 if p.mirror else 13)
@@ -738,6 +768,9 @@ def panel(p, port, trig):
     setwin = p.obj("prepend set", [960, 410, 70, 22])  # 19 "winstate": the window button
     p.connect(panel_out, setwin, 21 if p.mirror else 19)
     p.connect(setwin, winb)
+    setpin = p.obj("prepend set", [1000, 410, 70, 22])
+    p.connect(panel_out, setpin, 24 if p.mirror else 23)
+    p.connect(setpin, pinb)
     press_t = p.obj("t l b", [1500, 600, 40, 22], 1, 2)
     mods = p.obj("modifiers", [1560, 630, 70, 22], 1, 5, ["int", "int", "int", "int", "int"])
     modpack = p.obj("pack 0 0 0", [1560, 660, 70, 22], 3, 1)
@@ -785,106 +818,134 @@ def panel(p, port, trig):
     dgeom = p.msg("dialGeometry " + " ".join(str(v) for v in dials), [1830, 570, 300, 22])
     p.connect(trig, dgeom, 2)
     p.connect(dgeom, port.inp)
-    # The pads' place on the panel, for the script to find the pad under a right-click.
-    geom = p.msg(f"padGeometry {LEFT_X} {PADS_Y} {CELL} {TRACKS_H}", [1830, 600, 170, 22])
-    p.connect(trig, geom, 2)
-    p.connect(geom, port.inp)
     p.connect(modpack, modmsg)
     p.connect(modmsg, port.inp)
     p.connect(press_t, port.inp, 0)
-    which = p.obj("route " + " ".join(str(i) for i in range(16)), [1500, 440, 300, 22], 1, 17)
-    p.connect(panel_out, which, 0)
-    for i in range(16):
-        x = 1500 + i * 60
-        pad = p.box("live.text", [x, 520, 24, 18], None, 1, 2, ["", ""],
-                    [LEFT_X + i * CELL + 1, PADS_Y, CELL - 2, TRACKS_H],
-                    parameter_enable=0, mode=0, texton="", varname=f"pad{i}")
-        p.boxes[-1]["box"]["text"] = ""  # a live.text's label (box() takes text as the box's)
-        colour = p.obj("prepend activebgcolor", [x, 480, 90, 22])
-        p.connect(which, colour, i)
-        p.connect(colour, pad)
-        press = p.obj(f"prepend pad {i}", [x, 560, 56, 22])
-        p.connect(pad, press)
-        p.connect(press, press_t)
-    # The track buttons along the top (the edit track; Ctrl / Shift+click: the group), plain
-    # buttons like the pads, numbered: the script colours them ("trk i r g b a" from outlet 5)
-    # as Rack lights its track buttons, and a press goes through [modifiers] as a pad's does:
-    # "trackButton i".
+    # The track buttons along the top (the edit track; Ctrl / Shift+click: the group; with
+    # MUTE TRACKS on, mutes), plain numbered buttons: the script colours them ("trk i r g b
+    # a" from outlet 5), and a press goes through [modifiers]: "trackButton i".
     twhich = p.obj("route " + " ".join(str(i) for i in range(TRACKS)), [2400, 440, 300, 22], 1, TRACKS + 1)
     p.connect(panel_out, twhich, 11)
+    track_btns = []
     for i in range(TRACKS):
         x = 2400 + i * 60
         btn = p.box("live.text", [x, 520, 24, 18], None, 1, 2, ["", ""],
-                    [LEFT_X + i * CELL + 1, TRACKS_Y, CELL - 2, TRACKS_H],
+                    [LEFT_X + i * CELL + 1, TRK_ROW_Y, CELL - 2, TRACKS_H],
                     parameter_enable=0, mode=0, texton=str(i + 1), varname=f"trk{i}", fontsize=9.0)
         p.boxes[-1]["box"]["text"] = str(i + 1)
         colour = p.obj("prepend activebgcolor", [x, 480, 90, 22])
         p.connect(twhich, colour, i)
         p.connect(colour, btn)
+        track_btns.append(btn)
         press = p.obj(f"prepend trackButton {i}", [x, 560, 56, 22])
         p.connect(btn, press)
         p.connect(press, press_t)
-    # A light-blue bar along the bottom of a pad whose step has locks (a live.text can't draw
-    # one): over the pads, clicks going through; the script shows them ("script show
-    # d_padlock<i>" through the display's [thispatcher]).
+    # A note played: the track button's own border white (rounded with the button; a panel
+    # over it can only be square), its colour kept, so the edit track is still seen on a
+    # busy track ("trkp i 0/1"). Off: the theme's button border, from [live.colors] at load
+    # and when the theme changes, kept in each button's off message.
+    pwhich = p.obj("route " + " ".join(str(i) for i in range(TRACKS)), [2400, 620, 300, 22], 1, TRACKS + 1)
+    p.connect(panel_out, pwhich, 25)
+    frame_ask = p.msg("live_contrast_frame", [2400, 590, 120, 22])
+    p.connect(trig, frame_ask, 2)
+    p.connect(colors, frame_ask, 1)
+    p.connect(frame_ask, colors)
+    frame_col = p.obj("route live_contrast_frame", [2530, 590, 140, 22], 1, 2)
+    p.connect(colors, frame_col)
+    frame_set = p.obj("prepend set bordercolor", [2680, 590, 140, 22])
+    p.connect(frame_col, frame_set)
+    for i in range(TRACKS):
+        x = 2400 + i * 60
+        sel = p.obj("sel 0 1", [x, 650, 40, 22], 1, 3)
+        p.connect(pwhich, sel, i)
+        off = p.msg("bordercolor 0.313725 0.313725 0.313725 1.", [x, 710, 50, 22])
+        on = p.msg("bordercolor 1. 1. 1. 1.", [x + 25, 740, 50, 22])
+        p.connect(frame_set, off)
+        p.connect(sel, off, 0)
+        p.connect(sel, on, 1)
+        p.connect(off, track_btns[i])
+        p.connect(on, track_btns[i])
+    # The pattern buttons along the top, over the track buttons (patterns hold the tracks):
+    # as PATTERN's PLAY, a click queues the pattern, Ctrl+click adds it to the chain,
+    # Shift+click chains the range from the playing one; a COPY / PASTE / CLEAR target.
+    # Coloured by the script ("patc i r g b a": orange playing, dim orange holding a
+    # pattern); a white border in the chain, blinking while queued ("patb i 0/1"); a press
+    # goes through [modifiers]: "patternButton i".
+    cwhich = p.obj("route " + " ".join(str(i) for i in range(16)), [3500, 440, 300, 22], 1, 17)
+    p.connect(panel_out, cwhich, 27)
+    bwhich = p.obj("route " + " ".join(str(i) for i in range(16)), [3500, 620, 300, 22], 1, 17)
+    p.connect(panel_out, bwhich, 28)
     for i in range(16):
-        p.box("panel", [1500 + i * 60, 590, 20, 3], None, 1, 0, None,
-              [LEFT_X + i * CELL + 3, PADS_Y + TRACKS_H - 4, CELL - 6, 3],
-              varname=f"d_padlock{i}", hidden=1, ignoreclick=1, background=0, border=0,
-              bgcolor=[0.45, 0.8, 0.95, 1.0])
+        x = 3500 + i * 60
+        btn = p.box("live.text", [x, 520, 24, 18], None, 1, 2, ["", ""],
+                    [LEFT_X + i * CELL + 1, TRACKS_Y, CELL - 2, TRACKS_H],
+                    parameter_enable=0, mode=0, texton=str(i + 1), varname=f"pat{i}", fontsize=9.0)
+        p.boxes[-1]["box"]["text"] = str(i + 1)
+        colour = p.obj("prepend activebgcolor", [x, 480, 90, 22])
+        p.connect(cwhich, colour, i)
+        p.connect(colour, btn)
+        press = p.obj(f"prepend patternButton {i}", [x, 560, 56, 22])
+        p.connect(btn, press)
+        p.connect(press, press_t)
+        sel = p.obj("sel 0 1", [x, 650, 40, 22], 1, 3)
+        p.connect(bwhich, sel, i)
+        off = p.msg("bordercolor 0.313725 0.313725 0.313725 1.", [x, 710, 50, 22])
+        on = p.msg("bordercolor 1. 1. 1. 1.", [x + 25, 740, 50, 22])
+        p.connect(frame_set, off)
+        p.connect(sel, off, 0)
+        p.connect(sel, on, 1)
+        p.connect(off, btn)
+        p.connect(on, btn)
 
-    # The pad mode menu, beside the pads: Step, Mute, Pattern. Not stored: the script sets
-    # it ("mode i" from outlet 5). Choosing Mute again applies the staged mutes, as the "A"
-    # (Apply) button does: shown at the menu's right end while there are staged mutes, the
-    # menu taking the whole width otherwise.
-    mode = p.param("live.menu", [1500, 760, 60, 15], [COL_X, PADS_Y + 1, COL_W, 16], "Pad mode", 2,
-                   enum=["Step", "Mute", "Pattern"], outlets=3, outlettype=["", "", "float"], hidden=True,
-                   varname="PadMode")
+    # MUTE TRACKS: the track buttons mute (Mute mode: a click stages a change, Ctrl+click
+    # mutes at once; the display shows the Mute view). Not stored: the script sets it ("mode
+    # 0/1" from outlet 5); a click sends "padModeSelect 0/1" (off drops staged changes).
+    mode = p.param("live.text", [1500, 760, 60, 16], [COL_X, col_y(4), COL_W, COL_H], "Mute tracks", 2,
+                   enum=["off", "on"], initial=0, outlets=2, outlettype=["", ""], hidden=True,
+                   mode=1, text="MUTE TRACKS", texton="MUTE TRACKS", varname="MuteTracks")
     setmode = p.obj("prepend set", [1500, 730, 70, 22])
     p.connect(panel_out, setmode, 3)
     p.connect(setmode, mode)
     tomode = p.obj("prepend padModeSelect", [1500, 790, 130, 22])
     p.connect(mode, tomode)
     p.connect(tomode, port.inp)
-    # Apply: shown only while there are staged mutes ("apply 0/1" from outlet 5 shows or
-    # hides it and narrows or widens the menu, by their scripting names, through
-    # [thispatcher], on the main thread).
+    # A frame over MUTE TRACKS, blinking red while it's on (the script shows it: "script
+    # show d_mutewait"; clicks go through).
+    p.box("panel", [1580, 760, 30, 16], None, 1, 0, None, [COL_X, col_y(4), COL_W, COL_H],
+          varname="d_mutemode", hidden=1, ignoreclick=1, background=0, border=2, rounded=3,
+          bgcolor=[0.0, 0.0, 0.0, 0.0], bordercolor=[0.9, 0.22, 0.16, 1.0])
+    # APPLY MUTES, under it, always there; dimmed while nothing is staged ("apply 0/1" from
+    # outlet 5: its "active").
+    # Square as the other buttons: a toggle (mode 1; a mode 0 button is drawn rounded) with
+    # the same look on and off, so its state never shows; any click applies.
+    look = {"activebgcolor": "live_control_bg", "activebgoncolor": "live_control_bg",
+            "activetextcolor": "live_control_fg", "activetextoncolor": "live_control_fg"}
     apply = p.box("live.text", [1640, 760, 24, 16], None, 1, 2, ["", ""],
-                  [COL_X + COL_W - APPLY_W, PADS_Y + 1, APPLY_W, 16],
-                  parameter_enable=0, mode=0, texton="A", varname="Apply", hidden=1,
-                  annotation_name="Apply", annotation="Applies the staged mutes, at the next mute boundary.")
-    p.boxes[-1]["box"]["text"] = "A"
+                  [COL_X, col_y(5), COL_W, COL_H],
+                  parameter_enable=0, mode=1, texton="APPLY MUTES", varname="Apply",
+                  annotation_name="Apply", annotation="Applies the staged mutes, at the next mute boundary.",
+                  saved_attribute_attributes={a: {"expression": f"themecolor.{c}"} for a, c in look.items()})
+    p.boxes[-1]["box"]["text"] = "APPLY MUTES"
     toapply = p.obj("prepend applyMutes", [1640, 790, 110, 22])
     p.connect(apply, toapply)
     p.connect(toapply, port.inp)
-    showapply = p.obj("sel 0 1", [1640, 820, 50, 22], 1, 3)
-    p.connect(panel_out, showapply, 4)
-    menu_at = f"{COL_X} {PADS_Y + 1}"
-    if p.mirror:  # the window: its places are scaled by the script; Apply over the menu's end
-        hide = p.msg("script hide Apply", [1640, 850, 110, 22])
-        show = p.msg("script show Apply", [1760, 850, 110, 22])
-    else:
-        hide = p.msg(f"script hide Apply, script sendbox PadMode presentation_rect {menu_at} {COL_W} 16",
-                     [1640, 850, 110, 22])
-        show = p.msg(f"script show Apply, script sendbox PadMode presentation_rect {menu_at} {COL_W - APPLY_W - 2} 16",
-                     [1760, 850, 110, 22])
-    p.connect(showapply, hide, 0)
-    p.connect(showapply, show, 1)
+    actapply = p.obj("prepend active", [1640, 820, 80, 22])
+    p.connect(panel_out, actapply, 4)
+    p.connect(actapply, apply)
     applydefer = p.obj("deferlow", [1640, 880, 60, 22])
-    p.connect(hide, applydefer)
-    p.connect(show, applydefer)
     thispatcher = p.obj("thispatcher", [1640, 910, 80, 22], 1, 2)
     p.connect(applydefer, thispatcher)
     for k, what in enumerate(("show", "hide")):
         ph = p.obj(f"prepend script {what}", [1760 + k * 110, 880, 100, 22])
         p.connect(panel_out, ph, (17 if p.mirror else 15) + k)
         p.connect(ph, applydefer)
-    # REC and OVD, side by side at the top of the left column: SEQ mode recording of the notes
-    # played into the sequencer's track. Not stored; the script sets them ("rec 0/1",
-    # "ovd 0/1": REC goes off when the edit track isn't in SEQ mode).
+    # RECORD and OVERDUB, right of the window button and the pin: SEQ mode recording of the
+    # notes played into the sequencer's track. Not stored; the script sets them ("rec 0/1",
+    # "ovd 0/1": RECORD goes off when the edit track isn't in SEQ mode).
     for k, (name, label, sel, out) in enumerate((("Rec", "REC", "recSelect", 5), ("Overdub", "OVD", "ovdSelect", 6))):
-        w = (COL_W - 2) / 2
-        btn = p.param("live.text", [1900 + k * 60, 760, 50, 16], [COL_X + k * (w + 2), REC_Y, w, 16], name, 2,
+        x0 = COL_X + PIN_W + 2
+        bw = (COL_X + COL_W - x0 - 2) / 2
+        btn = p.param("live.text", [1900 + k * 60, 760, 50, 16], [x0 + k * (bw + 2), col_y(2), bw, COL_H], name, 2,
                       enum=["off", "on"], initial=0, outlets=2, outlettype=["", ""], hidden=True,
                       mode=1, text=label, texton=label)
         if label == "REC":  # red while on, in Live's record colour (the theme's live_record)
@@ -897,29 +958,33 @@ def panel(p, port, trig):
         tob = p.obj(f"prepend {sel}", [1900 + k * 60, 790, 110, 22])
         p.connect(btn, tob)
         p.connect(tob, port.inp)
-    # COPY, PASTE and CLEAR, stacked under REC and OVD: lit while armed, PASTE dimmed while the
+        recact = p.obj("prepend active", [1900 + k * 60, 700, 80, 22])
+        p.connect(panel_out, recact, 26)
+        p.connect(recact, btn)
+    # CPY, PST and CLR (COPY, PASTE, CLEAR), side by side under OVERDUB: lit while armed, PASTE dimmed while the
     # clipboard is empty; what they do is in Live's Info View (annotation). Not stored; the
     # script sets them ("copy 0/1" ... "pasteactive 0/1" from outlet 5). A click goes through
     # [modifiers] as a pad press does (Ctrl+click CLEAR stays armed): "clipSelect 0/1/2 value".
     targets_text = ("a track button (a grouped one: the group), a pad (Mute mode: its track; Step mode: "
                     "its step; Pattern mode: its pattern), a cell of the CYCLE page's CYCLE row, or a dial")
     for k, (name, label, info) in enumerate((
-            ("Copy", "COPY", "Click, then click what to copy: " + targets_text + " (its value). "
+            ("Copy", "CPY", "Click, then click what to copy: " + targets_text + " (its value). "
              "The clipboard is outside the patterns, so it pastes into any of them."),
-            ("Paste", "PASTE", "Click, then click where to paste what was copied: tracks on a track "
+            ("Paste", "PST", "Click, then click where to paste what was copied: tracks on a track "
              "button or Mute pad (from that track on, keeping their spacing) or on a Pattern pad (into "
              "that pattern, on their own track numbers); a step on a step pad, a pattern on a Pattern "
              "pad, a cycle on a cycle; a dial's value on tracks or cycles. Ctrl+click the target to "
              "paste and stay armed for more; click PASTE to stop. Dimmed while nothing is copied."),
-            ("Clear", "CLEAR", "Click, then click what to clear back to its default: " + targets_text +
+            ("Clear", "CLR", "Click, then click what to clear back to its default: " + targets_text +
              " (its default value). Ctrl+click CLEAR to stay armed for several."))):
-        btn = p.param("live.text", [2100 + k * 60, 760, 50, 16], [COL_X, CLIP_Y + k * CLIP_STEP, COL_W, 16], name, 2,
+        cw = (COL_W - 4) / 3
+        btn = p.param("live.text", [2100 + k * 60, 760, 50, 16], [COL_X + k * (cw + 2), col_y(3), cw, COL_H], name, 2,
                       enum=["off", "on"], initial=0, outlets=2, outlettype=["", ""], hidden=True,
-                      mode=1, text=label, texton=label, annotation_name=label.title(), annotation=info)
+                      mode=1, text=label, texton=label, annotation_name=name, annotation=info)
         setb = p.obj("prepend set", [2100 + k * 60, 730, 70, 22])
         p.connect(panel_out, setb, 7 + k)
         p.connect(setb, btn)
-        if label == "PASTE":
+        if label == "PST":
             act = p.obj("prepend active", [2100 + k * 60, 700, 80, 22])
             p.connect(panel_out, act, 10)
             p.connect(act, btn)
@@ -933,36 +998,16 @@ def panel(p, port, trig):
     p.connect(blinker, blinkmsg)
     p.connect(blinkmsg, port.inp)
 
-    # The step page tabs (steps 1-16 ... 49-64) and Follow, in the left column. Not stored:
-    # the script sets them ("page i", "follow 0/1" from outlet 5).
-    page = p.param("live.tab", [1500, 600, 54, 16], [COL_X, PAGE_Y, COL_W, 16], "Step page", 2,
-                   enum=["1", "2", "3", "4"], outlets=3, outlettype=["", "", "float"], hidden=True)
-    setpage = p.obj("prepend set", [1500, 580, 70, 22])
-    p.connect(panel_out, setpage, 1)
-    p.connect(setpage, page)
-    topage = p.obj("prepend stepPageSelect", [1500, 640, 130, 22])
-    p.connect(page, topage)
-    p.connect(topage, port.inp)
-    half = (COL_W - 2) / 2  # Follow and TEMP side by side, as REC and OVD
-    follow = p.param("live.text", [1640, 600, 48, 16], [COL_X, FOLLOW_Y, half, 16], "Follow", 2,
-                     enum=["off", "on"], initial=1, outlets=2, outlettype=["", ""], hidden=True,
-                     mode=1, text="Follow", texton="Follow")
-    setfollow = p.obj("prepend set", [1640, 580, 70, 22])
-    p.connect(panel_out, setfollow, 2)
-    p.connect(setfollow, follow)
-    tofollow = p.obj("prepend followSelect", [1640, 640, 120, 22])
-    p.connect(follow, tofollow)
-    p.connect(tofollow, port.inp)
-    # TEMP (Rack's Temp), right of Follow: a parameter, so a controller or automation can
+    # TEMP MODE (Rack's Temp), at the bottom of the left column: a parameter, so a controller or automation can
     # hold it (Rack's Temp gate). The script sets it ("temp 0/1" from outlet 5; off as the
     # set loads). A click goes through [modifiers] as a pad press does: Ctrl+click off keeps
     # the changes.
-    temp = p.param("live.text", [1780, 600, 48, 16], [COL_X + half + 2, FOLLOW_Y, half, 16], "Temp", 2,
+    temp = p.param("live.text", [1780, 600, 48, 16], [COL_X, col_y(6), COL_W, COL_H], "Temp", 2,
                    enum=["off", "on"], initial=0, outlets=2, outlettype=["", ""],
-                   mode=1, text="TEMP", texton="TEMP")
+                   mode=1, text="TEMP MODE", texton="TEMP MODE")
     # A frame over TEMP, blinking while a revert waits for TEMP OFF's boundary (shown by the
     # script; clicks go through).
-    p.box("panel", [1840, 600, 30, 16], None, 1, 0, None, [COL_X + half + 2, FOLLOW_Y, half, 16],
+    p.box("panel", [1840, 600, 30, 16], None, 1, 0, None, [COL_X, col_y(6), COL_W, COL_H],
           varname="d_tempwait", hidden=1, ignoreclick=1, background=0, border=2, rounded=0,
           bgcolor=[0.0, 0.0, 0.0, 0.0], bordercolor=[1.0, 0.84, 0.23, 1.0])
     settemp = p.obj("prepend set", [1780, 580, 70, 22])
@@ -991,17 +1036,24 @@ def window(p, script):
     display(w, trig, port, x0=COL_X, oy=doy, width=PANEL_RIGHT - COL_X, keyboard=True)
     height = doy + 165 + 4 + 18 + KBD_H + 4
     # Opening and closing ("win open" / "win close" from outlet 5), on the main thread: shown
-    # in front, floating over Live, not resizable.
-    ctl = w.obj("route open close", [600, 20, 100, 22], 1, 3)
+    # in front, not resizable. "win pin" / "win unpin": floating over everything or an
+    # ordinary window (Max has nothing between: over Live only); "win front": brought to
+    # the front.
+    ctl = w.obj("route open close pin unpin front", [600, 20, 200, 22], 1, 6)
     w.connect(panel_out, ctl, 14)
-    front = w.msg("window flags float, window flags nogrow, window flags nozoom, window exec, front",
-                  [600, 50, 300, 22])
+    front = w.msg("window flags nogrow, window flags nozoom, window exec, front", [600, 50, 300, 22])
     close = w.msg("wclose", [910, 50, 60, 22])
+    pin = w.msg("window flags float, window exec", [600, 140, 180, 22])
+    unpin = w.msg("window flags nofloat, window exec", [790, 140, 190, 22])
+    tofront = w.msg("front", [990, 140, 40, 22])
     w.connect(ctl, front, 0)
     w.connect(ctl, close, 1)
+    w.connect(ctl, pin, 2)
+    w.connect(ctl, unpin, 3)
+    w.connect(ctl, tofront, 4)
     wdefer = w.obj("deferlow", [600, 80, 60, 22])
-    w.connect(front, wdefer)
-    w.connect(close, wdefer)
+    for m in (front, close, pin, unpin, tofront):
+        w.connect(m, wdefer)
     wpatcher = w.obj("thispatcher", [600, 110, 80, 22], 1, 2)
     w.connect(wdefer, wpatcher)
     # Whether the window is the one clicked in: its [mousestate] and the device's both see
@@ -1153,6 +1205,7 @@ def display(p, trig, port, x0=DISPLAY_X, oy=0, width=DISPLAY_W, keyboard=False):
         return out
 
     n = 0
+    drawn = []  # the rows drawn by the diagram script: their clicks and colours below
     cx = DISPLAY_X + 8 + DISPLAY_LABEL_W
     full = DISPLAY_X + DISPLAY_W - 8 - cx
     for view, rows in spec["views"].items():
@@ -1169,6 +1222,17 @@ def display(p, trig, port, x0=DISPLAY_X, oy=0, width=DISPLAY_W, keyboard=False):
             lines = row.get("lines", 1)
             rect = [rx, y, row.get("width", DISPLAY_X + DISPLAY_W - 8 - rx), 16 + (lines - 1) * DISPLAY_ROW_H]
             kind = row["kind"]
+            if kind == "draw":
+                # Drawn by the diagram script (a [v8ui]): SONG's entries, each a button with
+                # its pattern over its bars ("d_<name> entries ..."); a click: "entry i".
+                rect[3] = row.get("height", 16)
+                ctl = p.box("v8ui", [x, 260, 200, 35], None, 1, 1, [""], rect, filename=DIAGRAM_SCRIPT, border=0,
+                            parameter_enable=0, varname="d_" + name, hidden=1)
+                names.append("d_" + name)
+                targets.append(ctl)
+                drawn.append(ctl)
+                n += 1
+                continue
             pname = f"{view.title()} {row['label'].title()}" if row.get("label") else f"{view.title()} {name}"
             common = dict(hidden=True, varname="d_" + name, appearance=1)
             if kind == "button":  # one button: a click sends "disp <name> bang"
@@ -1214,6 +1278,14 @@ def display(p, trig, port, x0=DISPLAY_X, oy=0, width=DISPLAY_W, keyboard=False):
                     extra.update(multiline=1, num_lines_patching=lines, num_lines_presentation=lines)
                 ctl = p.param("live.tab", [x, 260, 80, 16], rect, pname, 2, enum=row["items"], outlets=3,
                               outlettype=["", "", "float"], fontsize=float(row.get("fontsize", 8)), **common, **extra)
+                if row.get("chainMarks"):
+                    # PLAY: a white frame round each pattern in the chain (shown by the script).
+                    cw = rect[2] / len(row["items"])
+                    for i in range(len(row["items"])):
+                        p.box("panel", [x + i * 6, 420, 5, 10], None, 1, 0, None,
+                              [rect[0] + i * cw, rect[1], cw, rect[3]],
+                              varname=f"d_{name}_chain{i}", hidden=1, ignoreclick=1, background=0, border=1,
+                              rounded=2, bgcolor=[0.0, 0.0, 0.0, 0.0], bordercolor=[1.0, 1.0, 1.0, 1.0])
             elif kind == "menu":
                 ctl = p.param("live.menu", [x, 260, 80, 16], rect, pname, 2, enum=row["items"], outlets=3,
                               outlettype=["", "", "float"], **common)
@@ -1289,11 +1361,15 @@ def display(p, trig, port, x0=DISPLAY_X, oy=0, width=DISPLAY_W, keyboard=False):
     names.append("d_board")
     targets.append(board)
     # Their clicks: "grid col level", "key note", "scale pc", "lane l step value",
-    # "laneclear l step", "stepsel step add", "cyclesel c".
-    clicks = p.obj("route grid key scale lane laneclear stepsel cyclesel", [2000, 530, 260, 22], 1, 8)
+    # "laneclear l step", "stepsel step add", "cyclesel c", "stepclick step ctrl alt right"
+    # (STEPS' steps, clicked as the pads), "entry i" (SONG's entries).
+    clicks = p.obj("route grid key scale lane laneclear stepsel cyclesel stepclick entry", [2000, 530, 330, 22], 1, 10)
     p.connect(diagram, clicks)
     p.connect(board, clicks)
-    for i, sel in enumerate(["phraseGrid", "poolKey", "scaleKey", "lane", "laneClear", "lockStepClick", "cycleLaneClick"]):
+    for d in drawn:
+        p.connect(d, clicks)
+    for i, sel in enumerate(["phraseGrid", "poolKey", "scaleKey", "lane", "laneClear", "lockStepClick", "cycleLaneClick",
+                             "boardStep", "songEntryClick"]):
         to = p.obj(f"prepend {sel}", [2000 + i * 110, 560, 100, 22])
         p.connect(clicks, to, i)
         p.connect(to, port.inp)
@@ -1412,6 +1488,7 @@ def main(out):
                      (HERE / LABEL_SCRIPT, LABEL_SCRIPT), (HERE / DISPLAY_SCRIPT, DISPLAY_SCRIPT),
                      (HERE / DIAGRAM_SCRIPT, DIAGRAM_SCRIPT), (HERE / GEAR_SVG, GEAR_SVG),
                      (HERE / INFO_SCRIPT, INFO_SCRIPT), (HERE / WIN_SVG, WIN_SVG),
+                     (HERE / PIN_SVG, PIN_SVG), (HERE / POWER_SVG, POWER_SVG),
                      (ENGINE, "jezric_talea_engine.js")):
         shutil.copyfile(src, out / dst)
         print("copied", out / dst)

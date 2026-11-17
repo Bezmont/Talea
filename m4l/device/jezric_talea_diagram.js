@@ -32,6 +32,11 @@
 //                                    a bar ("x": none); lo = hi: a lane of marks (POOL:
 //                                    steps with their own pool, not editable here);
 //                                    `more` 1 if more are locked
+//   entries sel play t0 b0 .. t15 b15
+//                                    SONG's entries: 16 buttons, each its pattern (t, "P3")
+//                                    over its bars (b, "x4"), "+" / "-" past the end; `sel`
+//                                    lit, `play` with a bar along its bottom (-1: none);
+//                                    a click: "entry i"
 //   play x                           the playhead, 0..1 across (-1: none)
 //   clear                            nothing
 //
@@ -64,6 +69,51 @@ function notes(text, d) {
 	dots = Number(d) !== 0;
 	data = Array.prototype.slice.call(arguments, 2).map(Number);
 	mgraphics.redraw();
+}
+
+var entriesData = null;
+function entries(sel, play) {
+	kind = "entries";
+	label = "";
+	var a = Array.prototype.slice.call(arguments, 2).map(String), cells = [];
+	for (var i = 0; i + 1 < a.length; i += 2) cells.push([a[i], a[i + 1]]);
+	entriesData = { sel: Number(sel), play: Number(play), cells: cells };
+	mgraphics.redraw();
+}
+
+// SONG's entries: a button each, its pattern over its bars, framed as one.
+function paintEntries(w, h) {
+	var d = entriesData;
+	if (!d) return;
+	var n = d.cells.length || 16, cw = w / n;
+	mgraphics.select_font_face("Arial");
+	mgraphics.set_font_size(8);
+	for (var i = 0; i < d.cells.length; i++) {
+		var x = i * cw, c = d.cells[i], sel = i === d.sel, empty = c[0] === "-";
+		if (sel) {
+			mgraphics.set_source_rgba(fg);
+			mgraphics.rectangle(x + 1, 1, cw - 2, h - 2);
+			mgraphics.fill();
+		}
+		mgraphics.set_source_rgba(fg[0], fg[1], fg[2], empty ? 0.35 : 1); // the tabs' border colour
+		mgraphics.set_line_width(1);
+		mgraphics.rectangle(x + 1.5, 1.5, cw - 3, h - 3);
+		mgraphics.stroke();
+		var tc = sel ? [0.05, 0.05, 0.05, 1] : empty ? [dim[0], dim[1], dim[2], 0.35] : fg;
+		mgraphics.set_source_rgba(tc);
+		for (var k = 0; k < 2; k++) {
+			var t = c[k] === "-" ? "" : c[k];
+			if (k === 1 && c[0] === "+") t = "";
+			var m = mgraphics.text_measure(t);
+			mgraphics.move_to(x + (cw - m[0]) / 2, (c[0] === "+" ? h / 2 + 3 : h / 2 - 2 + k * 10));
+			mgraphics.show_text(t);
+		}
+		if (i === d.play) {
+			mgraphics.set_source_rgba(0.3, 0.6, 1, 1);
+			mgraphics.rectangle(x + 3, h - 5, cw - 6, 2);
+			mgraphics.fill();
+		}
+	}
 }
 
 function grid(text) {
@@ -131,7 +181,8 @@ function cycles() {
 }
 
 // TRACK with several cycles (Rack's cycle lanes): the edit row, then a lane per cycle.
-// Labels: white = playing, blue-grey = muted; the selected cycle boxed (red in Cycle edit).
+// Labels: white = playing, blue-grey = muted; in Cycle edit the edited cycle boxed red
+// (outside it the selection means nothing on TRACK: the CYCLE page shows it).
 function paintCycles(w, h) {
 	var d = cyclesData;
 	if (!d) return;
@@ -139,7 +190,7 @@ function paintCycles(w, h) {
 	laneLabel(d.edit, PAD, EDIT_H, d.red ? red : dim);
 	var cell = function (c, x, y, ch, now, alpha) {
 		if (!c) return;
-		stepCell(x, y, cw, ch, c & 2, c & 16, now, c & 4, c & 8);
+		stepCell(x, y, cw, ch, c & 2, c & 16, now, c & 4, c & 8, c & 32);
 		if (alpha < 1) { // muted: dimmed over
 			mgraphics.set_source_rgba(0.04, 0.04, 0.05, 1 - alpha);
 			mgraphics.rectangle(x + 1, y, cw - 2, ch);
@@ -152,10 +203,12 @@ function paintCycles(w, h) {
 		var lane = d.lanes[l], g = laneGeom(l, n, h), y = g[0], lh = g[1];
 		var playing = lane.flags & 1, muted = lane.flags & 2;
 		laneLabel(lane.name, y, lh, playing ? [1, 1, 1, 1] : muted ? [0.29, 0.35, 0.47, 1] : dim);
-		if (lane.flags & 4) {
-			mgraphics.set_source_rgba(d.red ? red : fg);
+		if (lane.flags & 4 && d.red) { // the edited cycle, in Cycle edit only
+			mgraphics.set_source_rgba(red);
 			mgraphics.set_line_width(1);
-			mgraphics.rectangle(PAD - 2.5, y - 1.5, LANE_X - PAD - 2, lh + 3);
+			// From x 0.5 (left of that, its left side fell outside the drawing), its right
+			// side where it was.
+			mgraphics.rectangle(0.5, y - 1.5, LANE_X - 5, lh + 3);
 			mgraphics.stroke();
 		}
 		for (i = 0; i < 16; i++) cell(lane.cells[i], LANE_X + i * cw, y, lh, i === lane.now, muted ? 0.35 : 1);
@@ -228,6 +281,7 @@ function paint() {
 	if (kind === "steps") return paintSteps(w, h);
 	if (kind === "lanes") return paintLanes(w, h);
 	if (kind === "cycles") return paintCycles(w, h);
+	if (kind === "entries") return paintEntries(w, h);
 	if (kind === "keys" || kind === "scalekeys") return paintKeys(w, h);
 	var x0 = PAD, x1 = w - PAD, top = TOP, bottom = h - PAD;
 	// The corner label, top right.
@@ -322,15 +376,29 @@ function paintSteps(w, h) {
 	for (var i = 0; i < stepsData.n; i++) {
 		var x = PAD + (i % 16) * cw, y = PAD + Math.floor(i / 16) * (ch + 3);
 		var v = stepsData.hits[i];
-		stepCell(x, y, cw, ch, v & 1, i >= stepsData.played, i === stepsData.now, v & 4, v & 2);
+		stepCell(x, y, cw, ch, v & 1, i >= stepsData.played, i === stepsData.now, v & 4, v & 2, v & 8, v & 16);
 	}
+}
+
+// The step under (x, y) on the steps board (as paintSteps lays them out), or -1.
+function stepAt(x, y) {
+	if (!stepsData) return -1;
+	var s = size(), w = s[0], h = s[1];
+	var rows = Math.max(1, Math.ceil(stepsData.n / 16)), cw = (w - 2 * PAD) / 16;
+	var ch = Math.min(18, (h - 2 * PAD) / rows - 3);
+	var col = Math.floor((x - PAD) / cw), row = Math.floor((y - PAD) / (ch + 3));
+	if (col < 0 || col > 15 || row < 0 || row >= rows || y - PAD - row * (ch + 3) > ch) return -1;
+	var i = row * 16 + col;
+	return i < stepsData.n ? i : -1;
 }
 
 // A step as the pads show it, but selected steps steady blue and locked ones with a
 // light-blue bar along the bottom (the pads blink the selection; they can't draw a bar).
-function stepCell(x, y, cw, ch, hit, cut, now, sel, locked) {
-	if (now && hit) mgraphics.set_source_rgba(1, 1, 1, 1);
+function stepCell(x, y, cw, ch, hit, cut, now, sel, locked, seqSel, cursor) {
+	if (cursor) mgraphics.set_source_rgba(1, 0.12, 0.08, 1); // step recording's cursor (blinking)
+	else if (now && hit) mgraphics.set_source_rgba(1, 1, 1, 1);
 	else if (now) mgraphics.set_source_rgba(dim[0], dim[1], dim[2], 0.7);
+	else if (seqSel) mgraphics.set_source_rgba(hit ? 0.25 : 0.05, hit ? 0.95 : 0.3, hit ? 0.4 : 0.1, 1); // SEQ: selected (green, as the pads)
 	else if (sel) mgraphics.set_source_rgba(hit ? 0.3 : 0.08, hit ? 0.6 : 0.2, hit ? 1 : 0.5, 1);
 	else if (hit) mgraphics.set_source_rgba(fg[0], fg[1], fg[2], cut ? 0.3 : 1);
 	else mgraphics.set_source_rgba(dim[0], dim[1], dim[2], cut ? 0.06 : 0.16);
@@ -561,7 +629,27 @@ function onclick(x, y, but, cmd, shift, caps, option, ctrl) {
 		}
 		return laneEdit(x, y, !!(cmd || ctrl));
 	}
+	// STEPS (the steps board): a step clicked as its pad would be ("stepclick step ctrl alt
+	// right": the step on the track; cmd is Ctrl on Windows, ctrl the right button there).
+	if (kind === "entries") {
+		if (!entriesData) return;
+		var ei = Math.floor(x / (size()[0] / (entriesData.cells.length || 16)));
+		if (ei >= 0 && ei < entriesData.cells.length) outlet(0, "entry", ei);
+		return;
+	}
+	if (kind === "steps") {
+		var si = stepAt(x, y);
+		if (si >= 0) outlet(0, "stepclick", si, cmd ? 1 : 0, option ? 1 : 0, ctrl ? 1 : 0);
+		return;
+	}
 	if (kind === "cycles") {
+		// The edit row (the step page): its steps as the pads ("stepclick" with the page's
+		// step, -1 - i: the script adds the page).
+		if (cyclesData && y >= PAD && y <= PAD + EDIT_H && x >= LANE_X) {
+			var ci = Math.floor((x - LANE_X) / laneCellW(size()[0]));
+			if (ci >= 0 && ci < 16 && cyclesData.cells[ci]) outlet(0, "stepclick", -1 - ci, cmd ? 1 : 0, option ? 1 : 0, ctrl ? 1 : 0);
+			return;
+		}
 		// In Cycle edit a lane's label: edit that cycle.
 		if (!cyclesData || !cyclesData.red || x >= LANE_X) return;
 		var nl = cyclesData.lanes.length;

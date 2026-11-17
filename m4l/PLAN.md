@@ -11,20 +11,28 @@ starts; done items move to the list at the bottom. The README describes what's b
    SYNC): a copy of the whole panel in a window floating
    over Live, so it stays when another track is chosen; stacked (panel, display at the
    panel's width, an always-there keyboard). The window button right of On (TRACKS label
-   now TRK). Later, if wanted: the full step grid in it.
+   now TRK). On as a power sign; the pin (window on top or not) right of the window
+   button (in testing). Later, if wanted: the full step grid in it.
+3. **The pads replaced** (in testing): STEPS' board clicked as the pads (TRACK renamed
+   STEPS); pattern buttons over the track buttons (Ctrl+click chains one, Shift+click a range; a
+   COPY / PASTE / CLEAR target), the PATTERN page gone (SWITCH on DEVICE: PAT SWITCH);
+   SONG's Ctrl+click on PATTERN adds an entry; ENTRIES as one button per entry; MUTE
+   TRACKS on the track buttons, APPLY under it; the left column re-laid (On + TRACKS,
+   window + RECORD, pin + OVERDUB, CPY PST CLR, MUTE TRACKS, APPLY, TEMP MODE); the pads,
+   pad mode menu, step page tabs and Follow gone; the tab order changed.
 
 ## Then: the panel
 
-3. Saved with the set: the pad mode, the KEYS octave.
-4. Mouse wheel on the dials, through `[mousestate]` (as the pads' right-click).
-5. Tidying the display's tabs and rows.
+4. Saved with the set: the KEYS octave (and MUTE TRACKS, if wanted).
+5. Mouse wheel on the dials, through `[mousestate]` (as right-clicks).
+6. Tidying the display's tabs and rows.
 
 ## Then: release
 
-6. Freezing the devices (the `.js` files inside the `.amxd`, not beside it).
-7. Testing on macOS.
-8. Merging branch `m4l` into `main`.
-9. The manual in JezricWeb (the user's).
+7. Freezing the devices (the `.js` files inside the `.amxd`, not beside it).
+8. Testing on macOS.
+9. Merging branch `m4l` into `main`.
+10. The manual in JezricWeb (the user's).
 
 ## Waiting or open
 
@@ -43,8 +51,8 @@ starts; done items move to the list at the bottom. The README describes what's b
 
 - Sequencer and receiver devices, timing, the bank saved with the set, undo.
 - Panel: On, dials, track select, step pads, Mute and Pattern pad modes.
-- Display pages: TRACK, LOCKS, CYCLE, KEYS, SCALE, PHRASE, VOICING, GROOVE, RANDOM,
-  PATTERN, SETUP, Mute view; diagrams.
+- Display pages (in tab order): STEPS, CYCLE, SCALE, KEYS (device only),
+  GROOVE, VOICING, PHRASE, LOCKS, RANDOM, SONG, SETUP, then the gear; Mute view; diagrams.
 - Step locks; SEQ mode; REC / OVD and monitoring.
 - SONG page (song mode on Live's timeline).
 - COPY / PASTE / CLEAR.
@@ -55,6 +63,6 @@ starts; done items move to the list at the bottom. The README describes what's b
 - Info View text for every control, device and window (`device/jezric_talea_info.js`,
   adapted from Rack's tooltips).
 - Cycles: a cycle's own scale, root, pool, phrase and random amounts in Cycle edit;
-  TRACK's cycle lanes (a label click edits that cycle), PAGE / FOLLOW there.
+  STEPS' cycle lanes (a label click edits that cycle), PAGE / FOLLOW there.
 - Temp (TEMP right of Follow; TEMP TO); the DEVICE page (the gear): TEMP OFF, Instance,
   Ahead.

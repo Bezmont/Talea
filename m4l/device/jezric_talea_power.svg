@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18">
+  <!-- On (Talea Sequencer): a power sign in one colour, which live.text remaps to its text
+       colour, padded inside the 18 x 18 button. -->
+  <path fill="#000000" d="M5.465 5.287 A5.5 5.5 0 1 0 12.535 5.287 L11.571 6.436 A4 4 0 1 1 6.429 6.436 Z"/>
+  <path fill="#000000" d="M8.25 3 H9.75 V9.5 H8.25 Z"/>
+</svg>
