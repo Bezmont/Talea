@@ -36,9 +36,11 @@ starts; done items move to the list at the bottom. The README describes what's b
 10. The manual in JezricWeb (the user's).
 
 Release builds are in CI (`.github/workflows/build.yml`): the `m4l` job builds the engine,
-runs the simulator and zips the devices with their scripts (`Talea-M4L-<version>.zip`);
-a `v*` tag matching `plugin.json`'s version publishes it and the four `.vcvplugin` files
-as a GitHub Release.
+runs the simulator and zips the devices with their scripts (`Talea-M4L-<version>.zip`).
+An `m4l-v*` tag matching `m4l/VERSION` publishes the zip as a GitHub Release, with
+`m4l/RELEASE_NOTES.md` as its text (untested-on-macOS warning: drop it after item 8). A
+`v*` tag matching `plugin.json`'s version publishes the four `.vcvplugin` files (Rack's
+own releases are the VCV Library's).
 
 ## Waiting or open
 

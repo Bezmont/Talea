@@ -5,13 +5,14 @@
 #
 # Also builds the Max for Live devices (the engine as WebAssembly with Emscripten, the
 # simulator tests, the .amxd files) into one zip, the same for Windows and macOS Live.
-# A v* tag (matching plugin.json's version) publishes all of it as a GitHub Release.
+# A v* tag (matching plugin.json's version) publishes the Rack plugins as a GitHub Release;
+# an m4l-v* tag (matching m4l/VERSION) publishes the M4L zip on its own.
 name: Build
 
 on:
   push:
     branches: [main, m4l]
-    tags: ['v*']
+    tags: ['v*', 'm4l-v*']
   pull_request:
   workflow_dispatch:
 
@@ -129,7 +130,7 @@ jobs:
 
       - name: Package
         run: |
-          version=$(jq -r .version plugin.json)
+          version=$(tr -d '[:space:]' < m4l/VERSION)
           dir="$RUNNER_TEMP/Talea"
           mkdir -p "$dir"
           # The devices load their scripts from their own folder (not frozen): keep them together.
@@ -161,6 +162,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
+          pattern: Jezric-*
           path: artifacts
           merge-multiple: true
 
@@ -168,3 +170,33 @@ jobs:
         with:
           files: artifacts/*
           generate_release_notes: true
+
+  release-m4l:
+    name: Release (Max for Live)
+    if: startsWith(github.ref, 'refs/tags/m4l-v')
+    needs: [m4l]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag matches m4l/VERSION
+        run: |
+          version=$(tr -d '[:space:]' < m4l/VERSION)
+          if [ "${GITHUB_REF_NAME}" != "m4l-v$version" ]; then
+            echo "tag ${GITHUB_REF_NAME} doesn't match m4l/VERSION $version"; exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: Talea-M4L
+          path: artifacts
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Talea for Max for Live ${{ env.VERSION }}
+          body_path: m4l/RELEASE_NOTES.md
+          files: artifacts/*
+          make_latest: true
