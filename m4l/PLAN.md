@@ -29,10 +29,16 @@ starts; done items move to the list at the bottom. The README describes what's b
 
 ## Then: release
 
-7. Freezing the devices (the `.js` files inside the `.amxd`, not beside it).
+7. Freezing the devices (the `.js` files inside the `.amxd`, not beside it). Freezing
+   needs Max, so CI can't do it: the release zip would then take the frozen devices.
 8. Testing on macOS.
 9. Merging branch `m4l` into `main`.
 10. The manual in JezricWeb (the user's).
+
+Release builds are in CI (`.github/workflows/build.yml`): the `m4l` job builds the engine,
+runs the simulator and zips the devices with their scripts (`Talea-M4L-<version>.zip`);
+a `v*` tag matching `plugin.json`'s version publishes it and the four `.vcvplugin` files
+as a GitHub Release.
 
 ## Waiting or open
 

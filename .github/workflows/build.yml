@@ -2,17 +2,22 @@
 # macOS arm64 / x64, Windows x64), runs the core tests, and keeps each .vcvplugin as an
 # artifact. Native runners stand in for VCV's cross toolchain: same SDK, the platform's
 # own compiler (gcc / Apple clang / MinGW gcc).
+#
+# Also builds the Max for Live devices (the engine as WebAssembly with Emscripten, the
+# simulator tests, the .amxd files) into one zip, the same for Windows and macOS Live.
+# A v* tag (matching plugin.json's version) publishes all of it as a GitHub Release.
 name: Build
 
 on:
   push:
-    branches: [main]
+    branches: [main, m4l]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
 
 env:
   RACK_SDK_VERSION: 2.6.6
+  EMSDK_VERSION: 7.0.0
 
 jobs:
   build:
@@ -94,3 +99,72 @@ jobs:
         with:
           name: Jezric-win-x64
           path: dist/*.vcvplugin
+
+  m4l:
+    name: Max for Live
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Emscripten
+        run: |
+          git clone -q --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          cd "$RUNNER_TEMP/emsdk"
+          ./emsdk install "$EMSDK_VERSION"
+          ./emsdk activate "$EMSDK_VERSION"
+          echo "EMSDK=$RUNNER_TEMP/emsdk" >> "$GITHUB_ENV"
+
+      - name: Engine
+        run: python3 m4l/engine/build.py
+
+      - name: Test
+        run: node m4l/tests/sim.js
+
+      - name: Devices
+        run: python3 m4l/device/build.py
+
+      - name: Package
+        run: |
+          version=$(jq -r .version plugin.json)
+          dir="$RUNNER_TEMP/Talea"
+          mkdir -p "$dir"
+          # The devices load their scripts from their own folder (not frozen): keep them together.
+          cp m4l/build/*.amxd m4l/build/*.js m4l/build/*.svg LICENSE "$dir/"
+          (cd "$RUNNER_TEMP" && zip -qr "$GITHUB_WORKSPACE/Talea-M4L-$version.zip" Talea)
+          unzip -l "Talea-M4L-$version.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Talea-M4L
+          path: Talea-M4L-*.zip
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, windows, m4l]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag matches plugin.json
+        run: |
+          version=$(jq -r .version plugin.json)
+          if [ "${GITHUB_REF_NAME}" != "v$version" ]; then
+            echo "tag ${GITHUB_REF_NAME} doesn't match plugin.json version $version"; exit 1
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
